@@ -1,0 +1,47 @@
+:root {
+  /* Colors */
+  --color-primary: #1E6BB8;
+  --color-primary-light: #4A9BD9;
+  --color-primary-dark: #0D4A7A;
+  --color-secondary: #2DD4BF;
+  --color-accent: #06B6D4;
+  --color-bg: #F0F7FF;
+  --color-surface: #FFFFFF;
+  --color-text-primary: #1A2A3A;
+  --color-text-secondary: #5A7A8A;
+  --color-border: #D1E3F0;
+  --color-error: #EF4444;
+  --color-success: #10B981;
+
+  /* Spacing */
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 32px;
+  --space-2xl: 48px;
+
+  /* Typography */
+  --font-family: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-size-xs: 12px;
+  --font-size-sm: 14px;
+  --font-size-base: 16px;
+  --font-size-lg: 20px;
+  --font-size-xl: 24px;
+  --font-size-2xl: 32px;
+
+  /* Border */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 16px;
+
+  /* Shadows */
+  --shadow-sm: 0 2px 8px rgba(30, 107, 184, 0.08);
+  --shadow-md: 0 4px 16px rgba(30, 107, 184, 0.12);
+  --shadow-lg: 0 8px 32px rgba(30, 107, 184, 0.15);
+
+  /* Transitions */
+  --transition-fast: 150ms ease-out;
+  --transition-base: 300ms ease-out;
+  --transition-slow: 500ms ease-out;
+}
