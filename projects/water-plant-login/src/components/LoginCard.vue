@@ -22,24 +22,6 @@ const verifyCodeError = ref('')
 // Loading
 const isLoading = ref(false)
 
-// Logo component
-const Logo = {
-  template: `
-    <div class="logo-container">
-      <svg class="logo-svg" viewBox="0 0 120 120">
-        <circle cx="60" cy="60" r="58" fill="#2a7ab8"/>
-        <circle cx="60" cy="60" r="56" fill="none" stroke="rgba(255,255,255,0.3)" stroke-width="2"/>
-        <path d="M18 42 Q35 30, 52 38 Q68 46, 82 36 Q94 26, 104 34" 
-              stroke="white" stroke-width="5" fill="none" stroke-linecap="round"/>
-        <path d="M12 60 Q32 48, 52 56 Q72 64, 92 52 Q106 42, 108 54" 
-              stroke="white" stroke-width="5" fill="none" stroke-linecap="round"/>
-        <path d="M16 78 Q28 68, 46 76 Q64 84, 82 74 Q100 62, 106 70" 
-              stroke="white" stroke-width="5" fill="none" stroke-linecap="round"/>
-      </svg>
-    </div>
-  `
-}
-
 // Validate form
 const validate = () => {
   let valid = true
@@ -109,7 +91,18 @@ const handleSubmit = async () => {
 
     <!-- Logo and title -->
     <div class="card-header">
-      <Logo />
+      <div class="logo-container">
+        <svg class="logo-svg" viewBox="0 0 120 120">
+          <circle cx="60" cy="60" r="58" fill="#2a7ab8"/>
+          <circle cx="60" cy="60" r="56" fill="none" stroke="rgba(255,255,255,0.3)" stroke-width="2"/>
+          <path d="M18 42 Q35 30, 52 38 Q68 46, 82 36 Q94 26, 104 34" 
+                stroke="white" stroke-width="5" fill="none" stroke-linecap="round"/>
+          <path d="M12 60 Q32 48, 52 56 Q72 64, 92 52 Q106 42, 108 54" 
+                stroke="white" stroke-width="5" fill="none" stroke-linecap="round"/>
+          <path d="M16 78 Q28 68, 46 76 Q64 84, 82 74 Q100 62, 106 70" 
+                stroke="white" stroke-width="5" fill="none" stroke-linecap="round"/>
+        </svg>
+      </div>
       <h1 class="title">供水厂设备管理平台</h1>
       <p class="subtitle">Water Plant Equipment Management</p>
     </div>
