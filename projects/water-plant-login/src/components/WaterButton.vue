@@ -23,11 +23,6 @@ const pressed = ref(false)
     @mouseup="pressed = false"
     @mouseleave="pressed = false"
   >
-    <!-- Animated water bubbles -->
-    <span class="bubble bubble-1"></span>
-    <span class="bubble bubble-2"></span>
-    <span class="bubble bubble-3"></span>
-
     <!-- Water wave animation on hover -->
     <span class="wave-cover"></span>
 
@@ -43,7 +38,7 @@ const pressed = ref(false)
       <slot />
     </span>
 
-    <!-- Ripple effect element -->
+    <!-- Subtle ripple effect -->
     <span class="ripple-effect"></span>
   </button>
 </template>
@@ -57,96 +52,37 @@ const pressed = ref(false)
   font-weight: 600;
   font-family: inherit;
   color: #fff;
-  background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-light) 100%);
+  background: linear-gradient(135deg, #1E6BB8 0%, #2a7bb8 100%);
   border: none;
   border-radius: var(--radius-md);
   cursor: pointer;
   overflow: hidden;
-  transition: all var(--transition-base);
-  box-shadow: 0 4px 15px rgba(30, 107, 184, 0.3);
-}
-
-/* Glow effect on hover */
-.water-btn::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: linear-gradient(135deg, rgba(255,255,255,0.2) 0%, transparent 50%);
-  opacity: 0;
-  transition: opacity var(--transition-fast);
-}
-
-.water-btn:hover:not(.disabled)::before {
-  opacity: 1;
+  transition: all 0.2s ease;
+  box-shadow: 0 4px 12px rgba(30, 107, 184, 0.3);
 }
 
 .water-btn:hover:not(.disabled) {
-  transform: translateY(-3px);
-  box-shadow: 0 8px 25px rgba(30, 107, 184, 0.4), 0 0 20px rgba(30, 107, 184, 0.2);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(30, 107, 184, 0.35);
+  background: linear-gradient(135deg, #1E6BB8 0%, #3a8bc8 100%);
 }
 
 .water-btn:active:not(.disabled),
 .water-btn.pressed:not(.disabled) {
   transform: translateY(0);
-  box-shadow: 0 2px 10px rgba(30, 107, 184, 0.3);
+  box-shadow: 0 2px 8px rgba(30, 107, 184, 0.25);
 }
 
-/* Bubbles animation */
-.bubble {
-  position: absolute;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.3);
-  pointer-events: none;
-}
-
-.bubble-1 {
-  width: 8px;
-  height: 8px;
-  top: 50%;
-  left: 20%;
-  animation: bubbleFloat 2s ease-in-out infinite;
-}
-
-.bubble-2 {
-  width: 6px;
-  height: 6px;
-  top: 60%;
-  left: 50%;
-  animation: bubbleFloat 2.5s ease-in-out infinite 0.5s;
-}
-
-.bubble-3 {
-  width: 5px;
-  height: 5px;
-  top: 40%;
-  left: 75%;
-  animation: bubbleFloat 1.8s ease-in-out infinite 1s;
-}
-
-@keyframes bubbleFloat {
-  0%, 100% {
-    transform: translateY(0) scale(1);
-    opacity: 0.3;
-  }
-  50% {
-    transform: translateY(-10px) scale(1.2);
-    opacity: 0.6;
-  }
-}
-
-/* Wave cover effect */
+/* Wave cover effect - subtle */
 .wave-cover {
   position: absolute;
   top: 0;
   left: -100%;
   width: 200%;
   height: 100%;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.15), transparent);
   transform: skewX(-20deg);
-  transition: left 0.6s ease;
+  transition: left 0.4s ease;
 }
 
 .water-btn:hover:not(.disabled) .wave-cover {
@@ -155,7 +91,7 @@ const pressed = ref(false)
 
 /* Disabled state */
 .water-btn.disabled {
-  background: linear-gradient(135deg, #bbb 0%, #ddd 100%);
+  background: #8a9aab;
   box-shadow: none;
   cursor: not-allowed;
 }
@@ -172,9 +108,9 @@ const pressed = ref(false)
 }
 
 .drop-spinner {
-  width: 24px;
-  height: 24px;
-  animation: spin 1s linear infinite, pulse 1.5s ease-in-out infinite;
+  width: 22px;
+  height: 22px;
+  animation: spin 1s linear infinite;
   color: #fff;
 }
 
@@ -183,41 +119,35 @@ const pressed = ref(false)
   to { transform: rotate(360deg); }
 }
 
-@keyframes pulse {
-  0%, 100% { opacity: 1; transform: rotate(0deg) scale(1); }
-  50% { opacity: 0.8; transform: rotate(180deg) scale(1.1); }
-}
-
 .btn-text {
   position: relative;
   z-index: 1;
-  transition: opacity var(--transition-fast), transform var(--transition-fast);
+  transition: opacity 0.15s ease;
 }
 
 .btn-text.hidden {
   opacity: 0;
-  transform: translateY(-10px);
 }
 
-/* Ripple effect */
+/* Subtle ripple effect */
 .ripple-effect {
   position: absolute;
   top: 50%;
   left: 50%;
   width: 0;
   height: 0;
-  background: radial-gradient(circle, rgba(255, 255, 255, 0.4) 0%, transparent 70%);
+  background: rgba(255, 255, 255, 0.2);
   border-radius: 50%;
   transform: translate(-50%, -50%);
   pointer-events: none;
-  transition: width 0.6s ease, height 0.6s ease, opacity 0.6s ease;
+  transition: width 0.3s ease, height 0.3s ease;
   opacity: 0;
 }
 
 .water-btn:active:not(.disabled) .ripple-effect {
-  width: 400px;
-  height: 400px;
+  width: 250px;
+  height: 250px;
   opacity: 1;
-  transition: width 0s, height 0s, opacity 0s;
+  transition: width 0s, height 0s;
 }
 </style>

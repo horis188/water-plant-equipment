@@ -245,41 +245,12 @@ const handleSubmit = async () => {
   width: 420px;
   max-width: 95%;
   padding: 40px;
-  background: rgba(255, 255, 255, 0.95);
+  background: var(--color-surface);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
-  backdrop-filter: blur(10px);
+  backdrop-filter: blur(12px);
   z-index: 10;
-  animation: cardEntrance 0.8s ease-out;
-  overflow: hidden;
-}
-
-/* Card glow effect */
-.card-glow {
-  position: absolute;
-  top: -50%;
-  left: -50%;
-  width: 200%;
-  height: 200%;
-  background: radial-gradient(circle at 50% 0%, rgba(30, 107, 184, 0.1) 0%, transparent 50%);
-  animation: glowPulse 4s ease-in-out infinite;
-  pointer-events: none;
-}
-
-@keyframes cardEntrance {
-  0% {
-    opacity: 0;
-    transform: translateY(30px) scale(0.95);
-  }
-  100% {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
-}
-
-@keyframes glowPulse {
-  0%, 100% { opacity: 0.5; transform: scale(1); }
-  50% { opacity: 1; transform: scale(1.05); }
+  border: 1px solid rgba(255, 255, 255, 0.3);
 }
 
 /* Header */
