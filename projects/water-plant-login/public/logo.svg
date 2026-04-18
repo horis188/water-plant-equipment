@@ -1,17 +1,16 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120">
-  <!-- Square with rounded corners -->
-  <rect x="4" y="4" width="112" height="112" rx="16" fill="#2a7ab8"/>
+  <!-- Rounded square -->
+  <rect x="4" y="4" width="112" height="112" rx="20" fill="#2a7ab8"/>
   
-  <!-- Smooth wave curves: drop-low -> rise-high -> drop slightly -->
-  <!-- Top wave - break on right -->
-  <path d="M16 50 C30 58, 45 42, 65 42 C85 42, 95 52, 104 48" 
+  <!-- Top wave - break on right: drop -> rise -> drop -->
+  <path d="M16 48 C28 56, 40 40, 60 40 C80 40, 92 52, 104 46" 
         stroke="white" stroke-width="5" fill="none" stroke-linecap="round"/>
   
-  <!-- Middle wave - continuous -->
-  <path d="M12 65 C30 78, 50 55, 70 55 C90 55, 100 70, 108 65" 
+  <!-- Middle wave - continuous: same pattern -->
+  <path d="M12 65 C26 75, 44 55, 64 55 C84 55, 96 72, 108 65" 
         stroke="white" stroke-width="5" fill="none" stroke-linecap="round"/>
   
-  <!-- Bottom wave - break on left -->
-  <path d="M14 80 C28 70, 48 88, 68 88 C88 88, 100 78, 106 80" 
+  <!-- Bottom wave - break on left: same pattern -->
+  <path d="M14 82 C26 90, 44 70, 64 70 C84 70, 96 86, 106 80" 
         stroke="white" stroke-width="5" fill="none" stroke-linecap="round"/>
 </svg>
