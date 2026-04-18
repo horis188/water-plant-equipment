@@ -44,7 +44,7 @@ const handleLogin = (data: { username: string; password: string; verifyCode: str
           <path d="M750 50 L770 50 L765 45 M770 50 L765 55" stroke="#4A9BD9" stroke-width="2" fill="none" opacity="0.5"/>
         </svg>
       </div>
-      <p class="copyright">© 2024 智慧水务管理系统</p>
+      <p class="copyright">© 2024 广州市番禺水务股份有限公司</p>
     </div>
   </div>
 </template>

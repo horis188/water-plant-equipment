@@ -145,9 +145,9 @@ const pressed = ref(false)
 }
 
 .water-btn:active:not(.disabled) .ripple-effect {
-  width: 250px;
-  height: 250px;
-  opacity: 1;
+  width: 120px;
+  height: 120px;
+  opacity: 0.5;
   transition: width 0s, height 0s;
 }
 </style>

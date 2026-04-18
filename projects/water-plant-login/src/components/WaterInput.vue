@@ -261,11 +261,11 @@ const onInput = (e: Event) => {
   0% {
     width: 6px;
     height: 6px;
-    opacity: 0.8;
+    opacity: 0.5;
   }
   100% {
-    width: 300px;
-    height: 300px;
+    width: 150px;
+    height: 150px;
     opacity: 0;
   }
 }
