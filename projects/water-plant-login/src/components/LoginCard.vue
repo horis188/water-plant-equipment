@@ -93,13 +93,17 @@ const handleSubmit = async () => {
     <div class="card-header">
       <div class="logo-container">
         <svg class="logo-svg" viewBox="0 0 120 120">
-          <circle cx="60" cy="60" r="58" fill="#2a7ab8"/>
-          <circle cx="60" cy="60" r="56" fill="none" stroke="rgba(255,255,255,0.3)" stroke-width="2"/>
-          <path d="M18 42 Q35 30, 52 38 Q68 46, 82 36 Q94 26, 104 34" 
+          <!-- Square with rounded corners -->
+          <rect x="4" y="4" width="112" height="112" rx="16" fill="#2a7ab8"/>
+          <!-- Smooth wave curves: drop-low -> rise-high -> drop slightly -->
+          <!-- Top wave - break on right -->
+          <path d="M16 50 C30 58, 45 42, 65 42 C85 42, 95 52, 104 48" 
                 stroke="white" stroke-width="5" fill="none" stroke-linecap="round"/>
-          <path d="M12 60 Q32 48, 52 56 Q72 64, 92 52 Q106 42, 108 54" 
+          <!-- Middle wave - continuous -->
+          <path d="M12 65 C30 78, 50 55, 70 55 C90 55, 100 70, 108 65" 
                 stroke="white" stroke-width="5" fill="none" stroke-linecap="round"/>
-          <path d="M16 78 Q28 68, 46 76 Q64 84, 82 74 Q100 62, 106 70" 
+          <!-- Bottom wave - break on left -->
+          <path d="M14 80 C28 70, 48 88, 68 88 C88 88, 100 78, 106 80" 
                 stroke="white" stroke-width="5" fill="none" stroke-linecap="round"/>
         </svg>
       </div>
