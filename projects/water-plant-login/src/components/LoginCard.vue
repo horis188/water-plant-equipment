@@ -26,37 +26,69 @@ const isLoading = ref(false)
 const Logo = {
   template: `
     <svg class="logo-svg" viewBox="0 0 120 60" fill="none">
-      <!-- Water cycle symbol -->
       <defs>
         <linearGradient id="waterGrad" x1="0%" y1="0%" x2="100%" y2="100%">
           <stop offset="0%" stop-color="#1E6BB8"/>
           <stop offset="100%" stop-color="#2DD4BF"/>
         </linearGradient>
+        <filter id="glow">
+          <feGaussianBlur stdDeviation="2" result="coloredBlur"/>
+          <feMerge>
+            <feMergeNode in="coloredBlur"/>
+            <feMergeNode in="SourceGraphic"/>
+          </feMerge>
+        </filter>
       </defs>
 
-      <!-- Main drop -->
+      <!-- Main drop with glow -->
       <path d="M60 8 C40 30, 30 40, 30 48 C30 54, 38 60, 60 60 C82 60, 90 54, 90 48 C90 40, 80 30, 60 8Z"
-            fill="url(#waterGrad)" opacity="0.9"/>
+            fill="url(#waterGrad)" opacity="0.9" filter="url(#glow)">
+        <animate attributeName="opacity" values="0.9;1;0.9" dur="3s" repeatCount="indefinite"/>
+      </path>
 
-      <!-- Inner wave -->
+      <!-- Inner wave with animation -->
       <path d="M45 48 C45 42, 52 38, 60 38 C68 38, 75 42, 75 48"
-            stroke="white" stroke-width="2" fill="none" opacity="0.6"/>
+            stroke="white" stroke-width="2" fill="none" opacity="0.6">
+        <animate attributeName="d"
+          values="M45 48 C45 42, 52 38, 60 38 C68 38, 75 42, 75 48;
+                  M45 46 C45 40, 52 36, 60 36 C68 36, 75 40, 75 46;
+                  M45 48 C45 42, 52 38, 60 38 C68 38, 75 42, 75 48"
+          dur="2s" repeatCount="indefinite"/>
+      </path>
 
       <!-- Small drops representing cycle -->
       <circle cx="35" cy="30" r="4" fill="#2DD4BF" opacity="0.5">
         <animate attributeName="cy" values="30;25;30" dur="2s" repeatCount="indefinite"/>
+        <animate attributeName="r" values="4;5;4" dur="2s" repeatCount="indefinite"/>
       </circle>
       <circle cx="85" cy="35" r="3" fill="#06B6D4" opacity="0.4">
         <animate attributeName="cy" values="35;28;35" dur="2.5s" repeatCount="indefinite"/>
+        <animate attributeName="r" values="3;4;3" dur="2.5s" repeatCount="indefinite"/>
       </circle>
       <circle cx="25" cy="45" r="2" fill="#1E6BB8" opacity="0.3">
         <animate attributeName="cy" values="45;38;45" dur="3s" repeatCount="indefinite"/>
       </circle>
 
       <!-- Pipeline hint at bottom -->
-      <path d="M20 55 L100 55" stroke="#1E6BB8" stroke-width="3" stroke-linecap="round" opacity="0.3"/>
-      <circle cx="20" cy="55" r="4" fill="#1E6BB8" opacity="0.3"/>
-      <circle cx="100" cy="55" r="4" fill="#1E6BB8" opacity="0.3"/>
+      <path d="M20 55 L100 55" stroke="#1E6BB8" stroke-width="3" stroke-linecap="round" opacity="0.3">
+        <animate attributeName="opacity" values="0.3;0.5;0.3" dur="4s" repeatCount="indefinite"/>
+      </path>
+      <circle cx="20" cy="55" r="4" fill="#1E6BB8" opacity="0.3">
+        <animate attributeName="r" values="4;5;4" dur="3s" repeatCount="indefinite"/>
+      </circle>
+      <circle cx="100" cy="55" r="4" fill="#1E6BB8" opacity="0.3">
+        <animate attributeName="r" values="4;5;4" dur="3.5s" repeatCount="indefinite"/>
+      </circle>
+
+      <!-- Water flow particles -->
+      <circle cx="40" cy="55" r="1.5" fill="#2DD4BF" opacity="0.6">
+        <animate attributeName="cx" values="20;100" dur="3s" repeatCount="indefinite"/>
+        <animate attributeName="opacity" values="0;0.6;0" dur="3s" repeatCount="indefinite"/>
+      </circle>
+      <circle cx="60" cy="55" r="1.5" fill="#06B6D4" opacity="0.6">
+        <animate attributeName="cx" values="20;100" dur="4s" repeatCount="indefinite"/>
+        <animate attributeName="opacity" values="0;0.6;0" dur="4s" repeatCount="indefinite"/>
+      </circle>
     </svg>
   `
 }
@@ -65,7 +97,6 @@ const Logo = {
 const validate = () => {
   let valid = true
 
-  // Username validation
   if (!username.value) {
     usernameError.value = '请输入账号'
     valid = false
@@ -76,7 +107,6 @@ const validate = () => {
     usernameError.value = ''
   }
 
-  // Password validation
   if (!password.value) {
     passwordError.value = '请输入密码'
     valid = false
@@ -87,7 +117,6 @@ const validate = () => {
     passwordError.value = ''
   }
 
-  // Verify code validation
   if (!verifyCode.value) {
     verifyCodeError.value = '请输入验证码'
     valid = false
@@ -107,10 +136,8 @@ const handleSubmit = async () => {
 
   isLoading.value = true
 
-  // Simulate login API call
   await new Promise(resolve => setTimeout(resolve, 1500))
 
-  // For demo: accept any valid input
   const mockSuccess = username.value === 'admin' && password.value === 'admin123'
 
   if (mockSuccess) {
@@ -121,12 +148,7 @@ const handleSubmit = async () => {
     })
   } else {
     verifyCodeError.value = '验证码错误'
-    // Refresh verify code
-    const verifyComponent = document.querySelector('.verify-code canvas')
-    if (verifyComponent) {
-      // Trigger refresh by emitting (simplified)
-      verifyCode.value = ''
-    }
+    verifyCode.value = ''
   }
 
   isLoading.value = false
@@ -135,6 +157,9 @@ const handleSubmit = async () => {
 
 <template>
   <div class="login-card">
+    <!-- Glow effect -->
+    <div class="card-glow"></div>
+
     <!-- Logo and title -->
     <div class="card-header">
       <Logo />
@@ -195,9 +220,20 @@ const handleSubmit = async () => {
     <div class="card-footer">
       <svg class="pipe-decoration" viewBox="0 0 300 20" preserveAspectRatio="none">
         <path d="M0 10 Q75 0, 150 10 T300 10" stroke="#D1E3F0" stroke-width="2" fill="none"/>
-        <circle cx="0" cy="10" r="4" fill="#1E6BB8" opacity="0.3"/>
-        <circle cx="150" cy="10" r="6" fill="#2DD4BF" opacity="0.3"/>
-        <circle cx="300" cy="10" r="4" fill="#1E6BB8" opacity="0.3"/>
+        <circle cx="0" cy="10" r="4" fill="#1E6BB8" opacity="0.3">
+          <animate attributeName="r" values="4;5;4" dur="2s" repeatCount="indefinite"/>
+        </circle>
+        <circle cx="150" cy="10" r="6" fill="#2DD4BF" opacity="0.3">
+          <animate attributeName="r" values="6;8;6" dur="2.5s" repeatCount="indefinite"/>
+        </circle>
+        <circle cx="300" cy="10" r="4" fill="#1E6BB8" opacity="0.3">
+          <animate attributeName="r" values="4;5;4" dur="2s" repeatCount="indefinite"/>
+        </circle>
+        <!-- Flow particle -->
+        <circle cx="75" cy="10" r="2" fill="#2DD4BF" opacity="0.5">
+          <animate attributeName="cx" values="0;300" dur="3s" repeatCount="indefinite"/>
+          <animate attributeName="opacity" values="0;0.5;0" dur="3s" repeatCount="indefinite"/>
+        </circle>
       </svg>
     </div>
   </div>
@@ -214,18 +250,66 @@ const handleSubmit = async () => {
   box-shadow: var(--shadow-lg);
   backdrop-filter: blur(10px);
   z-index: 10;
+  animation: cardEntrance 0.8s ease-out;
+  overflow: hidden;
+}
+
+/* Card glow effect */
+.card-glow {
+  position: absolute;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
+  background: radial-gradient(circle at 50% 0%, rgba(30, 107, 184, 0.1) 0%, transparent 50%);
+  animation: glowPulse 4s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes cardEntrance {
+  0% {
+    opacity: 0;
+    transform: translateY(30px) scale(0.95);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes glowPulse {
+  0%, 100% { opacity: 0.5; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.05); }
 }
 
 /* Header */
 .card-header {
   text-align: center;
   margin-bottom: 32px;
+  animation: fadeInDown 0.6s ease-out 0.2s both;
+}
+
+@keyframes fadeInDown {
+  0% {
+    opacity: 0;
+    transform: translateY(-20px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .logo-svg {
   width: 100px;
   height: 50px;
   margin-bottom: 16px;
+  animation: logoFloat 3s ease-in-out infinite;
+}
+
+@keyframes logoFloat {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-5px); }
 }
 
 .title {
@@ -246,6 +330,12 @@ const handleSubmit = async () => {
 .login-form {
   display: flex;
   flex-direction: column;
+  animation: fadeIn 0.6s ease-out 0.4s both;
+}
+
+@keyframes fadeIn {
+  0% { opacity: 0; }
+  100% { opacity: 1; }
 }
 
 .verify-row {
@@ -276,6 +366,11 @@ const handleSubmit = async () => {
   cursor: pointer;
   font-size: var(--font-size-sm);
   color: var(--color-text-secondary);
+  transition: color var(--transition-fast);
+}
+
+.remember:hover {
+  color: var(--color-primary);
 }
 
 .remember input {
@@ -294,6 +389,7 @@ const handleSubmit = async () => {
 .remember input:checked + .checkmark {
   background: var(--color-primary);
   border-color: var(--color-primary);
+  transform: scale(1.1);
 }
 
 .remember input:checked + .checkmark::after {
@@ -306,6 +402,13 @@ const handleSubmit = async () => {
   border: solid white;
   border-width: 0 2px 2px 0;
   transform: rotate(45deg);
+  animation: checkPop 0.2s ease-out;
+}
+
+@keyframes checkPop {
+  0% { transform: rotate(45deg) scale(0); }
+  50% { transform: rotate(45deg) scale(1.2); }
+  100% { transform: rotate(45deg) scale(1); }
 }
 
 /* Forgot link */
@@ -313,12 +416,27 @@ const handleSubmit = async () => {
   font-size: var(--font-size-sm);
   color: var(--color-primary);
   text-decoration: none;
-  transition: color var(--transition-fast);
+  transition: all var(--transition-fast);
+  position: relative;
+}
+
+.forgot-link::after {
+  content: '';
+  position: absolute;
+  bottom: -2px;
+  left: 0;
+  width: 0;
+  height: 1px;
+  background: var(--color-primary);
+  transition: width var(--transition-fast);
+}
+
+.forgot-link:hover::after {
+  width: 100%;
 }
 
 .forgot-link:hover {
   color: var(--color-primary-light);
-  text-decoration: underline;
 }
 
 /* Footer decoration */
@@ -326,6 +444,7 @@ const handleSubmit = async () => {
   margin-top: 24px;
   display: flex;
   justify-content: center;
+  animation: fadeIn 0.6s ease-out 0.6s both;
 }
 
 .pipe-decoration {
