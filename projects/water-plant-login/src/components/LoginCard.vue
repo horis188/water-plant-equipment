@@ -27,13 +27,14 @@ const Logo = {
   template: `
     <div class="logo-container">
       <svg class="logo-svg" viewBox="0 0 120 120">
-        <circle cx="60" cy="60" r="58" fill="#1E6BB8"/>
-        <path d="M20 42 Q35 32, 50 38 Q65 44, 80 35 Q92 28, 100 34" 
-              stroke="white" stroke-width="4" fill="none" stroke-linecap="round"/>
-        <path d="M15 58 Q32 48, 48 54 Q64 60, 80 50 Q96 40, 105 52" 
-              stroke="white" stroke-width="4" fill="none" stroke-linecap="round"/>
-        <path d="M18 74 Q28 66, 45 72 Q62 78, 78 70 Q95 60, 105 68" 
-              stroke="white" stroke-width="4" fill="none" stroke-linecap="round"/>
+        <circle cx="60" cy="60" r="58" fill="#2a7ab8"/>
+        <circle cx="60" cy="60" r="56" fill="none" stroke="rgba(255,255,255,0.3)" stroke-width="2"/>
+        <path d="M18 42 Q35 30, 52 38 Q68 46, 82 36 Q94 26, 104 34" 
+              stroke="white" stroke-width="5" fill="none" stroke-linecap="round"/>
+        <path d="M12 60 Q32 48, 52 56 Q72 64, 92 52 Q106 42, 108 54" 
+              stroke="white" stroke-width="5" fill="none" stroke-linecap="round"/>
+        <path d="M16 78 Q28 68, 46 76 Q64 84, 82 74 Q100 62, 106 70" 
+              stroke="white" stroke-width="5" fill="none" stroke-linecap="round"/>
       </svg>
     </div>
   `
