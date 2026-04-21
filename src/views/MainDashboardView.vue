@@ -2,6 +2,7 @@
 import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import WaterBackground from '../components/WaterBackground.vue'
+import { deviceStats, deviceListWithStatus } from '../composables/useDeviceStore'
 
 const router = useRouter()
 
@@ -73,22 +74,16 @@ const currentShift = ref({
   shiftTime: '08:00 - 20:00'
 })
 
-// 设备概况统计
-const deviceStats = ref([
-  { label: '在用设备', value: 156, total: 180, unit: '台', status: 'online', path: '/device/inuse' },
-  { label: '告警设备', value: 3, total: 180, unit: '台', status: 'warning', path: '/device/warning' },
-  { label: '维修设备', value: 12, total: 180, unit: '台', status: 'maintenance', path: '/device/maintenance' },
-  { label: '设备变动', value: 5, total: 180, unit: '台', status: 'changed', path: '/device/changes' }
+// 设备概况统计（来自共享store）
+const deviceStatsList = computed(() => [
+  { label: '在用设备', value: deviceStats.value.inuse, total: deviceStats.value.total, unit: '台', status: 'online', path: '/device/inuse' },
+  { label: '告警设备', value: deviceStats.value.warning, total: deviceStats.value.total, unit: '台', status: 'warning', path: '/device/warning' },
+  { label: '维修设备', value: deviceStats.value.maintenance, total: deviceStats.value.total, unit: '台', status: 'maintenance', path: '/device/maintenance' },
+  { label: '设备变动', value: 0, total: deviceStats.value.total, unit: '台', status: 'changed', path: '/device/changes' }
 ])
 
 // 设备列表
-const deviceList = ref([
-  { id: 'D-001', name: '1号取水泵', status: 'online', value: '运行中', temp: '45°C' },
-  { id: 'D-002', name: '2号取水泵', status: 'online', value: '运行中', temp: '43°C' },
-  { id: 'D-003', name: '3号取水泵', status: 'warning', value: '温度告警', temp: '78°C' },
-  { id: 'D-004', name: '1号送水泵', status: 'offline', value: '停机', temp: '--' },
-  { id: 'D-005', name: '2号送水泵', status: 'online', value: '运行中', temp: '41°C' }
-])
+const deviceList = deviceListWithStatus
 
 // 今日工单
 const workOrders = ref([
@@ -118,7 +113,12 @@ const expandedNotifs = computed(() => notifications.value.slice(0, 10))
 const showAllNotifs = ref(false)
 
 const getStatusClass = (status: string) => {
-  return `status-${status}`
+  const map: Record<string, string> = {
+    '在用': 'online',
+    '告警': 'warning',
+    '维修中': 'offline'
+  }
+  return `status-${map[status] || status}`
 }
 
 const getLevelClass = (level: string) => {
@@ -289,7 +289,7 @@ const getLevelClass = (level: string) => {
       </div>
       <div class="stats-grid">
         <div
-          v-for="stat in deviceStats"
+          v-for="stat in deviceStatsList"
           :key="stat.label"
           class="stat-card"
           :class="`stat-${stat.status}`"
@@ -319,18 +319,18 @@ const getLevelClass = (level: string) => {
               class="device-item"
             >
               <div class="device-icon" :class="getStatusClass(device.status)">
-                <span v-if="device.status === 'online'">💧</span>
-                <span v-else-if="device.status === 'warning'">⚠️</span>
-                <span v-else>⏸</span>
+                <span v-if="device.status === '在用'">💧</span>
+                <span v-else-if="device.status === '告警'">⚠️</span>
+                <span v-else>🔧</span>
               </div>
               <div class="device-info">
                 <div class="device-name">{{ device.name }}</div>
                 <div class="device-id">{{ device.id }}</div>
               </div>
               <div class="device-status" :class="getStatusClass(device.status)">
-                {{ device.value }}
+                {{ device.status }}
               </div>
-              <div class="device-temp">{{ device.temp }}</div>
+              <div class="device-temp">{{ device.type }}</div>
             </div>
           </div>
         </div>

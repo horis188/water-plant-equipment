@@ -169,9 +169,11 @@
 import { ref, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import TopNavBar from '../components/TopNavBar.vue'
+import { deviceListWithStatus, addDevice, updateDevice, deleteDevice } from '../composables/useDeviceStore'
 
 const route = useRoute()
 const router = useRouter()
+
 
 // 页面标题
 const pageTitle = computed(() => {
@@ -184,23 +186,8 @@ const pageTitle = computed(() => {
   return map[route.path] || '设备管理'
 })
 
-// 设备数据 Mock
-const allDevices = ref([
-  { id: 'D-001', name: '1号取水泵', type: '水泵', model: 'WQ400-300-15', vendor: '上海泵业', location: '取水泵房', value: 125000, status: '在用', doc: 'WQ400说明书.pdf', remark: '轴承定期检查', params: { voltage: '380V', power: '15kW', current: '30A', pipeDiameter: 'DN100' } },
-  { id: 'D-002', name: '2号取水泵', type: '水泵', model: 'WQ400-300-15', vendor: '上海泵业', location: '取水泵房', value: 125000, status: '在用', doc: 'WQ400说明书.pdf', remark: '', params: { voltage: '380V', power: '15kW', current: '30A', pipeDiameter: 'DN100' } },
-  { id: 'D-003', name: '1号送水泵', type: '水泵', model: 'KDL250-400A', vendor: '凯德拉水泵', location: '送水泵房', value: 98000, status: '在用', doc: null, remark: '', params: { voltage: '380V', power: '11kW', current: '22A', pipeDiameter: 'DN80' } },
-  { id: 'D-004', name: '2号送水泵', type: '水泵', model: 'KDL250-400A', vendor: '凯德拉水泵', location: '送水泵房', value: 98000, status: '在用', doc: null, remark: '', params: { voltage: '380V', power: '11kW', current: '22A', pipeDiameter: 'DN80' } },
-  { id: 'D-005', name: '3号取水泵', type: '水泵', model: 'WQ400-300-15', vendor: '上海泵业', location: '取水泵房', value: 125000, status: '维修中', doc: '维修手册.docx', remark: '轴承损坏维修中', params: { voltage: '380V', power: '15kW', current: '30A', pipeDiameter: 'DN100' } },
-  { id: 'D-006', name: '1号滤池风机', type: '其他', model: 'BK-50', vendor: '安庆风机', location: '滤池车间', value: 35000, status: '在用', doc: null, remark: '', params: { voltage: '380V', power: '5.5kW', current: '11A', pipeDiameter: 'DN50' } },
-  { id: 'D-007', name: '水质监测仪', type: '仪表', model: 'YSI-6600', vendor: '哈希中国', location: '中控室', value: 68000, status: '在用', doc: 'YSI操作手册.pdf', remark: '', params: { voltage: '220V', power: '0.5kW', current: '2A', pipeDiameter: 'DN20' } },
-  { id: 'D-008', name: '1号配电柜', type: '其他', model: 'GGD-2000A', vendor: '正泰电器', location: '配电室', value: 45000, status: '在用', doc: '配电柜技术参数.doc', remark: '', params: { voltage: '380V', power: '0kW', current: '2000A', pipeDiameter: '-' } },
-  { id: 'D-009', name: '加药计量泵', type: '水泵', model: 'M-100', vendor: '德国威尔泵', location: '加药间', value: 22000, status: '告警', doc: null, remark: '流量异常', params: { voltage: '220V', power: '0.8kW', current: '3.5A', pipeDiameter: 'DN15' } },
-  { id: 'D-010', name: '污泥脱水机', type: '其他', model: 'LD-200', vendor: '兴达环保', location: '污泥处理间', value: 150000, status: '维修中', doc: '脱水机维护手册.pdf', remark: '', params: { voltage: '380V', power: '7.5kW', current: '15A', pipeDiameter: 'DN100' } },
-  { id: 'D-011', name: '二氧化氯发生器', type: '仪表', model: 'CL-5000', vendor: '山东绿晨', location: '加药间', value: 38000, status: '在用', doc: null, remark: '', params: { voltage: '220V', power: '1.5kW', current: '6A', pipeDiameter: 'DN25' } },
-  { id: 'D-012', name: '中控室工控机', type: '其他', model: 'IPC-610L', vendor: '研华科技', location: '中控室', value: 28000, status: '在用', doc: '工控机规格书.pdf', remark: '', params: { voltage: '220V', power: '0.3kW', current: '1.5A', pipeDiameter: '-' } }
-])
-
-// 搜索条件
+// 设备数据
+const allDevices = deviceListWithStatus
 const searchName = ref('')
 const searchType = ref('')
 const searchModel = ref('')
@@ -213,7 +200,7 @@ const editingDevice = ref<any>(null)
 const deletingDevice = ref<any>(null)
 const fileInput = ref<any>(null)
 
-// 表单
+// 表单（不含status，由store计算）
 const form = ref({
   name: '', type: '', model: '', vendor: '', location: '', value: null as number | null, remark: '', doc: null as string | null
 })
@@ -300,14 +287,13 @@ function saveDevice() {
     location: form.value.location,
     value: form.value.value ?? 0,
     remark: form.value.remark,
-    doc: form.value.doc
+    doc: form.value.doc,
+    params: { voltage: '-', power: '-', current: '-', pipeDiameter: '-' }
   }
   if (editingDevice.value) {
-    const idx = allDevices.value.findIndex(d => d.id === editingDevice.value.id)
-    if (idx !== -1) allDevices.value[idx] = { ...editingDevice.value, ...record }
+    updateDevice(editingDevice.value.id, record)
   } else {
-    const id = 'D-' + String(Date.now()).slice(-6)
-    allDevices.value.push({ id, status: '在用', ...record })
+    addDevice(record)
   }
   dialogVisible.value = false
 }
@@ -319,7 +305,7 @@ function confirmDelete(device: any) {
 }
 
 function doDelete() {
-  allDevices.value = allDevices.value.filter(d => d.id !== deletingDevice.value.id)
+  deleteDevice(deletingDevice.value.id)
   deleteDialogVisible.value = false
   selectedIds.value = selectedIds.value.filter(id => id !== deletingDevice.value.id)
 }
@@ -384,10 +370,11 @@ function downloadFile(content: string, filename: string) {
   position: relative;
   min-height: 100vh;
   background: #0f2d4a;
+  padding: 0 20px 20px;
 }
 
 .device-manage {
-  padding: 0 24px 24px;
+  padding: 0;
 }
 
 /* 顶部操作栏 */
@@ -395,10 +382,10 @@ function downloadFile(content: string, filename: string) {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 8px 24px 12px;
+  padding: 8px 0 12px;
   background: rgba(15, 45, 75, 0.8);
   border-bottom: 1px solid rgba(45, 212, 191, 0.12);
-  margin: 0;
+  margin-bottom: 12px;
 }
 
 .dm-title {
@@ -425,9 +412,13 @@ function downloadFile(content: string, filename: string) {
 
 /* 搜索栏 */
 .dm-search {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(45, 212, 191, 0.1);
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin-bottom: 12px;
   display: flex;
   gap: 10px;
-  margin-bottom: 16px;
   flex-wrap: wrap;
 }
 
@@ -531,7 +522,7 @@ function downloadFile(content: string, filename: string) {
   border: 1px solid rgba(45, 212, 191, 0.15);
   border-radius: 10px;
   overflow: hidden;
-  margin-bottom: 12px;
+  margin-bottom: 8px;
 }
 
 .dm-table {
@@ -633,7 +624,8 @@ function downloadFile(content: string, filename: string) {
   gap: 8px;
   justify-content: flex-end;
   color: rgba(255, 255, 255, 0.5);
-  font-size: 13px;
+  font-size: 12px;
+  padding: 6px 0;
 }
 
 .dm-pagination select {
