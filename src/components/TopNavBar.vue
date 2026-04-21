@@ -29,13 +29,21 @@
       </nav>
     </div>
 
-    <!-- 右侧：消息 + 用户 -->
+    <!-- 右侧：消息 + 用户 + 退出 -->
     <div class="nav-right">
+      <!-- 用户信息 -->
       <div class="user-info">
-        <span class="user-name">{{ currentUser.name }}</span>
-        <span class="user-role">{{ currentUser.role }}</span>
+        <div class="user-avatar">{{ currentUser.avatar }}</div>
+        <div class="user-detail">
+          <span class="user-name">{{ currentUser.name }}</span>
+          <span class="user-role">{{ currentUser.role }}</span>
+        </div>
       </div>
-      <button class="logout-btn" @click="handleLogout">退出</button>
+
+      <!-- 退出登录 -->
+      <button class="logout-btn" @click="handleLogout">
+        <span>退出</span>
+      </button>
     </div>
   </header>
 </template>
@@ -46,7 +54,7 @@ import { useRouter } from 'vue-router'
 
 const router = useRouter()
 
-const currentUser = ref({ name: '张明', role: '运行班长' })
+const currentUser = ref({ name: '张明', role: '运行班长', avatar: '张' })
 
 const navItems = ref([
   { name: '驾驶舱', path: '/main', icon: '🚀' },
@@ -73,79 +81,22 @@ function handleLogout() {
 
 <style scoped>
 .top-nav {
-  position: sticky;
-  top: 0;
-  z-index: 100;
+  position: relative;
+  z-index: 10;
   display: flex;
   justify-content: space-between;
   align-items: center;
   padding: 0 24px;
   height: 64px;
-  background: linear-gradient(160deg, rgba(15, 45, 75, 0.95) 0%, rgba(10, 35, 60, 0.9) 100%);
+  background: rgba(15, 50, 80, 0.9);
+  backdrop-filter: blur(12px);
   border-bottom: 1px solid rgba(45, 212, 191, 0.2);
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
 }
 
 .nav-left {
   display: flex;
   align-items: center;
-  gap: 24px;
-}
-
-.logo-area {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.company-logo {
-  width: 40px;
-  height: 40px;
-  flex-shrink: 0;
-}
-
-.logo-svg {
-  width: 100%;
-  height: 100%;
-}
-
-.system-title {
-  font-size: 18px;
-  font-weight: 700;
-  color: #fff;
-  white-space: nowrap;
-  margin: 0;
-}
-
-.menu-nav {
-  display: flex;
-  gap: 4px;
-}
-
-.menu-item {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 14px;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: background 0.2s, color 0.2s;
-  color: rgba(255, 255, 255, 0.65);
-  font-size: 13px;
-}
-
-.menu-item:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: #fff;
-}
-
-.menu-item.active {
-  background: rgba(45, 212, 191, 0.15);
-  color: #2DD4BF;
-}
-
-.menu-icon {
-  font-size: 15px;
+  gap: 32px;
 }
 
 .nav-right {
@@ -154,34 +105,135 @@ function handleLogout() {
   gap: 16px;
 }
 
+.logo-area {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.company-logo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.company-logo .logo-svg {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+}
+
+.system-title {
+  font-size: 17px;
+  font-weight: 600;
+  color: #fff;
+  margin: 0;
+  letter-spacing: 1px;
+}
+
+.menu-nav {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 64px;
+}
+
+.menu-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s;
+  color: rgba(255, 255, 255, 0.65);
+  font-size: 14px;
+  font-weight: 500;
+  height: 40px;
+  position: relative;
+}
+
+.menu-item:hover {
+  background: rgba(45, 212, 191, 0.12);
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.menu-item.active {
+  color: #2DD4BF;
+  background: rgba(45, 212, 191, 0.15);
+}
+
+.menu-item.active::after {
+  content: '';
+  position: absolute;
+  bottom: -12px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 24px;
+  height: 3px;
+  background: #2DD4BF;
+  border-radius: 2px 2px 0 0;
+}
+
+.menu-icon {
+  font-size: 15px;
+}
+
+.menu-text {
+  white-space: nowrap;
+}
+
 .user-info {
   display: flex;
-  align-items: baseline;
-  gap: 8px;
+  align-items: center;
+  gap: 10px;
+}
+
+.user-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: rgba(45, 212, 191, 0.25);
+  color: #2DD4BF;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.user-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
 }
 
 .user-name {
   color: #fff;
-  font-size: 14px;
+  font-size: 13px;
+  font-weight: 500;
 }
 
 .user-role {
-  color: rgba(255, 255, 255, 0.55);
+  color: rgba(255, 255, 255, 0.5);
   font-size: 11px;
 }
 
 .logout-btn {
-  background: rgba(239, 68, 68, 0.15);
-  border: 1px solid rgba(239, 68, 68, 0.3);
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  color: #FCA5A5;
+  padding: 5px 12px;
   border-radius: 6px;
-  color: #EF4444;
-  font-size: 12px;
-  padding: 6px 14px;
   cursor: pointer;
+  font-size: 12px;
   transition: background 0.2s;
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .logout-btn:hover {
-  background: rgba(239, 68, 68, 0.25);
+  background: rgba(239, 68, 68, 0.2);
 }
 </style>

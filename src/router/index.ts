@@ -2,6 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import LoginView from '../views/LoginView.vue'
 import MainDashboardView from '../views/MainDashboardView.vue'
 import DeviceManageView from '../views/DeviceManageView.vue'
+import DeviceDetailView from '../views/DeviceDetailView.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -44,6 +45,11 @@ const router = createRouter({
       path: '/device/changes',
       name: 'device-changes',
       component: DeviceManageView
+    },
+    {
+      path: '/device/detail/:id',
+      name: 'device-detail',
+      component: DeviceDetailView
     }
   ]
 })

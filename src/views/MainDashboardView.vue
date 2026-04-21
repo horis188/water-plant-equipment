@@ -51,7 +51,7 @@ const toggleNotifications = () => {
 // 功能导航
 const navItems = ref([
   { name: '驾驶舱', path: '/main', icon: '🚀' },
-  { name: '设备管理', path: '/device', icon: '🖥️' },
+  { name: '设备管理', path: '/device/inuse', icon: '🖥️' },
   { name: '设备巡检', path: '/inspection', icon: '🔍' },
   { name: '备件仓库', path: '/spareparts', icon: '📦' },
   { name: '带班交接', path: '/handover', icon: '🔄' },
@@ -64,6 +64,7 @@ const activeNav = ref('驾驶舱')
 
 const handleNavClick = (item: any) => {
   activeNav.value = item.name
+  router.push(item.path)
 }
 
 // 当值带班人
