@@ -1,5 +1,6 @@
 <template>
   <div class="device-manage">
+    <TopNavBar />
     <!-- 顶部操作栏 -->
     <div class="dm-header">
       <div class="dm-title">
@@ -172,6 +173,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { useRoute } from 'vue-router'
+import TopNavBar from '../components/TopNavBar.vue'
 
 const route = useRoute()
 
