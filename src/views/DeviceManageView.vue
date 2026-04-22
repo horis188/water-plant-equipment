@@ -33,8 +33,14 @@
       <button class="dm-btn dm-btn-reset" @click="resetSearch">重置</button>
     </div>
 
+    <!-- Tabs -->
+    <div class="dm-tabs">
+      <div class="dm-tab" :class="{ active: activeTab === 'list' }" @click="activeTab = 'list'">设备列表</div>
+      <div class="dm-tab" :class="{ active: activeTab === 'changes' }" @click="activeTab = 'changes'">设备变动</div>
+    </div>
+
     <!-- 设备列表 -->
-    <div class="dm-table-wrap">
+    <div v-show="activeTab === 'list'" class="dm-table-wrap">
       <table class="dm-table">
         <thead>
           <tr>
@@ -43,9 +49,8 @@
             <th>类型</th>
             <th>型号</th>
             <th>安装地点</th>
-            <th>额定电压</th>
-            <th>功率</th>
-            <th>管径</th>
+            <th>参数</th>
+            <th>状态</th>
             <th>操作</th>
           </tr>
         </thead>
@@ -56,23 +61,59 @@
             <td><span class="type-badge">{{ device.type }}</span></td>
             <td>{{ device.model }}</td>
             <td>{{ device.location }}</td>
-            <td>{{ device.params?.voltage ?? '-' }}</td>
-            <td>{{ device.params?.power ?? '-' }}</td>
-            <td>{{ device.params?.pipeDiameter ?? '-' }}</td>
+            <td>{{ device.params || '-' }}</td>
+            <td><span class="status-badge" :class="`status-${device.status}`">{{ device.status }}</span></td>
             <td class="col-actions">
               <button class="action-btn" @click="openEditDialog(device)">✏️ 编辑</button>
               <button class="action-btn action-btn-danger" @click="confirmDelete(device)">🗑️ 删除</button>
             </td>
           </tr>
           <tr v-if="paginatedDevices.length === 0">
-            <td colspan="9" class="empty-row">暂无设备数据</td>
+            <td colspan="7" class="empty-row">暂无设备数据</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- 设备变动列表 -->
+    <div v-show="activeTab === 'changes'" class="dm-table-wrap">
+      <table class="dm-table">
+        <thead>
+          <tr>
+            <th>设备名称</th>
+            <th>变动时间</th>
+            <th>操作人</th>
+            <th>变动内容</th>
+          </tr>
+        </thead>
+        <tbody>
+          <template v-for="change in deviceChangeLog" :key="change.id">
+            <tr class="change-main-row">
+              <td><span class="device-name-link" @click.stop="toggleChangeDetail(change.id)">{{ change.name }}</span></td>
+              <td>{{ change.changeTime }}</td>
+              <td>{{ change.operator }}</td>
+              <td class="change-detail-cell">
+                <div class="change-summary">{{ change.changes.length }} 项变动</div>
+                <div class="change-details" :class="{ active: expandedChangeId === change.id }">
+                  <div v-for="(c, idx) in change.changes" :key="idx" class="change-item-row">
+                    <span class="change-field">{{ c.fieldLabel }}</span>
+                    <span class="change-old">{{ c.oldValue }}</span>
+                    <span class="change-arrow">→</span>
+                    <span class="change-new">{{ c.newValue }}</span>
+                  </div>
+                </div>
+              </td>
+            </tr>
+          </template>
+          <tr v-if="deviceChangeLog.length === 0">
+            <td colspan="4" class="empty-row">暂无设备变动记录</td>
           </tr>
         </tbody>
       </table>
     </div>
 
     <!-- 分页 -->
-    <div class="dm-pagination">
+    <div v-show="activeTab === 'list'" class="dm-pagination">
       <span>共 {{ filteredDevices.length }} 条，每页显示</span>
       <select v-model="pageSize" @change="currentPage = 1">
         <option value="10">10</option>
@@ -131,6 +172,23 @@
             <textarea v-model="form.remark" placeholder="请输入备注信息" rows="3"></textarea>
           </div>
           <div class="form-row">
+            <label>参数</label>
+            <div class="params-checkboxes">
+              <label class="param-check"><input type="checkbox" v-model="paramsInput.voltage.checked" />电压</label>
+              <input v-if="paramsInput.voltage.checked" v-model="paramsInput.voltage.value" type="text" placeholder="如 380V" class="param-input" />
+              <label class="param-check"><input type="checkbox" v-model="paramsInput.current.checked" />电流</label>
+              <input v-if="paramsInput.current.checked" v-model="paramsInput.current.value" type="text" placeholder="如 30A" class="param-input" />
+              <label class="param-check"><input type="checkbox" v-model="paramsInput.power.checked" />功率</label>
+              <input v-if="paramsInput.power.checked" v-model="paramsInput.power.value" type="text" placeholder="如 15kW" class="param-input" />
+              <label class="param-check"><input type="checkbox" v-model="paramsInput.pipeDiameter.checked" />管径</label>
+              <input v-if="paramsInput.pipeDiameter.checked" v-model="paramsInput.pipeDiameter.value" type="text" placeholder="如 DN100" class="param-input" />
+            </div>
+          </div>
+          <div class="form-row">
+            <label>其他参数</label>
+            <input v-model="paramsInput.extra" type="text" placeholder="输入其他参数说明" />
+          </div>
+          <div class="form-row">
             <label>技术文档</label>
             <div class="file-upload">
               <input type="file" accept=".doc,.docx,.pdf" @change="handleFileChange" ref="fileInput" />
@@ -169,7 +227,7 @@
 import { ref, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import TopNavBar from '../components/TopNavBar.vue'
-import { deviceListWithStatus, addDevice, updateDevice, deleteDevice } from '../composables/useDeviceStore'
+import { deviceListWithStatus, addDevice, updateDevice, deleteDevice, currentUser, deviceChangeLog } from '../composables/useDeviceStore'
 
 const route = useRoute()
 const router = useRouter()
@@ -202,7 +260,16 @@ const fileInput = ref<any>(null)
 
 // 表单（不含status，由store计算）
 const form = ref({
-  name: '', type: '', model: '', vendor: '', location: '', value: null as number | null, remark: '', doc: null as string | null
+  name: '', type: '', model: '', vendor: '', location: '', value: null as number | null, remark: '', doc: null as string | null, params: ''
+})
+
+// 参数勾选输入
+const paramsInput = ref({
+  voltage: { checked: false, value: '' },
+  current: { checked: false, value: '' },
+  power: { checked: false, value: '' },
+  pipeDiameter: { checked: false, value: '' },
+  extra: ''
 })
 
 // 分页
@@ -212,13 +279,20 @@ const pageSize = ref(10)
 // 选中
 const selectedIds = ref<string[]>([])
 
+// Tab状态
+const activeTab = ref(route.path === '/device/changes' ? 'changes' : 'list')
+const expandedChangeId = ref<string | null>(null)
+
+function toggleChangeDetail(id: string) {
+  expandedChangeId.value = expandedChangeId.value === id ? null : id
+}
+
 // 状态筛选
 const statusFilter = computed(() => {
   const map: Record<string, string> = {
     '/device/inuse': '在用',
     '/device/warning': '告警',
-    '/device/maintenance': '维修中',
-    '/device/changes': '变动'
+    '/device/maintenance': '维修中'
   }
   return map[route.path] || ''
 })
@@ -262,14 +336,30 @@ function resetSearch() {
 // 新增
 function openAddDialog() {
   editingDevice.value = null
-  form.value = { name: '', type: '', model: '', vendor: '', location: '', value: null, remark: '', doc: null }
+  form.value = { name: '', type: '', model: '', vendor: '', location: '', value: null, remark: '', doc: null, params: '' }
+  paramsInput.value = { voltage: { checked: false, value: '' }, current: { checked: false, value: '' }, power: { checked: false, value: '' }, pipeDiameter: { checked: false, value: '' }, extra: '' }
   dialogVisible.value = true
 }
 
 // 编辑
 function openEditDialog(device: any) {
   editingDevice.value = device
-  form.value = { ...device }
+  form.value = { ...device, params: device.params || '' }
+  const saved = (device.params || '') as string
+  const pi = { voltage: { checked: false, value: '' }, current: { checked: false, value: '' }, power: { checked: false, value: '' }, pipeDiameter: { checked: false, value: '' }, extra: '' }
+  saved.split(',').forEach(p => {
+    const colonIdx = p.indexOf(':')
+    if (colonIdx > 0) {
+      const k = p.substring(0, colonIdx).trim()
+      const v = p.substring(colonIdx + 1).trim()
+      if (k === '电压') { pi.voltage.checked = true; pi.voltage.value = v }
+      else if (k === '电流') { pi.current.checked = true; pi.current.value = v }
+      else if (k === '功率') { pi.power.checked = true; pi.power.value = v }
+      else if (k === '管径') { pi.pipeDiameter.checked = true; pi.pipeDiameter.value = v }
+      else if (k === '其他') { pi.extra = v }
+    }
+  })
+  paramsInput.value = pi
   dialogVisible.value = true
 }
 
@@ -288,10 +378,18 @@ function saveDevice() {
     value: form.value.value ?? 0,
     remark: form.value.remark,
     doc: form.value.doc,
-    params: { voltage: '-', power: '-', current: '-', pipeDiameter: '-' }
+    params: (() => {
+      const parts: string[] = []
+      if (paramsInput.value.voltage.checked && paramsInput.value.voltage.value) parts.push('电压:' + paramsInput.value.voltage.value)
+      if (paramsInput.value.current.checked && paramsInput.value.current.value) parts.push('电流:' + paramsInput.value.current.value)
+      if (paramsInput.value.power.checked && paramsInput.value.power.value) parts.push('功率:' + paramsInput.value.power.value)
+      if (paramsInput.value.pipeDiameter.checked && paramsInput.value.pipeDiameter.value) parts.push('管径:' + paramsInput.value.pipeDiameter.value)
+      if (paramsInput.value.extra) parts.push('其他:' + paramsInput.value.extra)
+      return parts.join(',')
+    })()
   }
   if (editingDevice.value) {
-    updateDevice(editingDevice.value.id, record)
+    updateDevice(editingDevice.value.id, record, currentUser.value.name)
   } else {
     addDevice(record)
   }
@@ -452,6 +550,68 @@ function downloadFile(content: string, filename: string) {
   border-color: rgba(45, 212, 191, 0.5);
 }
 
+/* Tabs */
+.dm-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+
+.dm-tab {
+  padding: 8px 20px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.6);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  transition: all 0.2s;
+}
+
+.dm-tab:hover {
+  background: rgba(45, 212, 191, 0.1);
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.dm-tab.active {
+  background: rgba(45, 212, 191, 0.15);
+  color: #2DD4BF;
+  border-color: rgba(45, 212, 191, 0.4);
+}
+
+/* 参数勾选 */
+.params-checkboxes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.param-check {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.75);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.param-check input[type="checkbox"] {
+  cursor: pointer;
+  accent-color: #2DD4BF;
+}
+
+.param-input {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(45, 212, 191, 0.3);
+  border-radius: 4px;
+  color: rgba(255, 255, 255, 0.85);
+  padding: 4px 8px;
+  font-size: 13px;
+  width: 90px;
+}
+
 /* 按钮 */
 .dm-btn {
   padding: 7px 16px;
@@ -575,6 +735,15 @@ function downloadFile(content: string, filename: string) {
   font-size: 11px;
 }
 
+.status-badge {
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+}
+.status-在用 { background: rgba(45, 212, 191, 0.15); color: #2DD4BF; }
+.status-告警 { background: rgba(239, 68, 68, 0.15); color: #EF4444; }
+.status-维修中 { background: rgba(59, 130, 246, 0.15); color: #60A5FA; }
+
 .doc-link {
   color: #2DD4BF;
   cursor: pointer;
@@ -660,6 +829,69 @@ function downloadFile(content: string, filename: string) {
   padding: 0 4px;
 }
 
+/* 设备变动 */
+.change-detail-cell {
+  text-align: left;
+}
+
+.change-summary {
+  color: #2DD4BF;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.change-details {
+  display: none;
+  margin-top: 6px;
+  padding: 6px 8px;
+  background: rgba(45, 212, 191, 0.08);
+  border-radius: 6px;
+  border: 1px solid rgba(45, 212, 191, 0.15);
+}
+
+.change-details {
+  display: none;
+}
+
+.change-details.active {
+  display: block;
+}
+
+.change-item-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  padding: 3px 0;
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.change-field {
+  color: #93C5FD;
+  min-width: 70px;
+}
+
+.change-old {
+  color: #FCA5A5;
+  text-decoration: line-through;
+  max-width: 100px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.change-arrow {
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.change-new {
+  color: #86EFAC;
+  max-width: 100px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* 对话框 */
 .dm-dialog-overlay {
   position: fixed;
@@ -729,6 +961,16 @@ function downloadFile(content: string, filename: string) {
 /* 表单 */
 .form-row {
   margin-bottom: 14px;
+}
+
+.form-row-group {
+  display: flex;
+  gap: 12px;
+}
+
+.form-row-group .form-row {
+  flex: 1;
+  margin-bottom: 0;
 }
 
 .form-row label {

@@ -2,7 +2,7 @@
 import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import WaterBackground from '../components/WaterBackground.vue'
-import { deviceStats, deviceListWithStatus } from '../composables/useDeviceStore'
+import { deviceStats, deviceListWithStatus, deviceChangeLog } from '../composables/useDeviceStore'
 
 const router = useRouter()
 
@@ -79,18 +79,34 @@ const deviceStatsList = computed(() => [
   { label: '在用设备', value: deviceStats.value.inuse, total: deviceStats.value.total, unit: '台', status: 'online', path: '/device/inuse' },
   { label: '告警设备', value: deviceStats.value.warning, total: deviceStats.value.total, unit: '台', status: 'warning', path: '/device/warning' },
   { label: '维修设备', value: deviceStats.value.maintenance, total: deviceStats.value.total, unit: '台', status: 'maintenance', path: '/device/maintenance' },
-  { label: '设备变动', value: 0, total: deviceStats.value.total, unit: '台', status: 'changed', path: '/device/changes' }
+  { label: '设备变动', value: deviceChangeLog.value.length, total: deviceStats.value.total, unit: '台', status: 'changed', path: '/device/changes' }
 ])
 
-// 设备列表
-const deviceList = deviceListWithStatus
+// 设备列表（维修中优先，其次告警，最后在用，最多10条）
+const statusPriority: Record<string, number> = { '维修中': 0, '告警': 1, '在用': 2 }
+const deviceListSorted = computed(() => {
+  return [...deviceListWithStatus.value]
+    .sort((a, b) => (statusPriority[a.status] ?? 9) - (statusPriority[b.status] ?? 9))
+    .slice(0, 6)
+})
+
+const workOrderPriority: Record<string, number> = { '处理中': 0, '待处理': 1, '已完成': 2, '紧急': 0, '中等': 1, '一般': 2 }
+const workOrdersList = computed(() => {
+  return [...workOrders.value]
+    .sort((a, b) => {
+      const statusDiff = (workOrderPriority[a.status] ?? 9) - (workOrderPriority[b.status] ?? 9)
+      if (statusDiff !== 0) return statusDiff
+      return (workOrderPriority[a.level] ?? 9) - (workOrderPriority[b.level] ?? 9)
+    })
+    .slice(0, 6)
+})
 
 // 今日工单
 const workOrders = ref([
   { id: 'WO-2026041901', title: '3号取水泵温度异常', device: '3号取水泵', level: '紧急', levelColor: '#EF4444', createTime: '09:23', status: '处理中', handler: '李伟' },
-  { id: 'WO-2026041902', title: '1号滤池滤料更换', device: '1号滤池', level: '普通', levelColor: '#1E6BB8', createTime: '08:00', status: '待处理', handler: '--' },
+  { id: 'WO-2026041902', title: '1号滤池滤料更换', device: '1号滤池', level: '一般', levelColor: '#93C5FD', createTime: '08:00', status: '待处理', handler: '--' },
   { id: 'WO-2026041903', title: '加药间2号计量泵检修', device: '加药间', level: '普通', levelColor: '#1E6BB8', createTime: '07:30', status: '已完成', handler: '王强' },
-  { id: 'WO-2026041904', title: '水质监测设备校准', device: '水质监测站', level: '定期', levelColor: '#2DD4BF', createTime: '10:00', status: '待处理', handler: '--' }
+  { id: 'WO-2026041904', title: '水质监测设备校准', device: '水质监测站', level: '中等', levelColor: '#F59E0B', createTime: '10:00', status: '待处理', handler: '--' }
 ])
 
 // 消息通知
@@ -295,12 +311,23 @@ const getLevelClass = (level: string) => {
           :class="`stat-${stat.status}`"
           @click="router.push(stat.path)"
         >
-          <div class="stat-value">{{ stat.value }}<span class="stat-unit">{{ stat.unit }}</span></div>
+          <template v-if="stat.status !== 'changed'">
+            <div class="stat-value">{{ stat.value }}<span class="stat-unit">{{ stat.unit }}</span></div>
           <div class="stat-label">{{ stat.label }}</div>
           <div class="stat-progress">
             <div class="progress-bar" :style="{ width: `${(stat.value / stat.total) * 100}%` }"></div>
           </div>
-          <div class="stat-total">共 {{ stat.total }} {{ stat.unit }}</div>
+            <div class="stat-total">共 {{ stat.total }} {{ stat.unit }}</div>
+          </template>
+          <template v-else>
+            <div class="change-log">
+              <div v-for="change in deviceChangeLog" :key="change.id" class="change-item">
+                <span class="change-name">{{ change.name }}</span>
+                <span class="change-time">{{ change.changeTime }}</span>
+              </div>
+              <div v-if="deviceChangeLog.length === 0" class="change-empty">暂无变动记录</div>
+            </div>
+          </template>
         </div>
       </div>
 
@@ -314,7 +341,7 @@ const getLevelClass = (level: string) => {
           </div>
           <div class="device-list">
             <div
-              v-for="device in deviceList"
+              v-for="device in deviceListSorted"
               :key="device.id"
               class="device-item"
             >
@@ -343,7 +370,7 @@ const getLevelClass = (level: string) => {
           </div>
           <div class="order-list">
             <div
-              v-for="order in workOrders"
+              v-for="order in workOrdersList"
               :key="order.id"
               class="order-item"
             >
@@ -1165,6 +1192,41 @@ const getLevelClass = (level: string) => {
 .stat-offline { border-left: 3px solid #EF4444; }
 .stat-ok { border-left: 3px solid #10B981; }
 
+.change-log {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.change-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.change-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100px;
+}
+
+.change-time {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.5);
+  flex-shrink: 0;
+}
+
+.change-empty {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.4);
+  text-align: center;
+  padding: 8px 0;
+}
+
 /* 双列布局 */
 .two-column {
   display: grid;
@@ -1326,6 +1388,8 @@ const getLevelClass = (level: string) => {
 }
 
 .level-紧急 { background: rgba(239, 68, 68, 0.25); color: #FCA5A5; }
+.level-中等 { background: rgba(245, 158, 11, 0.25); color: #FCD34D; }
+.level-一般 { background: rgba(59, 130, 246, 0.25); color: #93C5FD; }
 .level-普通 { background: rgba(30, 107, 184, 0.25); color: #93C5FD; }
 .level-定期 { background: rgba(45, 212, 191, 0.25); color: #2DD4BF; }
 

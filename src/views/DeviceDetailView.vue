@@ -59,20 +59,8 @@
             <h3 class="section-title">技术参数</h3>
             <div class="info-grid">
               <div class="info-item">
-                <span class="info-label">额定电压</span>
-                <span class="info-value">{{ device.params?.voltage ?? '-' }}</span>
-              </div>
-              <div class="info-item">
-                <span class="info-label">功率</span>
-                <span class="info-value">{{ device.params?.power ?? '-' }}</span>
-              </div>
-              <div class="info-item">
-                <span class="info-label">额定电流</span>
-                <span class="info-value">{{ device.params?.current ?? '-' }}</span>
-              </div>
-              <div class="info-item">
-                <span class="info-label">管径</span>
-                <span class="info-value">{{ device.params?.pipeDiameter ?? '-' }}</span>
+                <span class="info-label">参数</span>
+                <span class="info-value">{{ device.params || '-' }}</span>
               </div>
             </div>
           </div>
