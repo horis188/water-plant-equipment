@@ -1,11 +1,19 @@
 <script setup lang="ts">
-
+import { useRouter } from 'vue-router'
 import WaterBackground from '../components/WaterBackground.vue'
 import LoginCard from '../components/LoginCard.vue'
+import { setCurrentUser } from '../composables/useDeviceStore'
+
+const router = useRouter()
 
 const handleLogin = (data: { username: string; password: string; verifyCode: string }) => {
-  console.log('Login data:', data)
-  alert(`登录成功！\n账号: ${data.username}`)
+  const isAdmin = data.username === 'admin'
+  setCurrentUser({
+    name: isAdmin ? '管理员' : data.username,
+    role: isAdmin ? '系统管理人' : '运行班长',
+    avatar: isAdmin ? '管' : data.username.charAt(0)
+  })
+  router.push('/dashboard')
 }
 </script>
 
