@@ -77,8 +77,8 @@ const currentShift = ref({
 // 设备概况统计（来自共享store）
 const deviceStatsList = computed(() => [
   { label: '在用设备', value: deviceStats.value.inuse, total: deviceStats.value.total, unit: '台', status: 'online', path: '/device/inuse' },
-  { label: '告警设备', value: deviceStats.value.warning, total: deviceStats.value.total, unit: '台', status: 'warning', path: '/device/warning' },
-  { label: '维修设备', value: deviceStats.value.maintenance, total: deviceStats.value.total, unit: '台', status: 'maintenance', path: '/device/maintenance' },
+  { label: '告警设备', value: deviceStats.value.warning, total: deviceStats.value.total, unit: '台', status: 'warning', path: '/device/inuse?status=告警' },
+  { label: '维修设备', value: deviceStats.value.maintenance, total: deviceStats.value.total, unit: '台', status: 'maintenance', path: '/device/inuse?status=维修中' },
   { label: '设备变动', value: deviceChangeLog.value.length, total: deviceStats.value.total, unit: '台', status: 'changed', path: '/device/changes' }
 ])
 

@@ -29,6 +29,12 @@
       </select>
       <input v-model="searchModel" type="text" placeholder="型号" class="search-input search-input-sm" />
       <input v-model="searchLocation" type="text" placeholder="安装地点" class="search-input search-input-sm" />
+      <select v-model="searchStatus" class="search-select">
+        <option value="">全部状态</option>
+        <option value="在用">在用</option>
+        <option value="告警">告警</option>
+        <option value="维修中">维修中</option>
+      </select>
       <button class="dm-btn dm-btn-search" @click="doSearch">🔍 搜索</button>
       <button class="dm-btn dm-btn-reset" @click="resetSearch">重置</button>
     </div>
@@ -224,7 +230,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import TopNavBar from '../components/TopNavBar.vue'
 import { deviceListWithStatus, addDevice, updateDevice, deleteDevice, currentUser, deviceChangeLog } from '../composables/useDeviceStore'
@@ -250,6 +256,14 @@ const searchName = ref('')
 const searchType = ref('')
 const searchModel = ref('')
 const searchLocation = ref('')
+const searchStatus = ref('')
+
+// 搜索条件（点击搜索后才生效）
+const activeSearchName = ref('')
+const activeSearchType = ref('')
+const activeSearchModel = ref('')
+const activeSearchLocation = ref('')
+const activeSearchStatus = ref('')
 
 // 对话框
 const dialogVisible = ref(false)
@@ -281,31 +295,29 @@ const selectedIds = ref<string[]>([])
 
 // Tab状态
 const activeTab = ref(route.path === '/device/changes' ? 'changes' : 'list')
+// 监听路由参数变化
+watch(() => route.query.status, (newStatus) => {
+  const s = (newStatus as string) || ''
+  activeSearchStatus.value = s
+  searchStatus.value = s
+}, { immediate: true })
 const expandedChangeId = ref<string | null>(null)
 
 function toggleChangeDetail(id: string) {
   expandedChangeId.value = expandedChangeId.value === id ? null : id
 }
 
-// 状态筛选
-const statusFilter = computed(() => {
-  const map: Record<string, string> = {
-    '/device/inuse': '在用',
-    '/device/warning': '告警',
-    '/device/maintenance': '维修中'
-  }
-  return map[route.path] || ''
-})
+
 
 // 过滤后设备
 const filteredDevices = computed(() => {
   return allDevices.value.filter(d => {
-    const matchStatus = !statusFilter.value || d.status === statusFilter.value
-    const matchName = !searchName.value || d.name.includes(searchName.value)
-    const matchType = !searchType.value || d.type === searchType.value
-    const matchModel = !searchModel.value || d.model.includes(searchModel.value)
-    const matchLocation = !searchLocation.value || d.location.includes(searchLocation.value)
-    return matchStatus && matchName && matchType && matchModel && matchLocation
+    const matchName = !activeSearchName.value || d.name.includes(activeSearchName.value)
+    const matchType = !activeSearchType.value || d.type === activeSearchType.value
+    const matchModel = !activeSearchModel.value || d.model.includes(activeSearchModel.value)
+    const matchLocation = !activeSearchLocation.value || d.location.includes(activeSearchLocation.value)
+    const matchStatus = !activeSearchStatus.value || d.status === activeSearchStatus.value
+    return matchName && matchType && matchModel && matchLocation && matchStatus
   })
 })
 
@@ -322,6 +334,11 @@ const isAllSelected = computed(() => {
 
 // 搜索
 function doSearch() {
+  activeSearchName.value = searchName.value
+  activeSearchType.value = searchType.value
+  activeSearchModel.value = searchModel.value
+  activeSearchLocation.value = searchLocation.value
+  activeSearchStatus.value = searchStatus.value
   currentPage.value = 1
 }
 
@@ -330,6 +347,11 @@ function resetSearch() {
   searchType.value = ''
   searchModel.value = ''
   searchLocation.value = ''
+  activeSearchName.value = ''
+  activeSearchType.value = ''
+  activeSearchModel.value = ''
+  activeSearchLocation.value = ''
+  activeSearchStatus.value = ''
   currentPage.value = 1
 }
 
@@ -532,6 +554,8 @@ function downloadFile(content: string, filename: string) {
 
 .search-input {
   width: 140px;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(45, 212, 191, 0.3);
 }
 
 .search-input-sm {
@@ -540,10 +564,18 @@ function downloadFile(content: string, filename: string) {
 
 .search-select {
   min-width: 110px;
+  color: rgba(255, 255, 255, 0.85);
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(45, 212, 191, 0.3);
+}
+
+.search-select option {
+  color: #1a1a1a;
+  background: #c8eef5;
 }
 
 .search-input::placeholder, .search-select::placeholder {
-  color: rgba(255, 255, 255, 0.35);
+  color: rgba(255, 255, 255, 0.55);
 }
 
 .search-input:focus, .search-select:focus {
