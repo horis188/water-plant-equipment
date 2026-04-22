@@ -4,6 +4,7 @@ import MainDashboardView from '../views/MainDashboardView.vue'
 import DeviceManageView from '../views/DeviceManageView.vue'
 import DeviceDetailView from '../views/DeviceDetailView.vue'
 import SparepartsView from '../views/SparepartsView.vue'
+import WorkOrderView from '../views/WorkOrderView.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -56,6 +57,11 @@ const router = createRouter({
       path: '/spareparts',
       name: 'spareparts',
       component: SparepartsView
+    },
+    {
+      path: '/workorder',
+      name: 'workorder',
+      component: WorkOrderView
     }
   ]
 })

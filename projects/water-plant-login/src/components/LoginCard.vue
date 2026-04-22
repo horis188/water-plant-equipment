@@ -29,18 +29,12 @@ const validate = () => {
   if (!username.value) {
     usernameError.value = '请输入账号'
     valid = false
-  } else if (username.value.length < 4) {
-    usernameError.value = '账号至少4个字符'
-    valid = false
   } else {
     usernameError.value = ''
   }
 
   if (!password.value) {
     passwordError.value = '请输入密码'
-    valid = false
-  } else if (password.value.length < 6) {
-    passwordError.value = '密码至少6个字符'
     valid = false
   } else {
     passwordError.value = ''
@@ -126,6 +120,7 @@ const handleSubmit = async () => {
         placeholder="请输入账号"
         icon="user"
         :error="usernameError"
+        :minlength="1"
       />
 
       <!-- Password -->
@@ -135,6 +130,7 @@ const handleSubmit = async () => {
         placeholder="请输入密码"
         icon="lock"
         :error="passwordError"
+        :minlength="1"
       />
 
       <!-- Verify code row -->

@@ -7,6 +7,8 @@ interface Props {
   placeholder?: string
   error?: string
   icon?: 'user' | 'lock' | 'verify'
+  minlength?: number
+  maxlength?: number
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -42,6 +44,8 @@ const onInput = (e: Event) => {
       :type="inputType"
       :value="modelValue"
       :placeholder="placeholder"
+      :minlength="minlength"
+      :maxlength="maxlength"
       @input="onInput"
       @focus="focused = true"
       @blur="focused = false"

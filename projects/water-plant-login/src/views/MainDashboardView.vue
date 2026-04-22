@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import WaterBackground from '../components/WaterBackground.vue'
 import { deviceStats, deviceListWithStatus, deviceChangeLog, currentUser } from '../composables/useDeviceStore'
 import { spareparts } from '../composables/useSparepartStore'
+import { maintenanceOrders } from '../composables/useWorkOrderStore'
 
 const router = useRouter()
 
@@ -131,7 +132,20 @@ const lowStockNotifs = computed(() => {
       time: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
     }))
 })
-const allNotifs = computed(() => [...lowStockNotifs.value, ...notifications.value])
+
+// 维修工单延时提醒（带班可见）
+const delayNotifs = computed(() => {
+  if (currentUser.value.role !== '带班') return []
+  return maintenanceOrders.value
+    .filter(o => o.status === 'delay')
+    .map(o => ({
+      id: o.id,
+      type: 'warning' as const,
+      content: `维修工单「${o.id}」申请延时：${o.delayReason}`,
+      time: ''
+    }))
+})
+const allNotifs = computed(() => [...delayNotifs.value, ...lowStockNotifs.value, ...notifications.value])
 const visibleNotifs = computed(() => allNotifs.value.slice(0, 4))
 const expandedNotifs = computed(() => allNotifs.value.slice(0, 10))
 
