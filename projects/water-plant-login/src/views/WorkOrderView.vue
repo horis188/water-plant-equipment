@@ -397,9 +397,13 @@ import {
   matchDeviceByContent, problemOrders, maintenanceOrders,
   addProblemOrder, updateProblemOrder,
   addMaintenanceOrder, updateMaintenanceOrder,
+  initDeviceStatusFromWorkOrders,
   statusLabel, statusColor, levelLabel,
   ProblemWorkOrder, MaintenanceWorkOrder
 } from '../composables/useWorkOrderStore'
+
+// 初始化设备状态（根据已有工单）
+initDeviceStatusFromWorkOrders()
 
 // Tab
 const activeTab = ref<'problem' | 'maintenance'>(currentUser.value.role === '维修组' ? 'maintenance' : 'problem')

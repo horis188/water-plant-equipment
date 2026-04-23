@@ -28,6 +28,32 @@ export function matchDeviceByContent(content: string): string | null {
   return null
 }
 
+// 初始化设备状态（根据已有工单数据）
+export function initDeviceStatusFromWorkOrders() {
+  // 处理问题工单：pending状态 -> 告警
+  for (const order of problemOrders.value) {
+    if (order.status === 'pending' && order.deviceId) {
+      updateDeviceStatusByOrder(order.deviceId, '告警', '系统初始化')
+    }
+  }
+  // 处理维修工单：processing状态 -> 维修中
+  for (const order of maintenanceOrders.value) {
+    if (order.status === 'processing') {
+      if (order.problemOrderId) {
+        const po = problemOrders.value.find(p => p.id === order.problemOrderId)
+        if (po?.deviceId) {
+          updateDeviceStatusByOrder(po.deviceId, '维修中', '系统初始化')
+        }
+      } else {
+        const deviceId = matchDeviceByContent(order.content || '')
+        if (deviceId) {
+          updateDeviceStatusByOrder(deviceId, '维修中', '系统初始化')
+        }
+      }
+    }
+  }
+}
+
 // ============ 工单类型定义 ============
 
 export type ProblemStatus = 'pending' | 'self_resolved' | 'to_maintenance' | 'closed'
