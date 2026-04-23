@@ -4,9 +4,14 @@
     <div class="wo-header">
       <div class="wo-title">
         <h2>维修工单</h2>
-        <span v-if="currentUser.role !== '维修组'" class="wo-count">问题 {{ problemOrders.length }} / 维修 {{ maintenanceOrders.length }}</span>
-        <template v-else>
-          <span class="wo-stat">未接单 {{ maintenanceOrders.filter(o => o.status === 'pending').length }}</span>
+        <span v-if="currentUser.role === '维修组'" class="wo-stat">未接单 {{ maintenanceOrders.filter(o => o.status === 'pending').length }}</span>
+        <span v-else-if="currentUser.role === '值班' || currentUser.role === '带班'" class="wo-count">
+          待确认 {{ problemOrders.filter(o => o.status === 'pending').length }} /
+          转维修 {{ problemOrders.filter(o => o.status === 'to_maintenance').length }} /
+          已解决 {{ problemOrders.filter(o => o.status === 'self_resolved' && isRecentResolved(o)).length }}
+        </span>
+        <span v-else class="wo-count">问题 {{ problemOrders.length }} / 维修 {{ maintenanceOrders.length }}</span>
+        <template v-if="currentUser.role === '维修组'">
           <span class="wo-stat">进行中 {{ maintenanceOrders.filter(o => o.status === 'processing' || o.status === 'delay').length }}</span>
           <span class="wo-stat">已完成 {{ maintenanceOrders.filter(o => o.status === 'completed' || o.status === 'closed').length }}</span>
         </template>
@@ -376,6 +381,14 @@ function doSearch() { activeSearchStatus.value = searchStatus.value }
 function resetSearch() { searchStatus.value = ''; activeSearchStatus.value = '' }
 
 // ============ 过滤 ============
+const isRecentResolved = (o: { closedAt?: string }) => {
+  if (!o.closedAt) return false
+  const closed = new Date(o.closedAt)
+  const now = new Date()
+  const diffDays = (now.getTime() - closed.getTime()) / (1000 * 60 * 60 * 24)
+  return diffDays <= 7
+}
+
 const filteredProblemOrders = computed(() => {
   return problemOrders.value.filter(o => {
     if (!activeSearchStatus.value) return true
