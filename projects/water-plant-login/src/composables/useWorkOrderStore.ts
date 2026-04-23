@@ -34,19 +34,17 @@ export function initDeviceStatusFromWorkOrders() {
   // 收集所有设备的工单状态
   const deviceStatusMap: Record<string, number> = {} // 0=在用, 1=告警, 2=维修中
   
-  // 处理维修工单：processing状态 -> 维修中（最高优先级）
+  // 处理维修工单：有维修工单(任意状态) -> 维修中（最高优先级）
   for (const order of maintenanceOrders.value) {
-    if (order.status === 'processing') {
-      let deviceId: string | null = null
-      if (order.problemOrderId) {
-        const po = problemOrders.value.find(p => p.id === order.problemOrderId)
-        deviceId = po?.deviceId || null
-      } else {
-        deviceId = matchDeviceByContent(order.content || '')
-      }
-      if (deviceId) {
-        deviceStatusMap[deviceId] = 2 // 维修中
-      }
+    let deviceId: string | null = null
+    if (order.problemOrderId) {
+      const po = problemOrders.value.find(p => p.id === order.problemOrderId)
+      deviceId = po?.deviceId || null
+    } else {
+      deviceId = matchDeviceByContent(order.content || '')
+    }
+    if (deviceId) {
+      deviceStatusMap[deviceId] = 2 // 维修中
     }
   }
   
