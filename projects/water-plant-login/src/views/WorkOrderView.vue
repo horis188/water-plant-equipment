@@ -5,7 +5,16 @@
       <div class="wo-title">
         <h2 v-if="currentUser.role === '值班岗位' || currentUser.role === '带班'">{{ activeTab === 'maintenance' ? '维修工单' : '问题工单' }}</h2>
         <h2 v-else>维修工单</h2>
-        <span v-if="currentUser.role === '维修组' || (currentUser.role === '值班岗位' && activeTab === 'maintenance') || (currentUser.role === '带班' && activeTab === 'maintenance')" class="wo-stat">
+        <span v-if="currentUser.role === '维修组'" class="wo-stat">
+          未接单 {{ maintenanceOrders.filter(o => o.status === 'pending').length }}
+        </span>
+        <span v-if="currentUser.role === '维修组'" class="wo-stat">
+          进行中 {{ maintenanceOrders.filter(o => o.status === 'processing' || o.status === 'delay').length }}
+        </span>
+        <span v-if="currentUser.role === '维修组'" class="wo-stat">
+          已完成 {{ maintenanceOrders.filter(o => o.status === 'completed' || o.status === 'closed').length }}
+        </span>
+        <span v-if="(currentUser.role === '值班岗位' || currentUser.role === '带班') && activeTab === 'maintenance'" class="wo-stat">
           未接单 {{ maintenanceOrders.filter(o => o.status === 'pending').length }}
         </span>
         <span v-if="(currentUser.role === '值班岗位' || currentUser.role === '带班') && activeTab === 'maintenance'" class="wo-stat">
@@ -14,8 +23,6 @@
         <span v-if="(currentUser.role === '值班岗位' || currentUser.role === '带班') && activeTab === 'maintenance'" class="wo-stat">
           已完成 {{ maintenanceOrders.filter(o => o.status === 'completed' || o.status === 'closed').length }}
         </span>
-        <span v-else-if="currentUser.role === '维修组'" class="wo-stat">进行中 {{ maintenanceOrders.filter(o => o.status === 'processing' || o.status === 'delay').length }}</span>
-        <span v-else-if="currentUser.role === '维修组'" class="wo-stat">已完成 {{ maintenanceOrders.filter(o => o.status === 'completed' || o.status === 'closed').length }}</span>
         <span v-if="(currentUser.role === '值班岗位' || currentUser.role === '带班') && activeTab === 'problem'" class="wo-stat">
           未处理 {{ problemOrders.filter(o => o.status === 'pending').length }}
         </span>
