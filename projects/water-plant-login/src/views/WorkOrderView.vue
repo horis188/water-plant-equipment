@@ -798,6 +798,7 @@ function acceptOrder(order: MaintenanceWorkOrder) {
     handlerName: currentUser.value.name,
     status: 'processing'
   })
+  // 接单后设备状态保持维修中（由转维修时已设置）
 }
 </script>
 
