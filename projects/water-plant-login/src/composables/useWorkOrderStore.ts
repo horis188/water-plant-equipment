@@ -1,5 +1,5 @@
 import { ref } from 'vue'
-import { currentUser, alarms, addDeviceChangeLog } from './useDeviceStore'
+import { currentUser, updateDeviceStatusByOrder } from './useDeviceStore'
 
 // ============ 设备关键词匹配 ============
 export function matchDeviceByContent(content: string): string | null {
@@ -202,20 +202,7 @@ export function addProblemOrder(order: Omit<ProblemWorkOrder, 'id' | 'createdAt'
   
   // 如果匹配到设备，更新设备状态为告警
   if (deviceId) {
-    addDeviceChangeLog(deviceId, {
-      field: 'status',
-      fieldLabel: '设备状态',
-      oldValue: '在用',
-      newValue: '告警'
-    }, order.reporterName)
-    // 创建告警记录
-    alarms.value.push({
-      id: `A-${String(Date.now()).slice(-4)}`,
-      deviceId,
-      title: order.content.substring(0, 30),
-      time: new Date().toLocaleString('zh-CN'),
-      resolved: false
-    })
+    updateDeviceStatusByOrder(deviceId, '告警', order.reporterName)
   }
   
   addLog({
