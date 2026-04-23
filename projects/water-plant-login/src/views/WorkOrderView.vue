@@ -458,15 +458,21 @@ const filteredProblemOrders = computed(() => {
 // 维修工单排序
 const maintenanceStatusOrder_维修组: Record<string, number> = { 'pending': 1, 'processing': 2, 'delay': 3, 'completed': 4, 'returned': 5, 'closed': 6 }
 const maintenanceStatusOrder_其他: Record<string, number> = { 'completed': 1, 'pending': 2, 'processing': 3, 'delay': 4, 'returned': 5, 'closed': 6 }
+const levelOrder: Record<string, number> = { 'heavy': 1, 'medium': 2, 'light': 3 }
 
 const filteredMaintenanceOrders = computed(() => {
-  const is维修组 = currentUser.value.role === '维修组'
-  const statusOrder = is维修组 ? maintenanceStatusOrder_维修组 : maintenanceStatusOrder_其他
+  const is维修组OrAdmin = currentUser.value.role === '维修组' || currentUser.value.role === '系统管理人'
+  const statusOrder = is维修组OrAdmin ? maintenanceStatusOrder_维修组 : maintenanceStatusOrder_其他
   const filtered = maintenanceOrders.value.filter(o => {
     if (!activeSearchStatus.value) return true
     return o.status === activeSearchStatus.value
   })
-  return filtered.sort((a, b) => (statusOrder[a.status] || 99) - (statusOrder[b.status] || 99))
+  return filtered.sort((a, b) => {
+    const statusDiff = (statusOrder[a.status] || 99) - (statusOrder[b.status] || 99)
+    if (statusDiff !== 0) return statusDiff
+    // 同状态按等级排序：重 > 中 > 轻
+    return (levelOrder[a.level] || 99) - (levelOrder[b.level] || 99)
+  })
 })
 
 // ============ 权限判断 ============
