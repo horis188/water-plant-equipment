@@ -444,18 +444,29 @@ const isRecentResolved = (o: { closedAt?: string }) => {
   return diffDays <= 7
 }
 
+// 问题工单排序: 待确认 > 转维修 > 已闭环
+const problemStatusOrder: Record<string, number> = { 'pending': 1, 'to_maintenance': 2, 'self_resolved': 3, 'closed': 3 }
+
 const filteredProblemOrders = computed(() => {
-  return problemOrders.value.filter(o => {
+  const filtered = problemOrders.value.filter(o => {
     if (!activeSearchStatus.value) return true
     return o.status === activeSearchStatus.value
   })
+  return filtered.sort((a, b) => (problemStatusOrder[a.status] || 99) - (problemStatusOrder[b.status] || 99))
 })
 
+// 维修工单排序
+const maintenanceStatusOrder_维修组: Record<string, number> = { 'pending': 1, 'processing': 2, 'delay': 3, 'completed': 4, 'returned': 5, 'closed': 6 }
+const maintenanceStatusOrder_其他: Record<string, number> = { 'completed': 1, 'pending': 2, 'processing': 3, 'delay': 4, 'returned': 5, 'closed': 6 }
+
 const filteredMaintenanceOrders = computed(() => {
-  return maintenanceOrders.value.filter(o => {
+  const is维修组 = currentUser.value.role === '维修组'
+  const statusOrder = is维修组 ? maintenanceStatusOrder_维修组 : maintenanceStatusOrder_其他
+  const filtered = maintenanceOrders.value.filter(o => {
     if (!activeSearchStatus.value) return true
     return o.status === activeSearchStatus.value
   })
+  return filtered.sort((a, b) => (statusOrder[a.status] || 99) - (statusOrder[b.status] || 99))
 })
 
 // ============ 权限判断 ============
