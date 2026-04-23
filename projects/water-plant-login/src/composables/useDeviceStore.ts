@@ -135,8 +135,8 @@ export function updateDeviceStatusByOrder(deviceId: string, newStatus: string, o
       }
     })
   }
-  // 创建新的告警记录（当状态是告警或维修中时）
-  if (newStatus === '告警' || newStatus === '维修中') {
+  // 创建新的告警记录（仅当状态为告警时）
+  if (newStatus === '告警') {
     alarms.value.push({
       id: `A-${String(Date.now()).slice(-4)}`,
       deviceId,
