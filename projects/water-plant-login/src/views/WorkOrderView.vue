@@ -69,10 +69,9 @@
             <span>报告人：{{ order.reporterName }}</span>
             <span>时间：{{ order.createdAt }}</span>
           </div>
-          <div v-if="order.images.length || order.audios.length || order.files.length" class="wo-attachments">
+          <div v-if="order.images.length || ('videos' in order && order.videos?.length)" class="wo-attachments">
             <span v-if="order.images.length">📷 {{ order.images.length }}</span>
-            <span v-if="order.audios.length">🎵 {{ order.audios.length }}</span>
-            <span v-if="order.files.length">📎 {{ order.files.length }}</span>
+            <span v-if="'videos' in order && order.videos?.length">🎬 {{ order.videos.length }}</span>
           </div>
           <div v-if="order.resolution" class="wo-resolution">
             <strong>处理结果：</strong>{{ order.resolution }}
@@ -138,12 +137,8 @@
             </div>
           </div>
           <div class="form-row">
-            <label>音频</label>
-            <input type="text" v-model="createForm.audios" placeholder="音频URL，多个用逗号分隔" />
-          </div>
-          <div class="form-row">
-            <label>附件</label>
-            <input type="text" v-model="createForm.files" placeholder="附件URL，多个用逗号分隔" />
+            <label>视频</label>
+            <input type="file" accept="video/*" multiple @change="e => handleVideoUpload(e, createForm)" />
           </div>
         </div>
         <div class="dialog-footer">
@@ -474,15 +469,22 @@ function canDelayOrder(order: MaintenanceWorkOrder) {
 
 // ============ 新建问题工单 ============
 const createDialogVisible = ref(false)
-const createForm = ref({ content: '', images: '', audios: '', files: '' })
+const createForm = ref({ content: '', images: '', videos: '' })
 
-function openCreateDialog() { createDialogVisible.value = true; createForm.value = { content: '', images: '', audios: '', files: '' } }
+function openCreateDialog() { createDialogVisible.value = true; createForm.value = { content: '', images: '', videos: '' } }
 
 function handleImageUpload(e: Event, form: { images?: string }) {
   const files = (e.target as HTMLInputElement).files
   if (!files) return
   const urls = Array.from(files).map(f => URL.createObjectURL(f))
   form.images = urls.join(',')
+}
+
+function handleVideoUpload(e: Event, form: { videos?: string }) {
+  const files = (e.target as HTMLInputElement).files
+  if (!files) return
+  const urls = Array.from(files).map(f => URL.createObjectURL(f))
+  form.videos = urls.join(',')
 }
 
 function submitCreateProblem() {
@@ -493,8 +495,7 @@ function submitCreateProblem() {
     shiftId: 'SHIFT-001',
     content: createForm.value.content,
     images: createForm.value.images ? createForm.value.images.split(',').map(s => s.trim()) : [],
-    audios: createForm.value.audios ? createForm.value.audios.split(',').map(s => s.trim()) : [],
-    files: createForm.value.files ? createForm.value.files.split(',').map(s => s.trim()) : [],
+    videos: createForm.value.videos ? createForm.value.videos.split(',').map(s => s.trim()) : [],
     status: 'pending'
   })
   createDialogVisible.value = false

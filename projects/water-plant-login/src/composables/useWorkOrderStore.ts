@@ -20,8 +20,7 @@ export interface ProblemWorkOrder {
   shiftId: string
   content: string
   images: string[]
-  audios: string[]
-  files: string[]
+  videos: string[]
   status: ProblemStatus
   resolution?: string
   resolutionImages?: string[]
@@ -72,8 +71,7 @@ export const problemOrders = ref<ProblemWorkOrder[]>([
     shiftId: 'SHIFT-001',
     content: '2号取水泵运行时异响，轴承可能损坏',
     images: [],
-    audios: [],
-    files: [],
+    videos: [],
     status: 'pending',
     createdAt: '2026-04-22 09:00'
   },
@@ -84,8 +82,7 @@ export const problemOrders = ref<ProblemWorkOrder[]>([
     shiftId: 'SHIFT-001',
     content: '加药间液位计读数偏低',
     images: [],
-    audios: [],
-    files: [],
+    videos: [],
     status: 'to_maintenance',
     createdAt: '2026-04-21 16:20'
   },
@@ -96,8 +93,7 @@ export const problemOrders = ref<ProblemWorkOrder[]>([
     shiftId: 'SHIFT-002',
     content: '滤池1号阀门操作卡顿',
     images: [],
-    audios: [],
-    files: [],
+    videos: [],
     status: 'self_resolved',
     resolution: '已清理阀门轴承杂物，调试后正常',
     resolutionImages: [],
