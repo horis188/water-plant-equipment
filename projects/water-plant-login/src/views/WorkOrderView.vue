@@ -12,7 +12,9 @@
         </template>
       </div>
       <div v-if="currentUser.role !== '维修组'" class="wo-actions">
-        <button class="dm-btn dm-btn-primary" @click="openCreateDialog">+ 新建问题工单</button>
+        <button class="dm-btn dm-btn-primary" @click="currentUser.role === '带班' ? openCreateMaintenanceDialog() : openCreateDialog()">
+          {{ currentUser.role === '带班' ? '+ 新建维修工单' : '+ 新建问题工单' }}
+        </button>
       </div>
     </div>
 
@@ -122,6 +124,34 @@
         <div class="dialog-footer">
           <button class="dm-btn dm-btn-cancel" @click="createDialogVisible = false">取消</button>
           <button class="dm-btn dm-btn-primary" @click="submitCreateProblem">提交</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 新建维修工单弹窗（带班直接创建）-->
+    <div v-if="createMaintenanceDialogVisible" class="dm-dialog-overlay" @click.self="createMaintenanceDialogVisible = false">
+      <div class="dm-dialog">
+        <div class="dialog-header">
+          <h3>新建维修工单</h3>
+          <button class="dialog-close" @click="createMaintenanceDialogVisible = false">×</button>
+        </div>
+        <div class="dialog-body">
+          <div class="form-row">
+            <label>维修内容 <span class="required">*</span></label>
+            <textarea v-model="createMaintenanceForm.content" placeholder="请描述维修内容" rows="4"></textarea>
+          </div>
+          <div class="form-row">
+            <label>维修级别</label>
+            <select v-model="createMaintenanceForm.level">
+              <option value="light">轻度</option>
+              <option value="medium">中度</option>
+              <option value="heavy">重度</option>
+            </select>
+          </div>
+        </div>
+        <div class="dialog-footer">
+          <button class="dm-btn dm-btn-cancel" @click="createMaintenanceDialogVisible = false">取消</button>
+          <button class="dm-btn dm-btn-primary" @click="submitCreateMaintenance">提交</button>
         </div>
       </div>
     </div>
@@ -392,6 +422,30 @@ function submitCreateProblem() {
     status: 'pending'
   })
   createDialogVisible.value = false
+}
+
+// ============ 新建维修工单（带班直接创建）===========
+const createMaintenanceDialogVisible = ref(false)
+const createMaintenanceForm = ref({ content: '', level: 'medium' as const })
+
+function openCreateMaintenanceDialog() {
+  createMaintenanceDialogVisible.value = true
+  createMaintenanceForm.value = { content: '', level: 'medium' }
+}
+
+function submitCreateMaintenance() {
+  if (!createMaintenanceForm.value.content) return
+  addMaintenanceOrder({
+    content: createMaintenanceForm.value.content,
+    level: createMaintenanceForm.value.level,
+    assignerId: currentUser.value.name,
+    assignerName: currentUser.value.name,
+    participants: [],
+    status: 'pending',
+    delayDays: 0,
+    sparepartUsage: []
+  })
+  createMaintenanceDialogVisible.value = false
 }
 
 // ============ 处理问题工单 ============
