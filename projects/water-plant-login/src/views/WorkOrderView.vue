@@ -540,6 +540,10 @@ function openProblemHandle(order: ProblemWorkOrder) {
 
 function submitHandleProblem() {
   if (!handlingOrder.value) return
+  
+  // 获取关联的设备ID
+  const getDeviceId = () => handlingOrder.value?.deviceId
+  
   if (handleType.value === 'self') {
     if (!handleForm.value.resolution) return
     updateProblemOrder(handlingOrder.value.id, {
@@ -549,8 +553,9 @@ function submitHandleProblem() {
       closedAt: new Date().toLocaleString('zh-CN')
     })
     // 自行解决后设备恢复在用
-    if (handlingOrder.value.deviceId) {
-      updateDeviceStatusByOrder(handlingOrder.value.deviceId, '在用', currentUser.value.name)
+    const deviceId = getDeviceId()
+    if (deviceId) {
+      updateDeviceStatusByOrder(deviceId, '在用', currentUser.value.name)
     }
   } else {
     updateProblemOrder(handlingOrder.value.id, { status: 'to_maintenance' })
@@ -566,8 +571,9 @@ function submitHandleProblem() {
       sparepartUsage: []
     })
     // 问题工单转维修，设备状态变为维修中
-    if (handlingOrder.value.deviceId) {
-      updateDeviceStatusByOrder(handlingOrder.value.deviceId, '维修中', currentUser.value.name)
+    const deviceId = getDeviceId()
+    if (deviceId) {
+      updateDeviceStatusByOrder(deviceId, '维修中', currentUser.value.name)
     }
   }
   handleDialogVisible.value = false
@@ -615,6 +621,19 @@ function submitComplete() {
     sparepartUsage: completeForm.value.spareparts.filter(sp => sp.name),
     completedAt: new Date().toLocaleString('zh-CN')
   })
+  // 完成维修后设备状态变为在用（等待审核）
+  const order = completingOrder.value
+  if (order.problemOrderId) {
+    const problemOrder = problemOrders.value.find(p => p.id === order.problemOrderId)
+    if (problemOrder?.deviceId) {
+      updateDeviceStatusByOrder(problemOrder.deviceId, '在用', currentUser.value.name)
+    }
+  } else {
+    const deviceId = matchDeviceByContent(order.content || '')
+    if (deviceId) {
+      updateDeviceStatusByOrder(deviceId, '在用', currentUser.value.name)
+    }
+  }
   completeDialogVisible.value = false
 }
 
@@ -632,6 +651,16 @@ function openProblemCloseDialog(order: MaintenanceWorkOrder) {
 function submitProblemClose() {
   if (!closingOrder.value || !problemCloseForm.value.reason) return
   const order = closingOrder.value
+  
+  // 获取关联的设备ID
+  const getDeviceId = () => {
+    if (order.problemOrderId) {
+      const problemOrder = problemOrders.value.find(p => p.id === order.problemOrderId)
+      return problemOrder?.deviceId
+    }
+    return matchDeviceByContent(order.content || '')
+  }
+  
   // 关闭维修工单
   updateMaintenanceOrder(order.id, {
     status: 'closed',
@@ -639,26 +668,23 @@ function submitProblemClose() {
     completionImages: problemCloseForm.value.images ? problemCloseForm.value.images.split(',').map(s => s.trim()) : [],
     closedAt: new Date().toLocaleString('zh-CN')
   })
+  
   // 如果有来源问题工单，关闭它并记录原因
   if (order.problemOrderId) {
-    const problemOrder = problemOrders.value.find(p => p.id === order.problemOrderId)
     updateProblemOrder(order.problemOrderId, {
       status: 'closed',
       resolution: problemCloseForm.value.reason,
       resolutionImages: problemCloseForm.value.images ? problemCloseForm.value.images.split(',').map(s => s.trim()) : [],
       closedAt: new Date().toLocaleString('zh-CN')
     })
-    // 工单闭环后设备恢复在用（用问题工单的设备ID）
-    if (problemOrder?.deviceId) {
-      updateDeviceStatusByOrder(problemOrder.deviceId, '在用', currentUser.value.name)
-    }
-  } else if (order.problemOrderId === undefined) {
-    // 直接创建的维修工单，尝试用content匹配设备
-    const deviceId = matchDeviceByContent(order.content || '')
-    if (deviceId) {
-      updateDeviceStatusByOrder(deviceId, '在用', currentUser.value.name)
-    }
   }
+  
+  // 工单闭环后设备恢复在用
+  const deviceId = getDeviceId()
+  if (deviceId) {
+    updateDeviceStatusByOrder(deviceId, '在用', currentUser.value.name)
+  }
+  
   problemCloseDialogVisible.value = false
 }
 
@@ -678,37 +704,37 @@ function openReviewDialog(order: MaintenanceWorkOrder) {
 function submitReview() {
   if (!reviewingOrder.value) return
   if (reviewResult.value === 'reject' && !reviewForm.value.reason) return
+  const order = reviewingOrder.value
+  
+  // 获取关联的设备ID
+  const getDeviceId = (o: typeof order) => {
+    if (o.problemOrderId) {
+      const problemOrder = problemOrders.value.find(p => p.id === o.problemOrderId)
+      return problemOrder?.deviceId
+    }
+    return matchDeviceByContent(o.content || '')
+  }
+  
   if (reviewResult.value === 'pass') {
-    updateMaintenanceOrder(reviewingOrder.value.id, {
+    updateMaintenanceOrder(order.id, {
       status: 'closed',
       closedAt: new Date().toLocaleString('zh-CN')
     })
     // 审核通过后设备恢复在用
-    const order = reviewingOrder.value
-    if (order.problemOrderId) {
-      const problemOrder = problemOrders.value.find(p => p.id === order.problemOrderId)
-      if (problemOrder?.deviceId) {
-        updateDeviceStatusByOrder(problemOrder.deviceId, '在用', currentUser.value.name)
-      }
-    } else {
-      const deviceId = matchDeviceByContent(order.content || '')
-      if (deviceId) {
-        updateDeviceStatusByOrder(deviceId, '在用', currentUser.value.name)
-      }
+    const deviceId = getDeviceId(order)
+    if (deviceId) {
+      updateDeviceStatusByOrder(deviceId, '在用', currentUser.value.name)
     }
   } else {
-    updateMaintenanceOrder(reviewingOrder.value.id, {
+    updateMaintenanceOrder(order.id, {
       status: 'returned',
       returnReason: reviewForm.value.reason,
       returnImages: reviewForm.value.images ? reviewForm.value.images.split(',').map(s => s.trim()) : []
     })
     // 退回后设备状态变为告警
-    const order = reviewingOrder.value
-    if (order.problemOrderId) {
-      const problemOrder = problemOrders.value.find(p => p.id === order.problemOrderId)
-      if (problemOrder?.deviceId) {
-        updateDeviceStatusByOrder(problemOrder.deviceId, '告警', currentUser.value.name)
-      }
+    const deviceId = getDeviceId(order)
+    if (deviceId) {
+      updateDeviceStatusByOrder(deviceId, '告警', currentUser.value.name)
     }
   }
   reviewDialogVisible.value = false
