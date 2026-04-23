@@ -110,9 +110,9 @@
         <div class="wo-card-actions">
           <button v-if="canAcceptOrder(order)" class="action-btn" @click.stop="acceptOrder(order)">接单</button>
           <button v-if="canDelayOrder(order)" class="action-btn" @click.stop="openDelayDialog(order)">延时</button>
-          <button v-if="currentUser.role === '维修组' && (order.status === 'processing' || order.status === 'delay')" class="action-btn action-btn-primary" @click.stop="openCompleteDialog(order)">完成</button>
-          <button v-if="currentUser.role === '维修组' && order.status === 'processing'" class="action-btn action-btn-primary" @click.stop="openProblemCloseDialog(order)">问题工单闭环</button>
-          <button v-if="currentUser.role === '带班' && order.status === 'completed'" class="action-btn" @click.stop="openReviewDialog(order)">审核</button>
+          <button v-if="(currentUser.role === '维修组' || currentUser.role === '系统管理人') && (order.status === 'processing' || order.status === 'delay')" class="action-btn action-btn-primary" @click.stop="openCompleteDialog(order)">完成</button>
+          <button v-if="(currentUser.role === '维修组' || currentUser.role === '系统管理人') && order.status === 'processing'" class="action-btn action-btn-primary" @click.stop="openProblemCloseDialog(order)">问题工单闭环</button>
+          <button v-if="(currentUser.role === '带班' || currentUser.role === '系统管理人') && order.status === 'completed'" class="action-btn" @click.stop="openReviewDialog(order)">审核</button>
         </div>
       </div>
       <div v-if="filteredMaintenanceOrders.length === 0" class="empty-row">暂无维修工单</div>
@@ -424,15 +424,15 @@ const filteredMaintenanceOrders = computed(() => {
 
 // ============ 权限判断 ============
 function canHandleProblem(order: ProblemWorkOrder) {
-  return currentUser.value.role === '带班' && order.status === 'pending'
+  return (currentUser.value.role === '带班' || currentUser.value.role === '系统管理人') && order.status === 'pending'
 }
 
 function canAcceptOrder(order: MaintenanceWorkOrder) {
-  return currentUser.value.role === '维修组' && order.status === 'pending' && !order.handlerId
+  return (currentUser.value.role === '维修组' || currentUser.value.role === '系统管理人') && order.status === 'pending' && !order.handlerId
 }
 
 function canDelayOrder(order: MaintenanceWorkOrder) {
-  return currentUser.value.role === '维修组' && order.status === 'processing'
+  return (currentUser.value.role === '维修组' || currentUser.value.role === '系统管理人') && order.status === 'processing'
 }
 
 // ============ 新建问题工单 ============
