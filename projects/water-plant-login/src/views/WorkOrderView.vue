@@ -3,7 +3,8 @@
     <TopNavBar />
     <div class="wo-header">
       <div class="wo-title">
-        <h2>维修工单</h2>
+        <h2 v-if="currentUser.role === '值班' || currentUser.role === '带班'">{{ activeTab === 'maintenance' ? '维修工单' : '问题工单' }}</h2>
+        <h2 v-else>维修工单</h2>
         <span v-if="currentUser.role === '维修组'" class="wo-stat">未接单 {{ maintenanceOrders.filter(o => o.status === 'pending').length }}</span>
         <span v-else-if="currentUser.role === '值班' || currentUser.role === '带班'" class="wo-count">
           待确认 {{ problemOrders.filter(o => o.status === 'pending').length }} /
