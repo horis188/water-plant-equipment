@@ -689,10 +689,19 @@ const editDialogVisible = ref(false)
 const editForm = ref<{ content: string; level: 'light' | 'medium' | 'heavy' }>({ content: '', level: 'medium' })
 
 function openEditDialog(order: ProblemWorkOrder | MaintenanceWorkOrder) {
-  editForm.value = { 
-    content: order.content || '', 
-    level: ('level' in order ? order.level : 'medium') as 'light' | 'medium' | 'heavy'
+  let content = order.content || ''
+  let level: 'light' | 'medium' | 'heavy' = 'medium'
+  
+  if ('level' in order) {
+    level = order.level as 'light' | 'medium' | 'heavy'
+    // If maintenance order has problemOrderId, get content from problem order
+    if ('problemOrderId' in order && order.problemOrderId && !content) {
+      const linkedProblem = problemOrders.value.find(p => p.id === order.problemOrderId)
+      if (linkedProblem) content = linkedProblem.content
+    }
   }
+  
+  editForm.value = { content, level }
   editDialogVisible.value = true
 }
 
