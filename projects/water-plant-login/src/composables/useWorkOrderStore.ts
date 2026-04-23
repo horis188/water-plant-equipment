@@ -111,6 +111,7 @@ export const maintenanceOrders = ref<MaintenanceWorkOrder[]>([
   {
     id: 'MWO-001',
     problemOrderId: 'PWO-002',
+    content: '2号取水泵轴承损坏，需要更换维修',
     level: 'medium',
     assignerId: 'zy',
     assignerName: '张远',
@@ -125,6 +126,7 @@ export const maintenanceOrders = ref<MaintenanceWorkOrder[]>([
   {
     id: 'MWO-002',
     problemOrderId: 'PWO-001',
+    content: '1号滤池阀门操作卡顿，需要检修',
     level: 'heavy',
     assignerId: 'zy',
     assignerName: '张远',
@@ -138,6 +140,7 @@ export const maintenanceOrders = ref<MaintenanceWorkOrder[]>([
   },
   {
     id: 'MWO-003',
+    content: '3号取水泵电机温度异常',
     level: 'light',
     assignerId: 'admin',
     assignerName: '管理员',
