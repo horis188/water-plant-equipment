@@ -35,7 +35,7 @@ export const workOrders = ref([
 
 // ============ 告警记录 ============
 export const alarms = ref([
-  { id: 'A-001', deviceId: 'D-009', title: '加药计量泵流量异常', time: '2026-04-21 10:15', resolved: false },
+  { id: 'A-001', deviceId: 'D-002', title: '2号取水泵运行时异响', time: '2026-04-22 09:00', resolved: false },
   { id: 'A-002', deviceId: 'D-006', title: '1号滤池风机振动偏大', time: '2026-04-21 08:30', resolved: false },
   { id: 'A-003', deviceId: 'D-003', title: '1号送水泵压力波动', time: '2026-04-20 16:00', resolved: true }
 ])
