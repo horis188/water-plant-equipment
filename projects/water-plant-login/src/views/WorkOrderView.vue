@@ -11,7 +11,7 @@
           <span class="wo-stat">已完成 {{ maintenanceOrders.filter(o => o.status === 'completed' || o.status === 'closed').length }}</span>
         </template>
       </div>
-      <div class="wo-actions">
+      <div v-if="currentUser.role !== '维修组'" class="wo-actions">
         <button class="dm-btn dm-btn-primary" @click="openCreateDialog">+ 新建问题工单</button>
       </div>
     </div>
