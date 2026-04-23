@@ -392,9 +392,9 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import TopNavBar from '../components/TopNavBar.vue'
-import { currentUser, updateDeviceStatusByOrder, matchDeviceByContent } from '../composables/useDeviceStore'
+import { currentUser, updateDeviceStatusByOrder } from '../composables/useDeviceStore'
 import {
-  problemOrders, maintenanceOrders,
+  matchDeviceByContent, problemOrders, maintenanceOrders,
   addProblemOrder, updateProblemOrder,
   addMaintenanceOrder, updateMaintenanceOrder,
   statusLabel, statusColor, levelLabel,

@@ -1,5 +1,32 @@
 import { ref } from 'vue'
-import { currentUser, matchDeviceByContent, alarms, addDeviceChangeLog } from './useDeviceStore'
+import { currentUser, alarms, addDeviceChangeLog } from './useDeviceStore'
+
+// ============ 设备关键词匹配 ============
+export function matchDeviceByContent(content: string): string | null {
+  const keywordMap: Record<string, string> = {
+    '1号取水泵': 'D-001',
+    '2号取水泵': 'D-002',
+    '3号取水泵': 'D-005',
+    '1号送水泵': 'D-003',
+    '2号送水泵': 'D-004',
+    '取水泵': 'D-001',
+    '送水泵': 'D-003',
+    '滤池风机': 'D-006',
+    '1号滤池': 'D-006',
+    '水质监测仪': 'D-007',
+    '1号配电柜': 'D-008',
+    '加药计量泵': 'D-009',
+    '污泥脱水机': 'D-010',
+    '脱水机': 'D-010',
+    '二氧化氯发生器': 'D-011',
+    '中控室工控机': 'D-012',
+    '工控机': 'D-012',
+  }
+  for (const [keyword, deviceId] of Object.entries(keywordMap)) {
+    if (content.includes(keyword)) return deviceId
+  }
+  return null
+}
 
 // ============ 工单类型定义 ============
 

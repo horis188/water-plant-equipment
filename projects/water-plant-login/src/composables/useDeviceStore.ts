@@ -1,4 +1,7 @@
 import { ref, computed } from 'vue'
+import { maintenanceOrders, problemOrders, matchDeviceByContent } from './useWorkOrderStore'
+
+// ============ 当前登录用户 ============
 
 // ============ 当前登录用户 ============
 const saved = sessionStorage.getItem('currentUser')
@@ -44,9 +47,21 @@ export const alarms = ref([
 export const computedDeviceStatus = computed(() => {
   const map: Record<string, string> = {}
   for (const d of devices.value) {
+    // 检查是否有未解决告警
     const hasActiveAlarm = alarms.value.some(a => a.deviceId === d.id && !a.resolved)
     if (hasActiveAlarm) { map[d.id] = '告警'; continue }
-    const hasActiveWorkOrder = workOrders.value.some(w => w.deviceId === d.id && w.status === '维修中')
+    // 检查是否有维修中的工单（来自maintenanceOrders）
+    const hasActiveWorkOrder = maintenanceOrders.value.some(w => {
+      if (w.status !== 'processing') return false
+      if (w.problemOrderId) {
+        // 有关联问题工单的，从问题工单获取设备ID
+        const po = problemOrders.value.find(p => p.id === w.problemOrderId)
+        return po?.deviceId === d.id
+      }
+      // 直接创建的维修工单，尝试用content匹配
+      const deviceId = matchDeviceByContent(w.content || '')
+      return deviceId === d.id
+    })
     if (hasActiveWorkOrder) { map[d.id] = '维修中'; continue }
     map[d.id] = '在用'
   }
@@ -63,38 +78,6 @@ export interface DeviceChange {
 }
 
 export const deviceChangeLog = ref<DeviceChange[]>([])
-
-// ============ 设备关键词匹配 ============
-// 从工单内容中识别设备ID
-export function matchDeviceByContent(content: string): string | null {
-  // 设备名称关键词映射
-  const keywordMap: Record<string, string> = {
-    '1号取水泵': 'D-001',
-    '2号取水泵': 'D-002',
-    '3号取水泵': 'D-005',
-    '1号送水泵': 'D-003',
-    '2号送水泵': 'D-004',
-    '取水泵': 'D-001',  // 默认取水泵
-    '送水泵': 'D-003',  // 默认送水泵
-    '滤池风机': 'D-006',
-    '1号滤池': 'D-006',
-    '水质监测仪': 'D-007',
-    '1号配电柜': 'D-008',
-    '加药计量泵': 'D-009',
-    '污泥脱水机': 'D-010',
-    '脱水机': 'D-010',
-    '二氧化氯发生器': 'D-011',
-    '中控室工控机': 'D-012',
-    '工控机': 'D-012',
-  }
-  
-  for (const [keyword, deviceId] of Object.entries(keywordMap)) {
-    if (content.includes(keyword)) {
-      return deviceId
-    }
-  }
-  return null
-}
 
 // 添加设备变动记录
 export function addDeviceChangeLog(deviceId: string, change: { field: string; fieldLabel: string; oldValue: string; newValue: string }, operator: string) {
