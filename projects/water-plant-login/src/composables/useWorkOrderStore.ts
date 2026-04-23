@@ -1,5 +1,5 @@
 import { ref } from 'vue'
-import { currentUser } from './useDeviceStore'
+import { currentUser, matchDeviceByContent, alarms, addDeviceChangeLog } from './useDeviceStore'
 
 // ============ 工单类型定义 ============
 
@@ -15,6 +15,7 @@ export interface SparepartUsage {
 
 export interface ProblemWorkOrder {
   id: string
+  deviceId?: string  // 关联设备ID
   reporterId: string
   reporterName: string
   shiftId: string
@@ -158,11 +159,36 @@ export const workOrderLogs = ref<WorkOrderLog[]>([])
 
 export function addProblemOrder(order: Omit<ProblemWorkOrder, 'id' | 'createdAt'>) {
   const id = `PWO-${String(problemOrders.value.length + 1).padStart(3, '0')}`
-  problemOrders.value.push({
+  
+  // 从内容中匹配设备
+  const deviceId = matchDeviceByContent(order.content)
+  
+  const newOrder: ProblemWorkOrder = {
     ...order,
     id,
+    deviceId: deviceId || undefined,
     createdAt: new Date().toLocaleString('zh-CN')
-  })
+  }
+  problemOrders.value.push(newOrder)
+  
+  // 如果匹配到设备，更新设备状态为告警
+  if (deviceId) {
+    addDeviceChangeLog(deviceId, {
+      field: 'status',
+      fieldLabel: '设备状态',
+      oldValue: '在用',
+      newValue: '告警'
+    }, order.reporterName)
+    // 创建告警记录
+    alarms.value.push({
+      id: `A-${String(Date.now()).slice(-4)}`,
+      deviceId,
+      title: order.content.substring(0, 30),
+      time: new Date().toLocaleString('zh-CN'),
+      resolved: false
+    })
+  }
+  
   addLog({
     orderId: id,
     orderType: 'problem',

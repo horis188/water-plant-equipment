@@ -64,6 +64,82 @@ export interface DeviceChange {
 
 export const deviceChangeLog = ref<DeviceChange[]>([])
 
+// ============ 设备关键词匹配 ============
+// 从工单内容中识别设备ID
+export function matchDeviceByContent(content: string): string | null {
+  // 设备名称关键词映射
+  const keywordMap: Record<string, string> = {
+    '1号取水泵': 'D-001',
+    '2号取水泵': 'D-002',
+    '3号取水泵': 'D-005',
+    '1号送水泵': 'D-003',
+    '2号送水泵': 'D-004',
+    '取水泵': 'D-001',  // 默认取水泵
+    '送水泵': 'D-003',  // 默认送水泵
+    '滤池风机': 'D-006',
+    '1号滤池': 'D-006',
+    '水质监测仪': 'D-007',
+    '1号配电柜': 'D-008',
+    '加药计量泵': 'D-009',
+    '污泥脱水机': 'D-010',
+    '脱水机': 'D-010',
+    '二氧化氯发生器': 'D-011',
+    '中控室工控机': 'D-012',
+    '工控机': 'D-012',
+  }
+  
+  for (const [keyword, deviceId] of Object.entries(keywordMap)) {
+    if (content.includes(keyword)) {
+      return deviceId
+    }
+  }
+  return null
+}
+
+// 添加设备变动记录
+export function addDeviceChangeLog(deviceId: string, change: { field: string; fieldLabel: string; oldValue: string; newValue: string }, operator: string) {
+  const device = devices.value.find(d => d.id === deviceId)
+  if (!device) return
+  
+  const now = new Date()
+  const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
+  const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+  
+  deviceChangeLog.value = deviceChangeLog.value.filter(c => c.id !== deviceId)
+  deviceChangeLog.value.unshift({
+    id: deviceId,
+    name: device.name,
+    changeTime: `${dateStr} ${timeStr}`,
+    operator,
+    changes: [change]
+  })
+}
+
+// 更新设备状态（根据工单状态）
+export function updateDeviceStatusByOrder(deviceId: string, newStatus: string, operator?: string) {
+  if (!deviceId) return
+  const device = devices.value.find(d => d.id === deviceId)
+  if (!device) return
+  const oldStatus = computedDeviceStatus.value[deviceId] || '在用'
+  addDeviceChangeLog(deviceId, {
+    field: 'status',
+    fieldLabel: '设备状态',
+    oldValue: oldStatus,
+    newValue: newStatus
+  }, operator || currentUser.value.name)
+  // 创建或更新告警记录
+  const existingAlarm = alarms.value.find(a => a.deviceId === deviceId && !a.resolved)
+  if (!existingAlarm && newStatus !== '在用') {
+    alarms.value.push({
+      id: `A-${String(Date.now()).slice(-4)}`,
+      deviceId,
+      title: `设备状态变更为${newStatus}`,
+      time: new Date().toLocaleString('zh-CN'),
+      resolved: false
+    })
+  }
+}
+
 // 解析参数字符串为各子字段
 function parseParams(paramsStr: string): Record<string, string> {
   const result: Record<string, string> = {}
