@@ -350,8 +350,37 @@
           </template>
         </div>
         <div class="dialog-footer">
+          <button v-if="currentUser.role === '系统管理人' && detailOrder && 'status' in detailOrder && !['closed', 'completed', 'returned'].includes(detailOrder.status)" class="dm-btn" @click="openEditDialog(detailOrder)">编辑</button>
           <button v-if="currentUser.role === '系统管理人' && detailOrder && 'status' in detailOrder && !['closed', 'completed', 'returned'].includes(detailOrder.status)" class="dm-btn" @click="returnOrder(detailOrder)">退回</button>
           <button class="dm-btn dm-btn-cancel" @click="detailDialogVisible = false">关闭</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 编辑工单弹窗 -->
+    <div v-if="editDialogVisible" class="dm-dialog-overlay" @click.self="editDialogVisible = false">
+      <div class="dm-dialog">
+        <div class="dialog-header">
+          <h3>编辑工单</h3>
+          <button class="dialog-close" @click="editDialogVisible = false">×</button>
+        </div>
+        <div class="dialog-body">
+          <div class="form-row">
+            <label>工单内容 <span class="required">*</span></label>
+            <textarea v-model="editForm.content" placeholder="请描述工单内容" rows="4"></textarea>
+          </div>
+          <div v-if="'level' in (detailOrder || {})" class="form-row">
+            <label>维修级别</label>
+            <select v-model="editForm.level">
+              <option value="light">轻度</option>
+              <option value="medium">中度</option>
+              <option value="heavy">重度</option>
+            </select>
+          </div>
+        </div>
+        <div class="dialog-footer">
+          <button class="dm-btn dm-btn-cancel" @click="editDialogVisible = false">取消</button>
+          <button class="dm-btn dm-btn-primary" @click="submitEdit">保存</button>
         </div>
       </div>
     </div>
@@ -652,6 +681,32 @@ function returnOrder(order: ProblemWorkOrder | MaintenanceWorkOrder) {
     // Maintenance order - return to pending
     updateMaintenanceOrder(order.id, { status: 'pending', handlerId: undefined, handlerName: undefined })
   }
+  detailDialogVisible.value = false
+}
+
+// ============ 编辑工单 ============
+const editDialogVisible = ref(false)
+const editForm = ref<{ content: string; level: 'light' | 'medium' | 'heavy' }>({ content: '', level: 'medium' })
+
+function openEditDialog(order: ProblemWorkOrder | MaintenanceWorkOrder) {
+  editForm.value = { 
+    content: order.content || '', 
+    level: ('level' in order ? order.level : 'medium') as 'light' | 'medium' | 'heavy'
+  }
+  editDialogVisible.value = true
+}
+
+function submitEdit() {
+  if (!detailOrder.value) return
+  if ('reporterId' in detailOrder.value) {
+    updateProblemOrder(detailOrder.value.id, { content: editForm.value.content })
+  } else {
+    updateMaintenanceOrder(detailOrder.value.id, { 
+      content: editForm.value.content, 
+      level: editForm.value.level as 'light' | 'medium' | 'heavy'
+    })
+  }
+  editDialogVisible.value = false
   detailDialogVisible.value = false
 }
 
