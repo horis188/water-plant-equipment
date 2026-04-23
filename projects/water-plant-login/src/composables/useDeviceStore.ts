@@ -99,10 +99,11 @@ export function updateDeviceStatusByOrder(deviceId: string, newStatus: string, o
   device.statusValue = newStatusValue
   
   // 记录设备变动
+  const statusLabels: Record<number, string> = { 0: '在用', 1: '告警', 2: '维修中' }
   addDeviceChangeLog(deviceId, {
     field: 'status',
     fieldLabel: '设备状态',
-    oldValue: newStatus === '在用' ? '在用' : (newStatus === '告警' ? '告警' : '维修中'),
+    oldValue: statusLabels[oldStatusValue] || '在用',
     newValue: newStatus
   }, operator || currentUser.value.name)
 }
