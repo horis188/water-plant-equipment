@@ -4,7 +4,12 @@
     <div class="wo-header">
       <div class="wo-title">
         <h2>维修工单</h2>
-        <span class="wo-count">问题 {{ problemOrders.length }} / 维修 {{ maintenanceOrders.length }}</span>
+        <span v-if="currentUser.role !== '维修组'" class="wo-count">问题 {{ problemOrders.length }} / 维修 {{ maintenanceOrders.length }}</span>
+        <template v-else>
+          <span class="wo-stat">未接单 {{ maintenanceOrders.filter(o => o.status === 'pending').length }}</span>
+          <span class="wo-stat">进行中 {{ maintenanceOrders.filter(o => o.status === 'processing' || o.status === 'delay').length }}</span>
+          <span class="wo-stat">已完成 {{ maintenanceOrders.filter(o => o.status === 'completed' || o.status === 'closed').length }}</span>
+        </template>
       </div>
       <div class="wo-actions">
         <button class="dm-btn dm-btn-primary" @click="openCreateDialog">+ 新建问题工单</button>
@@ -317,7 +322,7 @@ const activeTab = ref<'problem' | 'maintenance'>(currentUser.value.role === '维
 const searchStatus = ref('')
 
 // ============ 状态选项 ============
-const statusOptions = [
+const allStatusOptions = [
   { value: 'pending', label: '待确认' },
   { value: 'self_resolved', label: '已自行解决' },
   { value: 'to_maintenance', label: '转维修' },
@@ -327,6 +332,13 @@ const statusOptions = [
   { value: 'returned', label: '已退回' },
   { value: 'closed', label: '已闭环' }
 ]
+
+const statusOptions = computed(() => {
+  if (activeTab.value === 'maintenance' && currentUser.value.role === '维修组') {
+    return allStatusOptions.filter(o => ['pending', 'processing', 'delay', 'completed', 'closed'].includes(o.value))
+  }
+  return allStatusOptions
+})
 
 // ============ 搜索 ============
 const activeSearchStatus = ref('')
@@ -566,6 +578,7 @@ function acceptOrder(order: MaintenanceWorkOrder) {
 .wo-title { display: flex; align-items: center; gap: 12px; }
 .wo-title h2 { color: #fff; margin: 0; font-size: 20px; }
 .wo-count { color: rgba(255,255,255,0.5); font-size: 13px; }
+.wo-stat { margin-right: 12px; color: rgba(255,255,255,0.6); font-size: 13px; }
 
 .wo-search {
   display: flex; gap: 10px; align-items: center;

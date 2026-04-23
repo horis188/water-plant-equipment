@@ -77,7 +77,8 @@ const pathToName: Record<string, string> = {
   '/device/maintenance': '设备管理',
   '/device/changes': '设备管理',
   '/main': '驾驶舱',
-  '/dashboard': '驾驶舱'
+  '/dashboard': '驾驶舱',
+  '/workorder': '维修工单'
 }
 activeNav.value = pathToName[route.path] || '设备管理'
 
