@@ -124,6 +124,7 @@
         <option value="10">10</option>
         <option value="15">15</option>
         <option value="20">20</option>
+        <option value="50">50</option>
       </select>
       <span>条</span>
       <button class="page-btn" @click="currentPage = 1" :disabled="currentPage === 1">«</button>
