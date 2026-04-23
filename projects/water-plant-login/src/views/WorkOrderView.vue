@@ -386,10 +386,12 @@ const allStatusOptions = [
 ]
 
 const statusOptions = computed(() => {
-  if (activeTab.value === 'maintenance' && currentUser.value.role === '维修组') {
-    return allStatusOptions.filter(o => ['pending', 'processing', 'delay', 'completed', 'closed'].includes(o.value))
+  if (activeTab.value === 'maintenance') {
+    // 维修工单状态
+    return allStatusOptions.filter(o => ['pending', 'processing', 'delay', 'completed', 'returned', 'closed'].includes(o.value))
   }
-  return allStatusOptions
+  // 问题工单状态
+  return allStatusOptions.filter(o => ['pending', 'self_resolved', 'to_maintenance', 'closed'].includes(o.value))
 })
 
 // ============ 搜索 ============
