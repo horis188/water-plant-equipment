@@ -350,6 +350,7 @@
           </template>
         </div>
         <div class="dialog-footer">
+          <button v-if="currentUser.role === '系统管理人' && detailOrder && 'status' in detailOrder && !['closed', 'completed', 'returned'].includes(detailOrder.status)" class="dm-btn" @click="returnOrder(detailOrder)">退回</button>
           <button class="dm-btn dm-btn-cancel" @click="detailDialogVisible = false">关闭</button>
         </div>
       </div>
@@ -641,6 +642,17 @@ function openProblemDetail(order: ProblemWorkOrder) {
 function openMaintenanceDetail(order: MaintenanceWorkOrder) {
   detailOrder.value = order
   detailDialogVisible.value = true
+}
+
+function returnOrder(order: ProblemWorkOrder | MaintenanceWorkOrder) {
+  if ('reporterId' in order) {
+    // Problem order - return to pending
+    updateProblemOrder(order.id, { status: 'pending' })
+  } else {
+    // Maintenance order - return to pending
+    updateMaintenanceOrder(order.id, { status: 'pending', handlerId: undefined, handlerName: undefined })
+  }
+  detailDialogVisible.value = false
 }
 
 // ============ 接单 ============
