@@ -136,7 +136,6 @@
             <div v-if="createForm.images" class="upload-preview">
               <span v-for="(img, idx) in createForm.images.split(',')" :key="idx" class="preview-item">{{ img }}</span>
             </div>
-            <input type="text" v-model="createForm.images" placeholder="已上传图片URL" readonly />
           </div>
           <div class="form-row">
             <label>音频</label>
@@ -236,7 +235,6 @@
           <div class="form-row">
             <label>图片</label>
             <input type="file" accept="image/*" multiple @change="e => handleImageUpload(e, delayForm)" />
-            <input type="text" v-model="delayForm.images" placeholder="已上传图片URL" readonly />
           </div>
         </div>
         <div class="dialog-footer">
@@ -261,7 +259,6 @@
           <div class="form-row">
             <label>完成图片</label>
             <input type="file" accept="image/*" multiple @change="e => handleImageUpload(e, completeForm)" />
-            <input type="text" v-model="completeForm.images" placeholder="已上传图片URL" readonly />
           </div>
           <div class="form-row">
             <label>参与人员</label>
