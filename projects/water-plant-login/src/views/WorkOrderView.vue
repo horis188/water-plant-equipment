@@ -25,7 +25,6 @@
         <span v-if="(currentUser.role === '值班岗位' || currentUser.role === '带班') && activeTab === 'problem'" class="wo-stat">
           已解决 {{ problemOrders.filter(o => o.status === 'self_resolved' && isRecentResolved(o)).length }}
         </span>
-        <span v-else class="wo-count">问题 {{ problemOrders.length }} / 维修 {{ maintenanceOrders.length }}</span>
       </div>
       <div v-if="currentUser.role !== '维修组'" class="wo-actions">
         <button class="dm-btn dm-btn-primary" @click="currentUser.role === '带班' ? openCreateMaintenanceDialog() : openCreateDialog()">
