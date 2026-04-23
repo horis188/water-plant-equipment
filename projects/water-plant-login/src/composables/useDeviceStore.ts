@@ -127,9 +127,16 @@ export function updateDeviceStatusByOrder(deviceId: string, newStatus: string, o
     oldValue: oldStatus,
     newValue: newStatus
   }, operator || currentUser.value.name)
-  // 创建或更新告警记录
-  const existingAlarm = alarms.value.find(a => a.deviceId === deviceId && !a.resolved)
-  if (!existingAlarm && newStatus !== '在用') {
+  // 标记现有未解决告警为已解决（当状态不是告警时）
+  if (newStatus !== '告警') {
+    alarms.value.forEach(a => {
+      if (a.deviceId === deviceId && !a.resolved) {
+        a.resolved = true
+      }
+    })
+  }
+  // 创建新的告警记录（当状态是告警或维修中时）
+  if (newStatus === '告警' || newStatus === '维修中') {
     alarms.value.push({
       id: `A-${String(Date.now()).slice(-4)}`,
       deviceId,
