@@ -132,7 +132,11 @@
           </div>
           <div class="form-row">
             <label>图片</label>
-            <input type="text" v-model="createForm.images" placeholder="图片URL，多个用逗号分隔" />
+            <input type="file" accept="image/*" multiple @change="e => handleImageUpload(e, createForm)" />
+            <div v-if="createForm.images" class="upload-preview">
+              <span v-for="(img, idx) in createForm.images.split(',')" :key="idx" class="preview-item">{{ img }}</span>
+            </div>
+            <input type="text" v-model="createForm.images" placeholder="已上传图片URL" readonly />
           </div>
           <div class="form-row">
             <label>音频</label>
@@ -229,6 +233,11 @@
             <label>延时原因 <span class="required">*</span></label>
             <textarea v-model="delayForm.reason" placeholder="请填写延时原因" rows="3"></textarea>
           </div>
+          <div class="form-row">
+            <label>图片</label>
+            <input type="file" accept="image/*" multiple @change="e => handleImageUpload(e, delayForm)" />
+            <input type="text" v-model="delayForm.images" placeholder="已上传图片URL" readonly />
+          </div>
         </div>
         <div class="dialog-footer">
           <button class="dm-btn dm-btn-cancel" @click="delayDialogVisible = false">取消</button>
@@ -251,7 +260,8 @@
           </div>
           <div class="form-row">
             <label>完成图片</label>
-            <input type="text" v-model="completeForm.images" placeholder="图片URL，多个用逗号分隔" />
+            <input type="file" accept="image/*" multiple @change="e => handleImageUpload(e, completeForm)" />
+            <input type="text" v-model="completeForm.images" placeholder="已上传图片URL" readonly />
           </div>
           <div class="form-row">
             <label>参与人员</label>
@@ -471,6 +481,13 @@ const createForm = ref({ content: '', images: '', audios: '', files: '' })
 
 function openCreateDialog() { createDialogVisible.value = true; createForm.value = { content: '', images: '', audios: '', files: '' } }
 
+function handleImageUpload(e: Event, form: { images?: string }) {
+  const files = (e.target as HTMLInputElement).files
+  if (!files) return
+  const urls = Array.from(files).map(f => URL.createObjectURL(f))
+  form.images = urls.join(',')
+}
+
 function submitCreateProblem() {
   if (!createForm.value.content) return
   addProblemOrder({
@@ -552,12 +569,12 @@ function submitHandleProblem() {
 
 // ============ 延时 ============
 const delayDialogVisible = ref(false)
-const delayForm = ref({ reason: '' })
+const delayForm = ref<{ reason: string; images: string }>({ reason: '', images: '' })
 const delayingOrder = ref<MaintenanceWorkOrder | null>(null)
 
 function openDelayDialog(order: MaintenanceWorkOrder) {
   delayingOrder.value = order
-  delayForm.value = { reason: '' }
+  delayForm.value = { reason: '', images: '' }
   delayDialogVisible.value = true
 }
 
