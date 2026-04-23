@@ -5,17 +5,23 @@
       <div class="wo-title">
         <h2 v-if="currentUser.role === '值班岗位' || currentUser.role === '带班'">{{ activeTab === 'maintenance' ? '维修工单' : '问题工单' }}</h2>
         <h2 v-else>维修工单</h2>
-        <span v-if="currentUser.role === '维修组'" class="wo-stat">未接单 {{ maintenanceOrders.filter(o => o.status === 'pending').length }}</span>
+        <span v-if="currentUser.role === '维修组' || (currentUser.role === '值班岗位' && activeTab === 'maintenance') || (currentUser.role === '带班' && activeTab === 'maintenance')" class="wo-stat">
+          未接单 {{ maintenanceOrders.filter(o => o.status === 'pending').length }}
+        </span>
+        <span v-if="(currentUser.role === '值班岗位' || currentUser.role === '带班') && activeTab === 'maintenance'" class="wo-stat">
+          进行中 {{ maintenanceOrders.filter(o => o.status === 'processing' || o.status === 'delay').length }}
+        </span>
+        <span v-if="(currentUser.role === '值班岗位' || currentUser.role === '带班') && activeTab === 'maintenance'" class="wo-stat">
+          已完成 {{ maintenanceOrders.filter(o => o.status === 'completed' || o.status === 'closed').length }}
+        </span>
+        <span v-else-if="currentUser.role === '维修组'" class="wo-stat">进行中 {{ maintenanceOrders.filter(o => o.status === 'processing' || o.status === 'delay').length }}</span>
+        <span v-else-if="currentUser.role === '维修组'" class="wo-stat">已完成 {{ maintenanceOrders.filter(o => o.status === 'completed' || o.status === 'closed').length }}</span>
         <span v-else-if="currentUser.role === '值班岗位' || currentUser.role === '带班'" class="wo-count">
           待确认 {{ problemOrders.filter(o => o.status === 'pending').length }} /
           转维修 {{ problemOrders.filter(o => o.status === 'to_maintenance').length }} /
           已解决 {{ problemOrders.filter(o => o.status === 'self_resolved' && isRecentResolved(o)).length }}
         </span>
         <span v-else class="wo-count">问题 {{ problemOrders.length }} / 维修 {{ maintenanceOrders.length }}</span>
-        <template v-if="currentUser.role === '维修组'">
-          <span class="wo-stat">进行中 {{ maintenanceOrders.filter(o => o.status === 'processing' || o.status === 'delay').length }}</span>
-          <span class="wo-stat">已完成 {{ maintenanceOrders.filter(o => o.status === 'completed' || o.status === 'closed').length }}</span>
-        </template>
       </div>
       <div v-if="currentUser.role !== '维修组'" class="wo-actions">
         <button class="dm-btn dm-btn-primary" @click="currentUser.role === '带班' ? openCreateMaintenanceDialog() : openCreateDialog()">
