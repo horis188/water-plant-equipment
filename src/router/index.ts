@@ -1,11 +1,14 @@
-import { createRouter, createWebHistory } from 'vue-router'
+import { createRouter, createWebHashHistory } from 'vue-router'
 import LoginView from '../views/LoginView.vue'
 import MainDashboardView from '../views/MainDashboardView.vue'
 import DeviceManageView from '../views/DeviceManageView.vue'
 import DeviceDetailView from '../views/DeviceDetailView.vue'
+import SparepartsView from '../views/SparepartsView.vue'
+import WorkOrderView from '../views/WorkOrderView.vue'
+import InspectionView from '../views/InspectionView.vue'
 
 const router = createRouter({
-  history: createWebHistory(),
+  history: createWebHashHistory(),
   routes: [
     {
       path: '/',
@@ -50,6 +53,21 @@ const router = createRouter({
       path: '/device/detail/:id',
       name: 'device-detail',
       component: DeviceDetailView
+    },
+    {
+      path: '/spareparts',
+      name: 'spareparts',
+      component: SparepartsView
+    },
+    {
+      path: '/workorder',
+      name: 'workorder',
+      component: WorkOrderView
+    },
+    {
+      path: '/inspection',
+      name: 'inspection',
+      component: InspectionView
     }
   ]
 })
