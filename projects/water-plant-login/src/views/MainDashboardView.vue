@@ -48,11 +48,11 @@ const toggleNotifications = () => {
 const navItems = ref([
   { name: '驾驶舱', path: '/main', icon: '🚀' },
   { name: '设备管理', path: '/device/inuse', icon: '🖥️' },
-  { name: '设备巡检', path: '/inspection', icon: '🔍' },
+  { name: '巡检保养', path: '/inspection', icon: '🔍' },
   { name: '备件仓库', path: '/spareparts', icon: '📦' },
-  { name: '带班交接', path: '/handover', icon: '🔄' },
+  { name: '班组交接', path: '/handover', icon: '🔄' },
   { name: '维修工单', path: '/workorder', icon: '🔧' },
-  { name: '设备价值', path: '/asset', icon: '💰' },
+  { name: '统计分析', path: '/asset', icon: '💰' },
   { name: '系统管理', path: '/admin', icon: '⚙️' }
 ])
 
@@ -444,7 +444,8 @@ const getLevelClass = (level: string) => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 0 24px;
+  width: 100%;
+  padding: 0;
   height: 64px;
   background: rgba(15, 50, 80, 0.9);
   backdrop-filter: blur(12px);

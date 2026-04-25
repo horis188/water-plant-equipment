@@ -61,7 +61,7 @@ const route = useRoute()
 const navItems = ref([
   { name: '驾驶舱', path: '/main', icon: '🚀' },
   { name: '设备管理', path: '/device/inuse', icon: '🖥️' },
-  { name: '设备巡检', path: '/inspection', icon: '🔍' },
+  { name: '巡检保养', path: '/inspection', icon: '🔍' },
   { name: '备件仓库', path: '/spareparts', icon: '📦' },
   { name: '带班交接', path: '/handover', icon: '🔄' },
   { name: '维修工单', path: '/workorder', icon: '🔧' },
@@ -76,6 +76,7 @@ const pathToName: Record<string, string> = {
   '/device/warning': '设备管理',
   '/device/maintenance': '设备管理',
   '/device/changes': '设备管理',
+  '/inspection': '巡检保养',
   '/main': '驾驶舱',
   '/dashboard': '驾驶舱',
   '/workorder': '维修工单'
@@ -99,7 +100,8 @@ function handleLogout() {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 0 24px;
+  width: 100%;
+  padding: 0;
   height: 64px;
   background: rgba(15, 50, 80, 0.9);
   backdrop-filter: blur(12px);
@@ -190,10 +192,14 @@ function handleLogout() {
 
 .menu-icon {
   font-size: 15px;
+  line-height: 1;
+  vertical-align: middle;
 }
 
 .menu-text {
   white-space: nowrap;
+  line-height: 1;
+  vertical-align: middle;
 }
 
 .user-info {

@@ -540,7 +540,7 @@ function downloadBlob(content: string, filename: string, mime: string) {
 .sp-page {
   min-height: 100vh;
   background: #0f2d4a;
-  padding: 0 20px 20px;
+  padding: 0 0 20px;
 }
 
 .sp-header {
