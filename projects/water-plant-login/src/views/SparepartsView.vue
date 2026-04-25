@@ -547,19 +547,21 @@ function downloadBlob(content: string, filename: string, mime: string) {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 16px 0 12px;
+  padding: 24px 32px 16px;
 }
 
 .sp-title {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   gap: 12px;
 }
 
 .sp-title h2 {
   color: #fff;
-  font-size: 20px;
+  font-size: 22px;
+  font-weight: 600;
   margin: 0;
+  letter-spacing: 1px;
 }
 
 .sp-count {
@@ -629,8 +631,8 @@ function downloadBlob(content: string, filename: string, mime: string) {
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid rgba(45, 212, 191, 0.1);
   border-radius: 8px;
-  padding: 10px 14px;
-  margin-bottom: 12px;
+  padding: 16px 20px;
+  margin: 0 32px 16px;
   display: flex;
   gap: 10px;
   flex-wrap: wrap;
@@ -658,7 +660,7 @@ function downloadBlob(content: string, filename: string, mime: string) {
 .dm-tabs {
   display: flex;
   gap: 4px;
-  margin-bottom: 12px;
+  padding: 0 32px 16px;
 }
 
 .dm-tab {
@@ -682,15 +684,16 @@ function downloadBlob(content: string, filename: string, mime: string) {
 
 /* 表格 */
 .dm-table-wrap {
-  overflow-x: auto;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(45, 212, 191, 0.15);
+  border-radius: 10px;
+  overflow: hidden;
+  margin: 0 32px 16px;
 }
 
 .dm-table {
   width: 100%;
   border-collapse: collapse;
-  background: rgba(255,255,255,0.03);
-  border-radius: 8px;
-  overflow: hidden;
 }
 
 .dm-table thead tr {
@@ -698,9 +701,9 @@ function downloadBlob(content: string, filename: string, mime: string) {
 }
 
 .dm-table th {
-  padding: 10px 12px;
+  padding: 12px 14px;
   color: rgba(255, 255, 255, 0.55);
-  font-size: 12px;
+  font-size: 15px;
   font-weight: 500;
   text-align: left;
   border-bottom: 1px solid rgba(45, 212, 191, 0.1);
@@ -711,13 +714,13 @@ function downloadBlob(content: string, filename: string, mime: string) {
 .dm-table th.sortable:hover { color: rgba(255,255,255,0.9); }
 .dm-table th.sortable.active { color: #2DD4BF; }
 
-.sort-icon { font-size: 10px; margin-left: 4px; opacity: 0.6; }
+.sort-icon { font-size: 12px; margin-left: 4px; opacity: 0.6; }
 .dm-table th.sortable.active .sort-icon { opacity: 1; }
 
 .dm-table td {
-  padding: 9px 12px;
+  padding: 11px 14px;
   color: rgba(255,255,255,0.8);
-  font-size: 13px;
+  font-size: 15px;
   border-bottom: 1px solid rgba(255,255,255,0.04);
 }
 
@@ -927,23 +930,36 @@ function downloadBlob(content: string, filename: string, mime: string) {
 .param-check {
   display: flex;
   align-items: center;
-  gap: 4px;
-  font-size: 13px;
-  color: rgba(255,255,255,0.75);
+  gap: 2px;
+  font-size: 27px;
+  color: rgba(255,255,255,0.85);
   cursor: pointer;
   white-space: nowrap;
+  padding: 4px 8px;
+  border-radius: 4px;
+  transition: background 0.15s;
 }
 
-.param-check input[type="checkbox"] { cursor: pointer; accent-color: #2DD4BF; }
+.param-check:hover {
+  background: rgba(255,255,255,0.05);
+}
+
+.param-check input[type="checkbox"] { 
+  cursor: pointer; 
+  accent-color: #2DD4BF;
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+}
 
 .param-input {
   background: rgba(255,255,255,0.06);
   border: 1px solid rgba(45, 212, 191, 0.3);
   border-radius: 4px;
   color: rgba(255,255,255,0.85);
-  padding: 4px 8px;
-  font-size: 13px;
-  width: 90px;
+  padding: 6px 10px;
+  font-size: 20px;
+  width: 120px;
 }
 
 /* 导出下拉 */

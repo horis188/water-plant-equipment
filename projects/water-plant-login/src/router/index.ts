@@ -6,6 +6,7 @@ import DeviceDetailView from '../views/DeviceDetailView.vue'
 import SparepartsView from '../views/SparepartsView.vue'
 import WorkOrderView from '../views/WorkOrderView.vue'
 import InspectionView from '../views/InspectionView.vue'
+import InspectionAdminView from '../views/InspectionAdminView.vue'
 
 const router = createRouter({
   history: createWebHashHistory(),
@@ -68,6 +69,11 @@ const router = createRouter({
       path: '/inspection',
       name: 'inspection',
       component: InspectionView
+    },
+    {
+      path: '/inspection-admin',
+      name: 'inspection-admin',
+      component: InspectionAdminView
     }
   ]
 })

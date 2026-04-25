@@ -7,11 +7,11 @@ import { setCurrentUser } from '../composables/useDeviceStore'
 const router = useRouter()
 
 const handleLogin = (data: { username: string; password: string; verifyCode: string }) => {
-  const userMap: Record<string, { name: string; role: string; avatar: string }> = {
-    'admin': { name: '管理员', role: '系统管理人', avatar: '管' },
-    'zy': { name: '张远', role: '带班', avatar: '远' },
-    'wxz': { name: '维修组', role: '维修组', avatar: '维' },
-    'yqzs': { name: '一期制水', role: '值班岗位', avatar: '制' }
+  const userMap: Record<string, { name: string; role: string; avatar: string; id: number }> = {
+    'admin': { name: '管理员', role: '系统管理人', avatar: '管', id: 1 },
+    'zy': { name: '张远', role: '带班', avatar: '远', id: 2 },
+    'yqzs': { name: '一期制水', role: '值班岗位', avatar: '制', id: 3 },
+    'wxz': { name: '维修组', role: '维修组', avatar: '维', id: 4 }
   }
   const user = userMap[data.username]
   if (user) {

@@ -151,6 +151,12 @@ function handleLogout() {
   align-items: center;
   gap: 4px;
   height: 64px;
+  overflow-x: auto;
+  flex-shrink: 0;
+}
+
+.menu-nav::-webkit-scrollbar {
+  height: 0;
 }
 
 .menu-item {

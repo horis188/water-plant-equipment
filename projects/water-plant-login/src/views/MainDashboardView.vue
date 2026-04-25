@@ -279,7 +279,7 @@ const getLevelClass = (level: string) => {
               <span class="inspect-pending-text">未巡</span>
               <span class="inspect-count inspect-pending-count">{{ inspectionPlan.pending }}</span>
             </div>
-            <a href="#/inspect" class="inspect-more" @click.prevent>更多 →</a>
+            <a href="#" class="inspect-more" @click.prevent="router.push('/inspection')">更多 →</a>
           </div>
           <div class="inspect-items">
             <div

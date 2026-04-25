@@ -585,7 +585,10 @@ function downloadBlob(content: string, filename: string, mime: string) {
 }
 
 .device-manage {
-  padding: 0;
+  padding: 24px 32px 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
 }
 
 /* 顶部操作栏 */
@@ -607,8 +610,10 @@ function downloadBlob(content: string, filename: string, mime: string) {
 
 .dm-title h2 {
   color: #fff;
-  font-size: 20px;
+  font-size: 22px;
+  font-weight: 600;
   margin: 0;
+  letter-spacing: 1px;
 }
 
 .dm-count {
@@ -626,8 +631,8 @@ function downloadBlob(content: string, filename: string, mime: string) {
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid rgba(45, 212, 191, 0.1);
   border-radius: 8px;
-  padding: 10px 14px;
-  margin-bottom: 12px;
+  padding: 16px 20px;
+  margin-bottom: 16px;
   display: flex;
   gap: 10px;
   flex-wrap: wrap;
@@ -677,7 +682,7 @@ function downloadBlob(content: string, filename: string, mime: string) {
 .dm-tabs {
   display: flex;
   gap: 4px;
-  margin-bottom: 12px;
+  padding: 0 32px 16px;
 }
 
 .dm-tab {
@@ -713,16 +718,26 @@ function downloadBlob(content: string, filename: string, mime: string) {
 .param-check {
   display: flex;
   align-items: center;
-  gap: 4px;
-  font-size: 13px;
-  color: rgba(255, 255, 255, 0.75);
+  gap: 2px;
+  font-size: 27px;
+  color: rgba(255, 255, 255, 0.85);
   cursor: pointer;
   white-space: nowrap;
+  padding: 4px 8px;
+  border-radius: 4px;
+  transition: background 0.15s;
+}
+
+.param-check:hover {
+  background: rgba(255, 255, 255, 0.05);
 }
 
 .param-check input[type="checkbox"] {
   cursor: pointer;
   accent-color: #2DD4BF;
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
 }
 
 .param-input {
@@ -730,9 +745,9 @@ function downloadBlob(content: string, filename: string, mime: string) {
   border: 1px solid rgba(45, 212, 191, 0.3);
   border-radius: 4px;
   color: rgba(255, 255, 255, 0.85);
-  padding: 4px 8px;
-  font-size: 13px;
-  width: 90px;
+  padding: 6px 10px;
+  font-size: 17px;
+  width: 120px;
 }
 
 /* 按钮 */
@@ -836,7 +851,7 @@ function downloadBlob(content: string, filename: string, mime: string) {
   border: 1px solid rgba(45, 212, 191, 0.15);
   border-radius: 10px;
   overflow: hidden;
-  margin-bottom: 8px;
+  margin: 0 32px 16px;
 }
 
 .dm-table {
@@ -846,12 +861,13 @@ function downloadBlob(content: string, filename: string, mime: string) {
 
 .dm-table thead tr {
   background: rgba(45, 212, 191, 0.08);
+  line-height: 1.2;
 }
 
 .dm-table th {
-  padding: 10px 12px;
+  padding: 12px 14px;
   color: rgba(255, 255, 255, 0.55);
-  font-size: 12px;
+  font-size: 15px;
   font-weight: 500;
   text-align: left;
   border-bottom: 1px solid rgba(45, 212, 191, 0.1);
@@ -872,7 +888,7 @@ function downloadBlob(content: string, filename: string, mime: string) {
 }
 
 .sort-icon {
-  font-size: 10px;
+  font-size: 12px;
   margin-left: 4px;
   opacity: 0.6;
 }
@@ -882,9 +898,10 @@ function downloadBlob(content: string, filename: string, mime: string) {
 }
 
 .dm-table td {
-  padding: 9px 12px;
+  padding: 5px 14px;
   color: rgba(255, 255, 255, 0.8);
-  font-size: 13px;
+  font-size: 15px;
+  line-height: 1.2;
   border-bottom: 1px solid rgba(255, 255, 255, 0.04);
 }
 

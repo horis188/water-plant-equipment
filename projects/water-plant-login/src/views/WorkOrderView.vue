@@ -390,7 +390,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import TopNavBar from '../components/TopNavBar.vue'
 import { currentUser, updateDeviceStatusByOrder } from '../composables/useDeviceStore'
 import {
@@ -402,8 +402,67 @@ import {
   ProblemWorkOrder, MaintenanceWorkOrder
 } from '../composables/useWorkOrderStore'
 
-// 初始化设备状态（根据已有工单）
-initDeviceStatusFromWorkOrders()
+// 从数据库同步问题工单
+async function syncProblemOrdersFromDB() {
+  try {
+    const res = await fetch('/api/workorders/problem')
+    const dbOrders = await res.json()
+    // 合并到本地（去重）
+    for (const o of dbOrders) {
+      const exists = problemOrders.value.find(p => p.id === o.id)
+      if (!exists) {
+        problemOrders.value.push({
+          id: o.id,
+          reporterId: o.reporter_name || o.reporterId,
+          reporterName: o.reporter_name || '',
+          content: o.content,
+          status: o.status,
+          shiftId: '',
+          images: o.images ? JSON.parse(o.images) : [],
+          videos: o.videos ? JSON.parse(o.videos) : [],
+          createdAt: new Date(o.created_at),
+          resolution: o.resolution
+        })
+      }
+    }
+  } catch {}
+}
+
+async function syncMaintenanceOrdersFromDB() {
+  try {
+    const res = await fetch('/api/workorders/maintenance')
+    const dbOrders = await res.json()
+    for (const o of dbOrders) {
+      const exists = maintenanceOrders.value.find(m => m.id === o.id)
+      if (!exists) {
+        maintenanceOrders.value.push({
+          id: o.id,
+          content: o.content,
+          level: o.level,
+          status: o.status,
+          assignerId: o.assigner_name || '',
+          assignerName: o.assigner_name || '',
+          handlerId: o.handler_name || '',
+          handlerName: o.handler_name || '',
+          problemOrderId: o.problem_order_id || null,
+          createdAt: new Date(o.created_at)
+        })
+      }
+    }
+  } catch {}
+}
+
+let syncTimer: any = null
+onMounted(() => {
+  initDeviceStatusFromWorkOrders()
+  syncProblemOrdersFromDB()
+  syncMaintenanceOrdersFromDB()
+  syncTimer = setInterval(() => {
+    syncProblemOrdersFromDB()
+    syncMaintenanceOrdersFromDB()
+  }, 5000)
+})
+onUnmounted(() => { if (syncTimer) clearInterval(syncTimer) })
 
 // Tab
 const activeTab = ref<'problem' | 'maintenance'>(currentUser.value.role === '维修组' ? 'maintenance' : 'problem')
@@ -828,17 +887,17 @@ function acceptOrder(order: MaintenanceWorkOrder) {
 
 .wo-header {
   display: flex; justify-content: space-between; align-items: center;
-  padding: 16px 24px;
+  padding: 24px 32px;
 }
 
-.wo-title { display: flex; align-items: center; gap: 12px; }
-.wo-title h2 { color: #fff; margin: 0; font-size: 20px; }
+.wo-title { display: flex; align-items: baseline; gap: 12px; }
+.wo-title h2 { color: #fff; margin: 0; font-size: 22px; font-weight: 600; letter-spacing: 1px; }
 .wo-count { color: rgba(255,255,255,0.5); font-size: 13px; }
 .wo-stat { margin-right: 12px; color: rgba(255,255,255,0.6); font-size: 13px; }
 
 .wo-search {
   display: flex; gap: 10px; align-items: center;
-  padding: 0 24px 12px;
+  padding: 0 32px 16px;
 }
 
 .search-select {
@@ -846,7 +905,7 @@ function acceptOrder(order: MaintenanceWorkOrder) {
   border-radius: 6px; color: #fff; padding: 6px 12px; outline: none;
 }
 
-.wo-list { padding: 0 24px; display: flex; flex-direction: column; gap: 12px; }
+.wo-list { padding: 0 32px; display: flex; flex-direction: column; gap: 12px; }
 
 .wo-card {
   background: rgba(255,255,255,0.05); border: 1px solid rgba(45,212,191,0.15);
@@ -898,7 +957,7 @@ function acceptOrder(order: MaintenanceWorkOrder) {
 .icon-btn { background: rgba(239,68,68,0.2); color: #EF4444; border: none; border-radius: 4px; padding: 2px 8px; cursor: pointer; }
 
 /* Tabs */
-.dm-tabs { display: flex; gap: 4px; padding: 0 24px 12px; }
+.dm-tabs { display: flex; gap: 4px; padding: 0 32px 16px; }
 .dm-tab {
   padding: 6px 20px; border-radius: 6px; cursor: pointer; font-size: 13px;
   color: rgba(255,255,255,0.5); transition: all 0.2s;

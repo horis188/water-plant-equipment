@@ -128,96 +128,11 @@ export interface WorkOrderLog {
   createdAt: string
 }
 
-// ============ 问题工单 Mock 数据 ============
-export const problemOrders = ref<ProblemWorkOrder[]>([
-  {
-    id: 'PWO-001',
-    deviceId: 'D-002',
-    reporterId: 'wxz',
-    reporterName: '维修组',
-    shiftId: 'SHIFT-001',
-    content: '2号取水泵运行时异响，轴承可能损坏',
-    images: [],
-    videos: [],
-    status: 'pending',
-    createdAt: '2026-04-22 09:00'
-  },
-  {
-    id: 'PWO-002',
-    reporterId: 'zy',
-    reporterName: '张远',
-    shiftId: 'SHIFT-001',
-    content: '加药间液位计读数偏低',
-    images: [],
-    videos: [],
-    status: 'to_maintenance',
-    createdAt: '2026-04-21 16:20'
-  },
-  {
-    id: 'PWO-003',
-    deviceId: 'D-006',
-    reporterId: 'yqzs',
-    reporterName: '一期制水',
-    shiftId: 'SHIFT-002',
-    content: '滤池1号阀门操作卡顿',
-    images: [],
-    videos: [],
-    status: 'self_resolved',
-    resolution: '已清理阀门轴承杂物，调试后正常',
-    resolutionImages: [],
-    createdAt: '2026-04-20 14:30',
-    closedAt: '2026-04-20 15:45'
-  }
-])
+// ============ 问题工单（从数据库同步）============
+export const problemOrders = ref<ProblemWorkOrder[]>([])
 
-// ============ 维修工单 Mock 数据 ============
-export const maintenanceOrders = ref<MaintenanceWorkOrder[]>([
-  {
-    id: 'MWO-001',
-    problemOrderId: 'PWO-002',
-    content: '加药间液位计故障检修',
-    level: 'medium',
-    assignerId: 'zy',
-    assignerName: '张远',
-    handlerId: 'wxz',
-    handlerName: '维修组',
-    participants: [],
-    status: 'completed',
-    delayDays: 0,
-    sparepartUsage: [],
-    createdAt: '2026-04-21 16:30'
-  },
-  {
-    id: 'MWO-002',
-    problemOrderId: 'PWO-001',
-    content: '2号取水泵轴承损坏，需要更换维修',
-    level: 'heavy',
-    assignerId: 'zy',
-    assignerName: '张远',
-    handlerId: undefined,
-    handlerName: undefined,
-    participants: [],
-    status: 'pending',
-    delayDays: 0,
-    sparepartUsage: [],
-    createdAt: '2026-04-22 09:15'
-  },
-  {
-    id: 'MWO-003',
-    content: '3号取水泵电机温度异常，需要检修',
-    level: 'light',
-    assignerId: 'admin',
-    assignerName: '管理员',
-    handlerId: 'wxz',
-    handlerName: '维修组',
-    participants: ['李师傅', '王师傅'],
-    status: 'delay',
-    delayReason: '需要等待备件轴承到货',
-    delayDays: 2,
-    sparepartUsage: [{ name: '轴承 7310B', quantity: 2, specs: '哈尔滨轴承' }],
-    createdAt: '2026-04-20 10:00'
-  }
-])
+// ============ 维修工单（从数据库同步）============
+export const maintenanceOrders = ref<MaintenanceWorkOrder[]>([])
 
 // ============ 操作日志 ============
 export const workOrderLogs = ref<WorkOrderLog[]>([])
