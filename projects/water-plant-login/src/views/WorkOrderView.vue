@@ -420,7 +420,7 @@ async function syncProblemOrdersFromDB() {
           shiftId: '',
           images: o.images ? JSON.parse(o.images) : [],
           videos: o.videos ? JSON.parse(o.videos) : [],
-          createdAt: new Date(o.created_at),
+          createdAt: new Date(o.created_at).toLocaleString('zh-CN'),
           resolution: o.resolution
         })
       }
@@ -445,7 +445,10 @@ async function syncMaintenanceOrdersFromDB() {
           handlerId: o.handler_name || '',
           handlerName: o.handler_name || '',
           problemOrderId: o.problem_order_id || null,
-          createdAt: new Date(o.created_at)
+          participants: [],
+          delayDays: 0,
+          sparepartUsage: [],
+          createdAt: new Date(o.created_at).toLocaleString('zh-CN')
         })
       }
     }

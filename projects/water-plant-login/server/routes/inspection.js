@@ -52,13 +52,13 @@ router.get('/plans/:id', async (req, res) => {
 
 // 创建巡检计划
 router.post('/plans', async (req, res) => {
-  const { name, location, device_ids, cycle, executor_ids, custom_times, executor_role, items } = req.body
+  const { name, location, device_ids, cycle, executor_ids, custom_times, executor_role, custom_type, items } = req.body
   const conn = await pool.getConnection()
   try {
     await conn.beginTransaction()
     const [result] = await conn.query(
-      'INSERT INTO inspection_plans (name, location, device_ids, cycle, executor_role, executor_ids, custom_times) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      [name, location, JSON.stringify(device_ids), cycle, executor_role || '', executor_ids || '[]', custom_times || '[]']
+      'INSERT INTO inspection_plans (name, location, device_ids, cycle, executor_role, executor_ids, custom_times, custom_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      [name, location, JSON.stringify(device_ids), cycle, executor_role || '', executor_ids || '[]', custom_times || '[]', custom_type || 'daily']
     )
     const planId = result.insertId
     if (items && items.length > 0) {
@@ -81,13 +81,13 @@ router.post('/plans', async (req, res) => {
 
 // 更新巡检计划
 router.put('/plans/:id', async (req, res) => {
-  const { name, location, cycle, executor_role, executor_ids, custom_times, items } = req.body
+  const { name, location, cycle, executor_role, executor_ids, custom_times, custom_type, items } = req.body
   const conn = await pool.getConnection()
   try {
     await conn.beginTransaction()
     await conn.query(
-      'UPDATE inspection_plans SET name=?, location=?, cycle=?, executor_role=?, executor_ids=?, custom_times=? WHERE id=?',
-      [name, location, cycle, executor_role || '', executor_ids || '[]', custom_times || '[]', req.params.id]
+      'UPDATE inspection_plans SET name=?, location=?, cycle=?, executor_role=?, executor_ids=?, custom_times=?, custom_type=? WHERE id=?',
+      [name, location, cycle, executor_role || '', executor_ids || '[]', custom_times || '[]', custom_type || 'daily', req.params.id]
     )
     // 删除旧巡检项，插入新
     await conn.query('DELETE FROM inspection_items WHERE plan_id = ?', [req.params.id])
@@ -195,6 +195,7 @@ router.get('/pending-tasks', async (req, res) => {
           cycle: plan.cycle,
           executor_role: plan.executor_role,
           custom_times: plan.custom_times,
+          custom_type: plan.custom_type || 'daily',
           device_id: item.device_id,
           device_name: item.device_name,
           check_content: item.check_content,

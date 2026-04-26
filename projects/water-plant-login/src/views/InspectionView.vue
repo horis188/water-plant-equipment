@@ -9,7 +9,7 @@
         <span class="page-date">{{ today }}</span>
       </div>
       <!-- 非管理员显示我的巡检统计 -->
-      <div class="header-stats" v-if="currentUser?.role !== '系统管理人'">
+      <div class="header-stats" v-if="currentUser?.role !== '系统管理人' && activeTab !== 'maintenance'">
         <div class="stat-pill stat-teal">
           <span class="stat-dot"></span>
           今日巡检 {{ myDoneCount }}/{{ myTasks.length }}
@@ -24,7 +24,7 @@
         </div>
       </div>
       <!-- 管理员显示我的巡检统计 -->
-      <div class="header-stats" v-else>
+      <div class="header-stats" v-else-if="activeTab !== 'maintenance'">
         <div class="stat-pill stat-teal">
           <span class="stat-dot"></span>
           今日巡检 {{ myDoneCount }}/{{ myTasks.length }}
@@ -57,8 +57,7 @@
         @click="activeTab = 'maintenance'"
       >
         <span class="tab-icon">🔧</span>
-        保养计划
-        <span class="tab-count" v-if="upcomingMaintCount > 0">{{ upcomingMaintCount }}</span>
+        保养计划管理
       </button>
     </div>
 
@@ -127,7 +126,7 @@
               {{ task.location }} · {{ task.plan_name }}
             </div>
             <div v-if="task.check_content" class="task-check-items">
-              <span v-for="(item, idx) in task.check_content.split('\n').filter(l => l.trim())" :key="idx" class="check-item-tag">{{ item }}</span>
+              <span v-for="(item, idx) in task.check_content.split('\n').filter((l: string) => l.trim())" :key="idx" class="check-item-tag">{{ item }}</span>
             </div>
             <div v-if="!task.is_completed && task.remainingMs < Infinity" class="task-remaining" :class="task.remainingMs < 0 ? 'overdue' : task.remainingMs < 1800000 ? 'urgent' : ''">
               <span v-if="task.remainingMs < 0">已超时 {{ formatRemaining(-task.remainingMs) }}</span>
@@ -229,7 +228,7 @@
 密封是否完好"
               ></textarea>
               <div v-if="deviceCheckItems[dev.id]" class="check-items-preview">
-                <span v-for="(item, i) in deviceCheckItems[dev.id].split('\n').filter(l => l.trim())" :key="i" class="check-item-tag">{{ item }}</span>
+                <span v-for="(item, i) in deviceCheckItems[dev.id].split('\n').filter((l: string) => l.trim())" :key="i" class="check-item-tag">{{ item }}</span>
               </div>
             </div>
           </div>
@@ -254,7 +253,7 @@
             <div class="execute-plan">📍{{ currentTask?.location }} · {{ currentTask?.plan_name }}</div>
           </div>
           <div class="execute-checklist">
-            <div v-for="(item, idx) in (currentTask?.check_content || '').split('\n').filter(l => l.trim())" :key="idx" class="check-row">
+            <div v-for="(item, idx) in (currentTask?.check_content || '').split('\n').filter((l: string) => l.trim())" :key="idx" class="check-row">
               <div class="check-box-wrap">
                 <input type="checkbox" v-model="checkedItems" :value="item" :id="'check-' + idx" class="check-input" />
                 <label :for="'check-' + idx" class="check-label">{{ item }}</label>
@@ -276,30 +275,197 @@
       </div>
     </div>
 
-    <!-- 保养计划内容 -->
+    <!-- 保养计划内容（仅管理员可见） -->
     <div v-show="activeTab === 'maintenance'" class="tab-content">
-      <!-- 保养概览 -->
-      <div class="maint-overview">
-        <div class="overview-card" v-for="stat in maintStats" :key="stat.label">
-          <div class="overview-value">{{ stat.value }}</div>
-          <div class="overview-label">{{ stat.label }}</div>
-        </div>
-      </div>
-
-      <!-- 保养列表 -->
-      <div class="maint-list">
-        <div v-for="p in maintenancePlans" :key="p.id" class="maint-card">
-          <div class="maint-left">
-            <div class="maint-name">{{ p.name }}</div>
-            <div class="maint-equip">{{ p.equipment }}</div>
+      <div class="maint-admin-wrapper">
+        <div class="page-header" style="padding: 24px 32px 20px;">
+          <div class="header-left">
+            <h2 class="page-title">保养计划管理</h2>
+            <span class="page-desc">制定设备保养计划，分派执行周期和负责人</span>
           </div>
-          <div class="maint-right">
-            <div class="maint-date-row">
-              <span class="date-label">下次保养</span>
-              <span class="date-value">{{ p.nextDate }}</span>
+          <div class="header-actions">
+            <button class="btn-primary" @click="maintOpenCreate">+ 新建保养计划</button>
+          </div>
+        </div>
+
+        <!-- 计划列表 -->
+        <div style="padding: 0 32px;">
+          <div v-if="maintPlans.length === 0" class="empty-state">
+            <span class="empty-icon">🔧</span>
+            <p>暂无保养计划，点击上方按钮创建</p>
+          </div>
+
+          <div v-for="plan in maintPlans" :key="plan.id" class="plan-card">
+            <div class="plan-header">
+              <div class="plan-info">
+                <h3 class="plan-name">{{ plan.name }}</h3>
+                <div class="plan-meta">
+                  <span class="meta-tag">👤 {{ plan.executor_name || plan.executor_role }}</span>
+                  <span class="meta-tag">🏷️ {{ plan.device_type }}</span>
+                  <span class="meta-tag">🔄 {{ cycleCountLabel(plan.cycle_type, plan.cycle_value, plan.cycle_count) }}</span>
+                  <span v-if="plan.has_third_party == 1" class="meta-tag">🔒 第三方维保</span>
+                  <span v-if="plan.remainingMs != null" class="meta-tag" :class="plan.remainingMs < 0 ? 'tag-overdue' : 'tag-remaining'">{{ formatMaintRemaining(plan.remainingMs) }}</span>
+                </div>
+              </div>
+              <div class="plan-actions">
+                <button class="btn-edit" @click="maintEditPlan(plan)">编辑</button>
+                <button class="btn-delete" @click="maintDeletePlan(plan.id)">删除</button>
+              </div>
             </div>
-            <div class="maint-days-badge" :class="p.daysLeft <= 7 ? 'urgent' : 'normal'">
-              {{ p.daysLeft }}天后
+
+            <!-- 执行情况统计 -->
+            <div class="maint-stats-row">
+              <div class="maint-stat-item">
+                <span class="stat-num stat-green">{{ plan.doneCount || 0 }}</span>
+                <span class="stat-lbl">已完成</span>
+              </div>
+              <div class="maint-stat-sep">/</div>
+              <div class="maint-stat-item">
+                <span class="stat-num stat-red">{{ plan.abnormalCount || 0 }}</span>
+                <span class="stat-lbl">有异常</span>
+              </div>
+              <div class="maint-stat-sep">/</div>
+              <div class="maint-stat-item">
+                <span class="stat-num stat-cyan">{{ plan.totalCount || 0 }}</span>
+                <span class="stat-lbl">总数</span>
+              </div>
+              <div class="maint-stat-expand" @click="toggleMaintDetail(plan.id)">
+                <span>{{ expandedMaintPlan === plan.id ? '收起' : '查看详情' }}</span>
+                <span class="expand-arrow">{{ expandedMaintPlan === plan.id ? '▲' : '▼' }}</span>
+              </div>
+            </div>
+
+            <!-- 设备列表详情 -->
+            <div v-if="expandedMaintPlan === plan.id" class="maint-detail-section">
+              <div v-if="!maintRecords[plan.id]" class="detail-loading">加载中...</div>
+              <div v-else class="detail-device-list">
+                <div v-for="item in plan.items" :key="item.id" class="detail-device-item">
+                  <div class="detail-device-header">
+                    <div class="detail-device-name">🖥️ {{ item.device_name }}</div>
+                    <div class="detail-device-tags">
+                      <span v-if="getDeviceStatus(plan.id, item.device_name) === 'done'" class="detail-tag tag-done">✓ 已完成</span>
+                      <span v-else-if="getDeviceStatus(plan.id, item.device_name) === 'abnormal'" class="detail-tag tag-abnormal">⚠ 有异常</span>
+                      <span v-else class="detail-tag tag-pending">○ 待处理</span>
+                    </div>
+                  </div>
+                  <div v-if="getDeviceRecord(plan.id, item.device_name)?.results" class="detail-check-list">
+                    <div v-for="(check, ci) in (getDeviceRecord(plan.id, item.device_name)?.results || [])" :key="ci" class="detail-check-row">
+                      <div class="check-dot dot-done"></div>
+                      <span class="check-text">{{ check }}</span>
+                    </div>
+                  </div>
+                  <div v-else-if="item.check_content" class="detail-check-list">
+                    <div v-for="(check, ci) in item.check_content.split('\n').filter((c: string) => c.trim())" :key="ci" class="detail-check-row">
+                      <div class="check-dot dot-pending"></div>
+                      <span class="check-text">{{ check }}</span>
+                    </div>
+                  </div>
+                  <div v-if="getDeviceRecord(plan.id, item.device_name)?.abnormal_desc" class="detail-abnormal-note">
+                    <span class="abnormal-note-label">异常描述：</span>{{ getDeviceRecord(plan.id, item.device_name).abnormal_desc }}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 新建/编辑弹窗 -->
+        <div v-if="maintShowDialog" class="dialog-overlay" @click.self="maintCloseDialog">
+          <div class="dialog">
+            <div class="dialog-header">
+              <h3>{{ maintEditingPlan ? '编辑保养计划' : '新建保养计划' }}</h3>
+              <button class="dialog-close" @click="maintCloseDialog">×</button>
+            </div>
+            <div class="dialog-body">
+              <div class="form-row">
+                <label>计划名称 <span class="required">*</span></label>
+                <input v-model="maintForm.name" type="text" placeholder="如：月度设备保养" />
+              </div>
+              <div class="form-row-two">
+                <div class="form-col">
+                  <label>执行角色 <span class="required">*</span></label>
+                  <select v-model="maintSelectedRole" @change="maintSelectedExecutorId = ''">
+                    <option value="">请选择角色</option>
+                    <option v-for="role in maintAllRoles" :key="role" :value="role">{{ role }}</option>
+                  </select>
+                </div>
+                <div class="form-col">
+                  <label>选择执行人 <span class="required">*</span></label>
+                  <select v-model="maintSelectedExecutorId" :disabled="!maintSelectedRole">
+                    <option value="">请先选择角色</option>
+                    <option v-for="user in (maintUsersByRole[maintSelectedRole] || [])" :key="user.id" :value="user.id">{{ user.name }}</option>
+                  </select>
+                </div>
+              </div>
+              <div class="form-row">
+                <label>设备类型 <span class="required">*</span></label>
+                <select v-model="maintForm.device_type">
+                  <option value="">请选择</option>
+                  <option value="生产设备">生产设备</option>
+                  <option value="特种设备">特种设备</option>
+                </select>
+              </div>
+              <div class="form-row">
+                <label>选择地点和设备 <span class="required">*</span></label>
+                <div class="location-group-list">
+                  <div v-for="(grp, gIdx) in maintLocationGroups" :key="gIdx" class="location-group">
+                    <div class="grp-header">
+                      <span class="grp-num">地点 {{ gIdx + 1 }}</span>
+                      <button v-if="maintLocationGroups.length > 1" class="grp-remove" @click="maintRemoveLocationGroup(gIdx)">×</button>
+                    </div>
+                    <div class="grp-body">
+                      <select v-model="grp.location" @change="maintOnGroupLocationChange(gIdx)" class="grp-location">
+                        <option value="">请选择地点</option>
+                        <option v-for="loc in maintAvailableLocations(gIdx)" :key="loc.id" :value="loc.name">{{ loc.name }}</option>
+                      </select>
+                      <div v-if="grp.location" class="device-selector">
+                        <div class="available-devices">
+                          <div v-for="dev in maintGetDevicesForLocation(grp.location)" :key="dev.id" class="device-option" :class="{ selected: grp.deviceIds.includes(dev.id) }" @click="maintToggleGroupDevice(gIdx, dev)">{{ dev.name }}</div>
+                        </div>
+                        <div v-if="grp.deviceIds.length > 0" class="selected-count">已选 {{ grp.deviceIds.length }} 台</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <button class="add-location-btn" @click="maintAddLocationGroup">
+                  <span>+</span> 添加另一地点
+                </button>
+              </div>
+              <div class="form-row">
+                <label>保养内容（每行一项）</label>
+                <textarea v-model="maintForm.check_content" rows="4" placeholder="每行一个保养项"></textarea>
+              </div>
+              <div class="form-row">
+                <label>保养周期 <span class="required">*</span></label>
+                <div class="cycle-input-row">
+                  <span>每</span>
+                  <input v-model.number="maintForm.cycle_value" type="number" min="1" class="cycle-num" />
+                  <select v-model="maintForm.cycle_type" class="cycle-unit-select">
+                    <option value="day">天</option>
+                    <option value="week">周</option>
+                    <option value="month">月</option>
+                    <option value="year">年</option>
+                  </select>
+                  <span>执行</span>
+                  <input v-model.number="maintForm.cycle_count" type="number" min="1" class="cycle-num" />
+                  <span>次</span>
+                </div>
+              </div>
+              <div class="form-row">
+                <label>涉及第三方维保</label>
+                <div class="radio-options">
+                  <label class="radio-label"><input type="radio" v-model="maintForm.has_third_party" :value="true" /> 是</label>
+                  <label class="radio-label"><input type="radio" v-model="maintForm.has_third_party" :value="false" /> 否</label>
+                </div>
+              </div>
+              <div v-if="maintForm.has_third_party" class="form-row">
+                <label>第三方厂家名称 <span class="required">*</span></label>
+                <input v-model="maintForm.third_party_name" type="text" placeholder="请输入第三方维保厂家名称" />
+              </div>
+            </div>
+            <div class="dialog-footer">
+              <button class="btn-cancel" @click="maintCloseDialog">取消</button>
+              <button class="btn-confirm" @click="maintSavePlan">{{ maintEditingPlan ? '保存修改' : '创建计划' }}</button>
             </div>
           </div>
         </div>
@@ -311,10 +477,242 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import TopNavBar from '../components/TopNavBar.vue'
-import { currentUser } from '../composables/useDeviceStore'
+import { currentUser, devices as maintDeviceStore } from '../composables/useDeviceStore'
 
 const API_BASE = '/api/inspection'
 const isAdmin = computed(() => currentUser.value?.role === '系统管理人')
+
+// ===== 保养计划管理 =====
+const MAINT_API = '/api/maintenance'
+const maintPlans = ref<any[]>([])
+const maintShowDialog = ref(false)
+const maintEditingPlan = ref<any>(null)
+const expandedMaintPlan = ref<number | null>(null)
+const maintRecords = ref<Record<number, any[]>>({})
+const maintUsersByRole = ref<Record<string, any[]>>({})
+const maintAllRoles = ref<string[]>([])
+const maintSelectedRole = ref('')
+const maintSelectedExecutorId = ref('')
+const maintLocations = ref<any[]>([])
+const maintAllDevices = ref<any[]>([])
+const maintLocationGroups = ref<any[]>([{ location: '', deviceIds: [] }])
+
+const maintForm = ref({
+  name: '',
+  device_type: '',
+  check_content: '',
+  cycle_type: 'month',
+  cycle_value: 1,
+  cycle_count: 1,
+  has_third_party: false,
+  third_party_name: ''
+})
+
+function cycleCountLabel(type: string, value: number, count: number) {
+  const unitMap: Record<string, string> = { day: '天', week: '周', month: '月', year: '年' }
+  return `每${value}${unitMap[type] || '月'}，共${count}次`
+}
+
+function formatMaintRemaining(ms: number): string {
+  if (ms == null) return ''
+  if (ms < 0) return `已超时 ${Math.abs(Math.round(ms / 86400000))}天`
+  const days = Math.round(ms / 86400000)
+  if (days === 0) {
+    const hours = Math.round(ms / 3600000)
+    return `剩余 ${hours}小时`
+  }
+  return `剩余 ${days}天`
+}
+
+async function maintLoadUsers() {
+  try {
+    const res = await fetch('/api/users')
+    const allUsers = await res.json()
+    if (allUsers && allUsers.length > 0) {
+      const filtered = allUsers.filter((u: any) => u.role !== '系统管理人')
+      const roleMap: Record<string, any[]> = {}
+      for (const u of filtered) {
+        if (!roleMap[u.role]) roleMap[u.role] = []
+        roleMap[u.role].push(u)
+      }
+      maintUsersByRole.value = roleMap
+      maintAllRoles.value = Object.keys(roleMap)
+    }
+  } catch (err) { console.error('加载用户失败', err) }
+}
+
+async function maintLoadPlans() {
+  try {
+    const res = await fetch(`${MAINT_API}/plans`)
+    maintPlans.value = await res.json()
+  } catch (err) { console.error('加载保养计划失败', err) }
+}
+
+function maintLoadDeviceData() {
+  maintAllDevices.value = maintDeviceStore.value.map((d: any) => ({ id: d.id, name: d.name, location: d.location }))
+  const locMap = new Map<string, number>()
+  for (const d of maintDeviceStore.value) {
+    if (d.location && !locMap.has(d.location)) locMap.set(d.location, locMap.size + 1)
+  }
+  maintLocations.value = Array.from(locMap.entries()).map(([name, id]) => ({ id, name }))
+}
+
+function maintAvailableLocations(currentIdx: number) {
+  const used = maintLocationGroups.value.filter((_: any, i: number) => i !== currentIdx).map((g: any) => g.location).filter(Boolean)
+  return maintLocations.value.filter(loc => !used.includes(loc.name))
+}
+
+function maintGetDevicesForLocation(locName: string) {
+  return maintAllDevices.value.filter(d => d.location === locName)
+}
+
+function maintOnGroupLocationChange(gIdx: number) {
+  maintLocationGroups.value[gIdx].deviceIds = []
+}
+
+function maintToggleGroupDevice(gIdx: number, dev: any) {
+  const ids = maintLocationGroups.value[gIdx].deviceIds
+  const idx = ids.indexOf(dev.id)
+  if (idx >= 0) ids.splice(idx, 1)
+  else ids.push(dev.id)
+}
+
+function maintAddLocationGroup() {
+  maintLocationGroups.value.push({ location: '', deviceIds: [] })
+}
+
+function maintRemoveLocationGroup(gIdx: number) {
+  maintLocationGroups.value.splice(gIdx, 1)
+}
+
+function toggleMaintDetail(planId: number) {
+  if (expandedMaintPlan.value === planId) {
+    expandedMaintPlan.value = null
+    return
+  }
+  expandedMaintPlan.value = planId
+  if (!maintRecords.value[planId]) {
+    fetchMaintRecords(planId)
+  }
+}
+
+async function fetchMaintRecords(planId: number) {
+  try {
+    const res = await fetch(`${MAINT_API}/records/${planId}`)
+    maintRecords.value[planId] = await res.json()
+  } catch (err) { console.error('加载保养记录失败', err) }
+}
+
+function getDeviceRecord(planId: number, deviceName: string) {
+  const records = maintRecords.value[planId] || []
+  return records.find((r: any) => r.device_name === deviceName)
+}
+
+function getDeviceStatus(planId: number, deviceName: string): 'done' | 'abnormal' | 'pending' {
+  const rec = getDeviceRecord(planId, deviceName)
+  if (!rec) return 'pending'
+  return rec.has_abnormal == 1 ? 'abnormal' : 'done'
+}
+
+function maintOpenCreate() {
+  maintEditingPlan.value = null
+  maintForm.value = { name: '', device_type: '', check_content: '', cycle_type: 'month', cycle_value: 1, cycle_count: 1, has_third_party: false, third_party_name: '' }
+  maintSelectedRole.value = ''
+  maintSelectedExecutorId.value = ''
+  maintLocationGroups.value = [{ location: '', deviceIds: [] }]
+  // 确保角色数据已加载
+  if (maintAllRoles.value.length === 0) maintLoadUsers()
+  maintShowDialog.value = true
+}
+
+function maintEditPlan(plan: any) {
+  maintEditingPlan.value = plan
+  maintForm.value = {
+    name: plan.name || '',
+    device_type: plan.device_type || '',
+    check_content: plan.check_content || '',
+    cycle_type: plan.cycle_type || 'month',
+    cycle_value: plan.cycle_value || 1,
+    cycle_count: plan.cycle_count || 1,
+    has_third_party: plan.has_third_party == 1,
+    third_party_name: plan.third_party_name || ''
+  }
+  maintSelectedRole.value = plan.executor_role || ''
+  maintSelectedExecutorId.value = plan.executor_ids ? String(JSON.parse(plan.executor_ids)[0] || '') : ''
+  // 确保设备数据已加载
+  if (maintAllDevices.value.length === 0) maintLoadDeviceData()
+  if (plan.items && plan.items.length > 0) {
+    // items 只有 device_name，用名称在前端设备列表中匹配
+    const selectedNames = plan.items.map((it: any) => it.device_name).filter(Boolean)
+    const locMap = new Map<string, number[]>()
+    for (const dev of maintAllDevices.value) {
+      if (selectedNames.includes(dev.name)) {
+        if (!locMap.has(dev.location)) locMap.set(dev.location, [])
+        locMap.get(dev.location)!.push(dev.id)
+      }
+    }
+    if (locMap.size > 0) {
+      maintLocationGroups.value = Array.from(locMap.entries()).map(([loc, ids]) => ({ location: loc, deviceIds: ids }))
+    } else {
+      // 匹配不到时用名称兜底
+      maintLocationGroups.value = [{ location: '', deviceIds: [] }]
+    }
+  } else {
+    maintLocationGroups.value = [{ location: '', deviceIds: [] }]
+  }
+  maintShowDialog.value = true
+}
+
+function maintCloseDialog() {
+  maintShowDialog.value = false
+  maintEditingPlan.value = null
+}
+
+async function maintSavePlan() {
+  const validGroups = maintLocationGroups.value.filter(g => g.location && g.deviceIds.length > 0)
+  if (!maintForm.value.name || !maintSelectedRole.value || !maintSelectedExecutorId.value || validGroups.length === 0 || !maintForm.value.device_type) {
+    alert('请填写必填项（*标记）')
+    return
+  }
+  const allDeviceIds = maintLocationGroups.value.flatMap(g => g.deviceIds)
+  const selectedDevs = maintAllDevices.value.filter(d => allDeviceIds.includes(d.id))
+  const items = maintLocationGroups.value.filter(g => g.location && g.deviceIds.length > 0).flatMap(g => {
+    const devs = maintAllDevices.value.filter(d => g.deviceIds.includes(d.id))
+    return devs.map(dev => ({ device_id: dev.id, device_name: dev.name, location: dev.location, check_content: maintForm.value.check_content }))
+  })
+  const payload = {
+    name: maintForm.value.name,
+    executor_role: maintSelectedRole.value,
+    executor_ids: JSON.stringify([Number(maintSelectedExecutorId.value)]),
+    device_name: selectedDevs.map(d => d.name).join('、'),
+    device_type: maintForm.value.device_type,
+    check_content: maintForm.value.check_content,
+    cycle_type: maintForm.value.cycle_type,
+    cycle_value: maintForm.value.cycle_value,
+    cycle_count: maintForm.value.cycle_count,
+    has_third_party: maintForm.value.has_third_party,
+    third_party_name: maintForm.value.has_third_party ? maintForm.value.third_party_name : '',
+    items
+  }
+  try {
+    if (maintEditingPlan.value) {
+      await fetch(`${MAINT_API}/plans/${maintEditingPlan.value.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+    } else {
+      await fetch(`${MAINT_API}/plans`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+    }
+    await maintLoadPlans()
+    maintCloseDialog()
+  } catch (err) { console.error('保存失败', err); alert('保存失败') }
+}
+
+async function maintDeletePlan(id: number) {
+  if (!confirm('确认删除该保养计划？')) return
+  try {
+    await fetch(`${MAINT_API}/plans/${id}`, { method: 'DELETE' })
+    await maintLoadPlans()
+  } catch (err) { console.error('删除失败', err) }
+}
+
 
 const today = computed(() => {
   const d = new Date()
@@ -601,6 +999,11 @@ onMounted(async () => {
   loadDevices()
   loadUsers()
   await loadMyTasks()
+  if (isAdmin.value) {
+    maintLoadUsers()
+    await maintLoadPlans()
+    maintLoadDeviceData()
+  }
   const timer = setInterval(() => {
     const now = Date.now()
     for (const t of myTasks.value) {
@@ -752,24 +1155,384 @@ function toggleItem(item: any) {
   item.status = item.status === 'done' ? 'pending' : 'done'
 }
 
-const maintenancePlans = ref([
-  { id: 1, name: '月度保养', equipment: '1号取水泵', nextDate: '2026-05-01', daysLeft: 6 },
-  { id: 2, name: '季度保养', equipment: '2号送水泵', nextDate: '2026-05-15', daysLeft: 20 },
-  { id: 3, name: '半年保养', equipment: '滤池组', nextDate: '2026-04-28', daysLeft: 3 },
-  { id: 4, name: '年度保养', equipment: '水质监测设备', nextDate: '2026-06-10', daysLeft: 46 },
-])
-
-const upcomingMaintCount = computed(() => maintenancePlans.value.filter(p => p.daysLeft <= 7).length)
-
-const maintStats = computed(() => [
-  { label: '计划总数', value: maintenancePlans.value.length },
-  { label: '本周到期', value: maintenancePlans.value.filter(p => p.daysLeft <= 7).length },
-  { label: '本月到期', value: maintenancePlans.value.filter(p => p.daysLeft <= 30).length },
-  { label: '已逾期', value: maintenancePlans.value.filter(p => p.daysLeft < 0).length },
-])
 </script>
 
 <style scoped>
+
+
+/* 保养计划统计栏 */
+.maint-stats-row {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  margin: 12px 0;
+  padding: 10px 14px;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 8px;
+  flex-wrap: wrap;
+}
+.maint-stat-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.maint-stat-num {
+  font-size: 16px;
+  font-weight: 700;
+}
+.maint-stat-lbl {
+  font-size: 12px;
+  opacity: 0.7;
+}
+.maint-stat-sep {
+  color: rgba(255, 255, 255, 0.3);
+  margin: 0 10px;
+  font-size: 14px;
+}
+.maint-stat-expand {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: rgba(45, 212, 191, 0.8);
+  font-size: 12px;
+  cursor: pointer;
+}
+.maint-stat-expand:hover { color: #2DD4BF; }
+.stat-green { color: #22C55E !important; font-weight: 700; font-size: 18px; }
+.stat-red { color: #EF4444 !important; font-weight: 700; font-size: 18px; }
+.stat-cyan { color: #06B6D4 !important; font-weight: 700; font-size: 18px; }
+
+/* 保养详情展开区 */
+.maint-detail-section {
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  padding-top: 12px;
+  margin-top: 4px;
+}
+.detail-device-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.detail-device-item {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 8px;
+  padding: 12px;
+}
+.detail-device-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.detail-device-name {
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 14px;
+  font-weight: 600;
+}
+.detail-device-tags { display: flex; gap: 6px; }
+.detail-tag {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+.tag-done { background: rgba(34, 197, 94, 0.15); color: #22C55E; }
+.tag-abnormal { background: rgba(239, 68, 68, 0.15); color: #EF4444; }
+.tag-pending { background: rgba(251, 146, 60, 0.15); color: #FDBA74; }
+.detail-check-list {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding-left: 4px;
+}
+.detail-check-row { display: flex; align-items: center; gap: 8px; }
+.check-dot { width: 8px; height: 8px; border-radius: 50%; min-width: 8px; }
+.dot-done { background: #22C55E; }
+.dot-pending { background: #FDBA74; }
+.check-text { color: rgba(255, 255, 255, 0.6); font-size: 13px; }
+.detail-abnormal-note {
+  margin-top: 6px;
+  color: rgba(239, 68, 68, 0.8);
+  font-size: 12px;
+  background: rgba(239, 68, 68, 0.08);
+  padding: 6px 10px;
+  border-radius: 4px;
+}
+.abnormal-note-label { font-weight: 600; }
+.detail-loading { color: rgba(255,255,255,0.4); font-size: 13px; padding: 10px 0; }
+
+/* 剩余时间tag */
+.tag-overdue { background: rgba(239, 68, 68, 0.2) !important; color: #FCA5A5 !important; }
+.tag-remaining { background: rgba(251, 146, 60, 0.15) !important; color: #FDBA74 !important; }
+
+/* 保养计划内嵌样式 */
+.maint-admin-wrapper .page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.maint-admin-wrapper .header-left {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.maint-admin-wrapper .page-title {
+  color: #fff;
+  font-size: 22px;
+  font-weight: 600;
+  margin: 0;
+  letter-spacing: 1px;
+}
+.maint-admin-wrapper .page-desc {
+  color: rgba(255, 255, 255, 0.45);
+  font-size: 13px;
+}
+.maint-admin-wrapper .btn-primary {
+  background: rgba(45, 212, 191, 0.15);
+  border: 1px solid rgba(45, 212, 191, 0.4);
+  color: #2DD4BF;
+  padding: 8px 20px;
+  border-radius: 6px;
+  font-size: 14px;
+  cursor: pointer;
+}
+.maint-admin-wrapper .btn-primary:hover { background: rgba(45, 212, 191, 0.25); }
+.maint-admin-wrapper .plan-card {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(45, 212, 191, 0.15);
+  border-radius: 10px;
+  padding: 20px;
+  margin-bottom: 16px;
+}
+.maint-admin-wrapper .plan-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 12px;
+}
+.maint-admin-wrapper .plan-name {
+  color: #fff;
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0 0 8px;
+}
+.maint-admin-wrapper .plan-meta { display: flex; gap: 10px; flex-wrap: wrap; }
+.maint-admin-wrapper .meta-tag {
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 12px;
+  background: rgba(255, 255, 255, 0.06);
+  padding: 3px 10px;
+  border-radius: 12px;
+}
+.maint-admin-wrapper .plan-actions { display: flex; gap: 8px; }
+.maint-admin-wrapper .btn-edit, .maint-admin-wrapper .btn-delete {
+  background: none;
+  border: 1px solid;
+  padding: 4px 12px;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.maint-admin-wrapper .btn-edit { border-color: rgba(45, 212, 191, 0.4); color: #2DD4BF; }
+.maint-admin-wrapper .btn-delete { border-color: rgba(239, 68, 68, 0.4); color: #FCA5A5; }
+.maint-admin-wrapper .empty-state {
+  text-align: center;
+  padding: 60px 0;
+  color: rgba(255, 255, 255, 0.4);
+}
+.maint-admin-wrapper .empty-icon { font-size: 48px; display: block; margin-bottom: 16px; }
+.maint-admin-wrapper .dialog-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+.maint-admin-wrapper .dialog {
+  background: #0f3248;
+  border: 1px solid rgba(45, 212, 191, 0.2);
+  border-radius: 12px;
+  width: 680px;
+  max-height: 85vh;
+  overflow-y: auto;
+}
+.maint-admin-wrapper .dialog-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px 24px;
+  border-bottom: 1px solid rgba(45, 212, 191, 0.1);
+}
+.maint-admin-wrapper .dialog-header h3 { color: #fff; font-size: 18px; margin: 0; }
+.maint-admin-wrapper .dialog-close {
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 22px;
+  cursor: pointer;
+}
+.maint-admin-wrapper .dialog-body { padding: 24px; }
+.maint-admin-wrapper .form-row { margin-bottom: 20px; }
+.maint-admin-wrapper .form-row label {
+  display: block;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 13px;
+  margin-bottom: 8px;
+}
+.maint-admin-wrapper .required { color: #F97316; margin-left: 2px; }
+.maint-admin-wrapper .form-row input,
+.maint-admin-wrapper .form-row select,
+.maint-admin-wrapper .form-row textarea {
+  width: 100%;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(45, 212, 191, 0.3);
+  border-radius: 6px;
+  color: #fff;
+  padding: 10px 12px;
+  font-size: 14px;
+  box-sizing: border-box;
+}
+.maint-admin-wrapper .form-row textarea { resize: vertical; min-height: 80px; }
+.maint-admin-wrapper .form-row-two { display: flex; gap: 16px; margin-bottom: 20px; }
+.maint-admin-wrapper .form-col { flex: 1; }
+.maint-admin-wrapper .form-col label {
+  display: block;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 13px;
+  margin-bottom: 8px;
+}
+.maint-admin-wrapper .form-col select,
+.maint-admin-wrapper .form-col input {
+  width: 100%;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(45, 212, 191, 0.3);
+  border-radius: 6px;
+  color: #fff;
+  padding: 10px 12px;
+  font-size: 14px;
+  box-sizing: border-box;
+}
+.maint-admin-wrapper .dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 16px 24px;
+  border-top: 1px solid rgba(45, 212, 191, 0.1);
+}
+.maint-admin-wrapper .btn-cancel {
+  background: none;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: rgba(255, 255, 255, 0.6);
+  padding: 8px 20px;
+  border-radius: 6px;
+  font-size: 14px;
+  cursor: pointer;
+}
+.maint-admin-wrapper .btn-confirm {
+  background: rgba(45, 212, 191, 0.15);
+  border: 1px solid rgba(45, 212, 191, 0.4);
+  color: #2DD4BF;
+  padding: 8px 20px;
+  border-radius: 6px;
+  font-size: 14px;
+  cursor: pointer;
+}
+.maint-admin-wrapper .btn-confirm:hover { background: rgba(45, 212, 191, 0.25); }
+.maint-admin-wrapper .cycle-input-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: rgba(255, 255, 255, 0.65);
+  font-size: 14px;
+}
+.maint-admin-wrapper .cycle-num { width: 70px !important; text-align: center; }
+.maint-admin-wrapper .cycle-unit-select { width: 100px !important; }
+.maint-admin-wrapper .radio-options { display: flex; gap: 20px; }
+.maint-admin-wrapper .radio-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 14px;
+  cursor: pointer;
+}
+.maint-admin-wrapper .radio-label input[type="radio"] { accent-color: #2DD4BF; width: 16px; height: 16px; }
+.maint-admin-wrapper .location-group-list { display: flex; flex-direction: column; gap: 12px; }
+.maint-admin-wrapper .location-group {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(45, 212, 191, 0.15);
+  border-radius: 8px;
+  padding: 14px;
+}
+.maint-admin-wrapper .grp-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+.maint-admin-wrapper .grp-num { color: rgba(255, 255, 255, 0.5); font-size: 12px; }
+.maint-admin-wrapper .grp-remove {
+  background: none;
+  border: none;
+  color: rgba(255, 100, 100, 0.6);
+  font-size: 18px;
+  cursor: pointer;
+}
+.maint-admin-wrapper .grp-body { display: flex; flex-direction: column; gap: 10px; }
+.maint-admin-wrapper .grp-location {
+  width: 100%;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(45, 212, 191, 0.3);
+  border-radius: 6px;
+  color: #fff;
+  padding: 8px 12px;
+  font-size: 14px;
+  box-sizing: border-box;
+}
+.maint-admin-wrapper .add-location-btn {
+  margin-top: 10px;
+  background: none;
+  border: 1px dashed rgba(45, 212, 191, 0.3);
+  color: rgba(45, 212, 191, 0.7);
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+  width: 100%;
+  transition: all 0.2s;
+}
+.maint-admin-wrapper .add-location-btn:hover { border-color: #2DD4BF; color: #2DD4BF; }
+.maint-admin-wrapper .device-selector {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(45, 212, 191, 0.2);
+  border-radius: 8px;
+  padding: 12px;
+}
+.maint-admin-wrapper .available-devices { display: flex; flex-wrap: wrap; gap: 8px; }
+.maint-admin-wrapper .device-option {
+  padding: 6px 14px;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+  border: 1px solid rgba(45, 212, 191, 0.2);
+  color: rgba(255, 255, 255, 0.7);
+  background: rgba(255, 255, 255, 0.04);
+  transition: all 0.2s;
+}
+.maint-admin-wrapper .device-option:hover { border-color: rgba(45, 212, 191, 0.5); color: #2DD4BF; }
+.maint-admin-wrapper .device-option.selected {
+  background: rgba(45, 212, 191, 0.15);
+  border-color: #2DD4BF;
+  color: #2DD4BF;
+}
+.maint-admin-wrapper .selected-count {
+  margin-top: 10px;
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 12px;
+}
 .ins-page {
   min-height: 100vh;
   background: #0f2d4a;

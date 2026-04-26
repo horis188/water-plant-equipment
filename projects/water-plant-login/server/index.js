@@ -6,6 +6,7 @@ import sparepartsRouter from './routes/spareparts.js'
 import workordersRouter from './routes/workorders.js'
 import inspectionRouter from './routes/inspection.js'
 import usersRouter from './routes/users.js'
+import maintenanceRouter from './routes/maintenance.js'
 
 const app = express()
 const PORT = 3000
@@ -19,6 +20,7 @@ app.use('/api/spareparts', sparepartsRouter)
 app.use('/api/workorders', workordersRouter)
 app.use('/api/inspection', inspectionRouter)
 app.use('/api/users', usersRouter)
+app.use('/api/maintenance', maintenanceRouter)
 
 // 健康检查
 app.get('/api/health', (req, res) => {

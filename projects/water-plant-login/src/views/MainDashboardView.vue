@@ -1,42 +1,141 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import WaterBackground from '../components/WaterBackground.vue'
 import { deviceStats, deviceListWithStatus, deviceChangeLog, currentUser } from '../composables/useDeviceStore'
 import { spareparts } from '../composables/useSparepartStore'
 import { maintenanceOrders } from '../composables/useWorkOrderStore'
 
+const API_BASE = '/api/inspection'
 const router = useRouter()
 
-// 退出登录
-const handleLogout = () => {
-  router.push('/')
+// 巡检任务（从后端实时加载）
+const inspectionTasks = ref<any[]>([])
+const showExecuteDialog = ref(false)
+const currentTaskForDialog = ref<any>(null)
+const checkedItems = ref<string[]>([])
+const hasAbnormal = ref(false)
+const abnormalDesc = ref('')
+
+const myTasks = computed(() => {
+  return inspectionTasks.value
+})
+
+const myDoneCount = computed(() => myTasks.value.filter(t => t.is_completed).length)
+const myOverdueCount = computed(() => myTasks.value.filter(t => !t.is_completed && t.remainingMs < 0).length)
+
+const inspectionPlan = computed(() => ({
+  total: myTasks.value.length,
+  completed: myDoneCount.value,
+  pending: myOverdueCount.value,
+  recentItems: myTasks.value.slice(0, 8).map((t: any) => ({
+    id: t.plan_id + '-' + t.device_id,
+    task: t,
+    name: t.device_name,
+    status: t.is_completed ? (t.has_abnormal ? 'abnormal' : 'ok') : 'pending',
+    deadline: t.remainingMs < 0 ? '已超时' : (t.remainingMs === Infinity ? '' : `剩余${formatRemaining(t.remainingMs)}`)
+  }))
+}))
+
+async function loadInspectionTasks() {
+  try {
+    const res = await fetch(`${API_BASE}/pending-tasks?executor_id=${currentUser.value?.id}`)
+    const tasks = await res.json()
+    const now = Date.now()
+    for (const t of tasks) {
+      const planRes = await fetch(`${API_BASE}/plans/${t.plan_id}`)
+      const plan = planRes.ok ? await planRes.json() : null
+      t.remainingMs = getTaskRemainingMs(t, plan, now)
+    }
+    inspectionTasks.value = tasks
+  } catch (err) {
+    console.error('加载巡检任务失败', err)
+  }
 }
 
-// 消息通知（工单推送）
+function getTaskRemainingMs(task: any, plan: any, now: number): number {
+  if (task.is_completed) return Infinity
+  const cycle = task.cycle
+  if (cycle === 'hourly') return 3600000 - (now % 3600000)
+  if (cycle === 'two_hour') return 7200000 - (now % 7200000)
+  if (cycle === 'four_hour') return 14400000 - (now % 14400000)
+  if (cycle === 'eight_hour') return 28800000 - (now % 28800000)
+  if (cycle === 'custom' && plan?.custom_times) {
+    const times = JSON.parse(plan.custom_times)
+    if (times && times.length > 0) {
+      const [sh, sm] = (times[0].start || '00:00').split(':').map(Number)
+      const [eh, em] = (times[0].end || '23:59').split(':').map(Number)
+      const start = new Date()
+      start.setHours(sh, sm, 0, 0)
+      const end = new Date()
+      end.setHours(eh, em, 59, 999)
+      if (now < start.getTime()) return start.getTime() - now
+      if (now < end.getTime()) return end.getTime() - now
+      return -(now - end.getTime())
+    }
+  }
+  const [year, month, day] = new Date().toISOString().split('T')[0].split('-').map(Number)
+  const midnight = new Date(year, month - 1, day, 23, 59, 59).getTime()
+  return midnight + 999 - now
+}
+
+function goToExecute(item: any) {
+  if (item.status !== 'pending') return
+  const task = item.task
+  showExecuteDialog.value = true
+  currentTaskForDialog.value = task
+}
+
+async function submitTaskResultFromMain() {
+  if (!currentTaskForDialog.value) return
+  try {
+    await fetch(`${API_BASE}/records`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        plan_id: currentTaskForDialog.value.plan_id,
+        device_id: currentTaskForDialog.value.device_id,
+        device_name: currentTaskForDialog.value.device_name,
+        executor_id: currentUser.value?.id,
+        executor_name: currentUser.value?.name,
+        results: checkedItems.value,
+        has_abnormal: hasAbnormal.value,
+        abnormal_desc: abnormalDesc.value
+      })
+    })
+    showExecuteDialog.value = false
+    checkedItems.value = []
+    hasAbnormal.value = false
+    abnormalDesc.value = ''
+    currentTaskForDialog.value = null
+    await loadInspectionTasks()
+  } catch (err) {
+    console.error('提交失败', err)
+    alert('提交失败')
+  }
+}
+
+function formatRemaining(ms: number): string {
+  const totalSec = Math.floor(ms / 1000)
+  const h = Math.floor(totalSec / 3600)
+  const m = Math.floor((totalSec % 3600) / 60)
+  if (h > 0) return `${h}小时${m}分`
+  return `${m}分钟`
+}
+
+onMounted(() => {
+  loadInspectionTasks()
+})
+
 const workOrderNotifications = ref([
   { id: 1, title: '3号取水泵温度异常', level: '紧急', time: '09:23' },
   { id: 2, title: '1号滤池滤料更换', level: '普通', time: '08:00' },
   { id: 3, title: '水质监测设备校准', level: '定期', time: '10:00' }
 ])
 
-
-// 巡检计划
-const inspectionPlan = ref({
-  total: 60,
-  completed: 42,
-  pending: 18,
-  recentItems: [
-    { id: 1, name: '1号取水泵', status: 'ok', time: '08:30' },
-    { id: 2, name: '2号取水泵', status: 'ok', time: '08:35' },
-    { id: 3, name: '1号送水泵', status: 'ok', time: '08:40' },
-    { id: 4, name: '2号送水泵', status: 'ok', time: '08:45' },
-    { id: 5, name: '滤池1-4', status: 'pending', time: '09:00' },
-    { id: 6, name: '加药间设备', status: 'pending', time: '09:15' },
-    { id: 7, name: '水质监测设备', status: 'pending', time: '09:30' },
-    { id: 8, name: '配电室设备', status: 'pending', time: '09:45' }
-  ]
-})
+const handleLogout = () => {
+  router.push('/')
+}
 
 const showNotifications = ref(false)
 
@@ -241,6 +340,41 @@ const getLevelClass = (level: string) => {
       </div>
     </header>
 
+    <!-- 执行巡检弹窗（从主页直接弹出） -->
+    <div v-if="showExecuteDialog" class="dialog-overlay" @click.self="showExecuteDialog = false">
+      <div class="dialog">
+        <div class="dialog-header">
+          <h3>执行巡检</h3>
+          <button class="dialog-close" @click="showExecuteDialog = false">×</button>
+        </div>
+        <div class="dialog-body">
+          <div class="execute-info">
+            <div class="execute-device">{{ currentTaskForDialog?.device_name }}</div>
+            <div class="execute-plan">📍{{ currentTaskForDialog?.location }} · {{ currentTaskForDialog?.plan_name }}</div>
+          </div>
+          <div class="execute-checklist">
+            <div v-for="(item, idx) in (currentTaskForDialog?.check_content || '').split('\n').filter((l: string) => l.trim())" :key="idx" class="check-row">
+              <div class="check-box-wrap">
+                <input type="checkbox" v-model="checkedItems" :value="item" :id="'mcheck-' + idx" class="check-input" />
+                <label :for="'mcheck-' + idx" class="check-label">{{ item }}</label>
+              </div>
+            </div>
+          </div>
+          <div class="abnormal-section">
+            <label class="abnormal-label">
+              <input type="checkbox" v-model="hasAbnormal" class="check-input" />
+              <span>发现异常</span>
+            </label>
+            <textarea v-if="hasAbnormal" v-model="abnormalDesc" placeholder="描述异常情况..." rows="3"></textarea>
+          </div>
+        </div>
+        <div class="dialog-footer">
+          <button class="btn-cancel" @click="showExecuteDialog = false">取消</button>
+          <button class="btn-confirm" @click="submitTaskResultFromMain">提交巡检结果</button>
+        </div>
+      </div>
+    </div>
+
     <!-- 第二行：左侧带班信息卡片 + 右侧通知公告卡片 -->
     <div class="info-row">
       <div class="info-cards-wrapper">
@@ -267,19 +401,18 @@ const getLevelClass = (level: string) => {
         </div>
 
 
-        <!-- 中间：巡检计划 -->
+        <!-- 中间：巡检任务 -->
         <div class="inspect-inline">
           <div class="inspect-header">
             <div class="inspect-header-left">
-              <span class="inspect-label">巡检计划</span>
-              <span class="inspect-count inspect-ok">{{ inspectionPlan.completed }}</span>
-              <span class="inspect-slash">/</span>
-              <span class="inspect-count inspect-total">{{ inspectionPlan.total }}</span>
-              <span class="inspect-sep">·</span>
-              <span class="inspect-pending-text">未巡</span>
-              <span class="inspect-count inspect-pending-count">{{ inspectionPlan.pending }}</span>
+              <span class="inspect-label">🔍 巡检任务</span>
+              <span class="inspect-stat done">{{ inspectionPlan.completed }}已完成</span>
+              <span class="inspect-sep">/</span>
+              <span class="inspect-stat overdue">{{ inspectionPlan.pending }}超时</span>
+              <span class="inspect-sep">/</span>
+              <span class="inspect-stat total">{{ inspectionPlan.total }}总数</span>
             </div>
-            <a href="#" class="inspect-more" @click.prevent="router.push('/inspection')">更多 →</a>
+            <button class="inspect-btn" @click="router.push('/inspection')">查看详情 →</button>
           </div>
           <div class="inspect-items">
             <div
@@ -287,10 +420,11 @@ const getLevelClass = (level: string) => {
               :key="item.id"
               class="inspect-item"
               :class="item.status"
+              @click="goToExecute(item)"
             >
               <div class="inspect-item-dot"></div>
               <span class="inspect-item-name">{{ item.name }}</span>
-              <span class="inspect-item-time">{{ item.time }}</span>
+              <span class="inspect-item-deadline" :class="item.deadline === '已超时' ? 'overdue' : ''">{{ item.deadline }}</span>
             </div>
           </div>
         </div>
@@ -838,15 +972,15 @@ const getLevelClass = (level: string) => {
 
 
 
-/* 中间：巡检计划（行内） */
+/* 中间：巡检任务（行内） */
 .inspect-inline {
   background: rgba(255, 255, 255, 0.06);
   border: 1px solid rgba(45, 212, 191, 0.15);
   border-radius: 10px;
-  padding: 10px 18px;
+  padding: 12px 18px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
   flex: none;
   width: 610px;
   height: 180px;
@@ -863,22 +997,45 @@ const getLevelClass = (level: string) => {
 .inspect-header-left {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
 }
 
-.inspect-more {
-  font-size: 11px;
+.inspect-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: #fff;
+  margin-right: 4px;
+}
+
+.inspect-stat {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.inspect-stat.done { color: #22C55E; }
+.inspect-stat.overdue { color: #F97316; }
+.inspect-stat.total { color: #06B6D4; }
+
+.inspect-sep {
+  color: #06B6D4;
+  font-size: 12px;
+  margin: 0 2px;
+}
+
+.inspect-btn {
+  background: rgba(45, 212, 191, 0.12);
+  border: 1px solid rgba(45, 212, 191, 0.3);
   color: #2DD4BF;
-  text-decoration: none;
-  padding: 2px 4px;
-  border-radius: 4px;
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  cursor: pointer;
   transition: background 0.15s;
 }
 
-.inspect-more:hover {
-  background: rgba(45, 212, 191, 0.1);
+.inspect-btn:hover {
+  background: rgba(45, 212, 191, 0.22);
 }
-
 
 .inspect-items {
   display: grid;
@@ -897,19 +1054,20 @@ const getLevelClass = (level: string) => {
   cursor: pointer;
 }
 
-.inspect-item:hover {
+.inspect-item.pending:hover {
   background: rgba(255, 255, 255, 0.06);
 }
 
 .inspect-item-dot {
-  width: 7px;
-  height: 7px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
   flex-shrink: 0;
 }
 
-.inspect-item.ok .inspect-item-dot { background: #2DD4BF; }
-.inspect-item.pending .inspect-item-dot { background: #EF4444; }
+.inspect-item.ok .inspect-item-dot { background: #22C55E; }
+.inspect-item.abnormal .inspect-item-dot { background: #EF4444; }
+.inspect-item.pending .inspect-item-dot { background: #F97316; }
 
 .inspect-item-name {
   font-size: 13px;
@@ -920,10 +1078,15 @@ const getLevelClass = (level: string) => {
   white-space: nowrap;
 }
 
-.inspect-item-time {
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.35);
+.inspect-item-deadline {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.4);
   flex-shrink: 0;
+}
+
+.inspect-item-deadline.overdue {
+  color: #F97316;
+  font-weight: 600;
 }
 
 .inspect-label {
@@ -1578,5 +1741,167 @@ const getLevelClass = (level: string) => {
 
 .page-footer p {
   margin: 0;
+}
+
+/* 执行巡检弹窗 */
+.execute-info {
+  margin-bottom: 16px;
+}
+
+.execute-device {
+  color: #fff;
+  font-size: 18px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.execute-plan {
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 13px;
+}
+
+.execute-checklist {
+  margin-bottom: 16px;
+}
+
+.check-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 6px;
+  margin-bottom: 8px;
+}
+
+.check-box-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+}
+
+.check-input {
+  width: 20px;
+  height: 20px;
+  min-width: 20px;
+  accent-color: #2DD4BF;
+  cursor: pointer;
+}
+
+.check-label {
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 14px;
+  cursor: pointer;
+  flex: 1;
+}
+
+.abnormal-section {
+  margin-top: 12px;
+}
+
+.abnormal-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 14px;
+  cursor: pointer;
+  margin-bottom: 10px;
+}
+
+.abnormal-label input {
+  width: 18px;
+  height: 18px;
+  accent-color: #fb923c;
+}
+
+.abnormal-section textarea {
+  width: 100%;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(251, 146, 60, 0.3);
+  border-radius: 6px;
+  color: #fff;
+  padding: 10px;
+  font-size: 14px;
+  resize: vertical;
+  box-sizing: border-box;
+}
+
+.dialog-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.dialog {
+  background: #0f3248;
+  border: 1px solid rgba(45, 212, 191, 0.2);
+  border-radius: 12px;
+  width: 520px;
+  max-height: 80vh;
+  overflow-y: auto;
+}
+
+.dialog-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px 24px;
+  border-bottom: 1px solid rgba(45, 212, 191, 0.1);
+}
+
+.dialog-header h3 {
+  color: #fff;
+  font-size: 18px;
+  margin: 0;
+}
+
+.dialog-close {
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 22px;
+  cursor: pointer;
+}
+
+.dialog-body {
+  padding: 20px 24px;
+}
+
+.dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 16px 24px;
+  border-top: 1px solid rgba(45, 212, 191, 0.1);
+}
+
+.btn-cancel {
+  background: none;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: rgba(255, 255, 255, 0.6);
+  padding: 8px 20px;
+  border-radius: 6px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.btn-confirm {
+  background: rgba(45, 212, 191, 0.15);
+  border: 1px solid rgba(45, 212, 191, 0.4);
+  color: #2DD4BF;
+  padding: 8px 20px;
+  border-radius: 6px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.btn-confirm:hover {
+  background: rgba(45, 212, 191, 0.25);
 }
 </style>
