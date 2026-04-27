@@ -519,6 +519,19 @@
                           <div v-for="dev in maintGetDevicesForLocation(grp.location)" :key="dev.id" class="device-option" :class="{ selected: grp.deviceIds.includes(dev.id) }" @click="maintToggleGroupDevice(gIdx, dev)">{{ dev.name }}</div>
                         </div>
                         <div v-if="grp.deviceIds.length > 0" class="selected-count">已选 {{ grp.deviceIds.length }} 台</div>
+                        <div v-for="devObj in grp.deviceIds" :key="devObj.id" class="device-extra-item">
+                          <div class="device-extra-toggle" @click="maintToggleDeviceExtra(gIdx, devObj.id)">
+                            <span class="toggle-icon">{{ isDeviceExtraExpanded(gIdx, devObj.id) ? '▼' : '▶' }}</span>
+                            <span class="toggle-label">为「{{ getDeviceName(devObj.id) }}」单独设置保养项目</span>
+                          </div>
+                          <div v-if="isDeviceExtraExpanded(gIdx, devObj.id)" class="device-extra-content">
+                            <textarea
+                              v-model="maintDeviceContent[devObj.id]"
+                              rows="3"
+                              :placeholder="'输入 ' + getDeviceName(devObj.id) + ' 的保养内容（每行一项）'"
+                            ></textarea>
+                          </div>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -531,19 +544,7 @@
                 <label>保养内容（每行一项，全局）</label>
                 <textarea v-model="maintForm.check_content" rows="3" placeholder="所有设备统一保养内容，每行一项"></textarea>
               </div>
-              <div v-if="maintAllSelectedDevices.length > 1" class="form-row">
-                <label>各设备单独内容 <span class="hint-text">（可选，覆盖全局）</span></label>
-                <div class="per-device-content">
-                  <div v-for="dev in maintAllSelectedDevices" :key="dev.id" class="per-device-item">
-                    <div class="per-device-header">{{ dev.name }}</div>
-                    <textarea
-                      v-model="maintDeviceContent[dev.id]"
-                      rows="3"
-                      :placeholder="'为 ' + dev.name + ' 设置单独的保养内容...'"
-                    ></textarea>
-                  </div>
-                </div>
-              </div>
+              
               <div class="form-row">
                 <label>保养周期 <span class="required">*</span></label>
                 <div class="cycle-input-row">
@@ -601,9 +602,10 @@ const maintPlans = ref<any[]>([])
 const maintShowDialog = ref(false)
 const maintEditingPlan = ref<any>(null)
 const maintDeviceContent = ref<Record<string, string>>({})
+const maintExpandedDevices = ref<Record<number, string[]>>({})
 const maintAllSelectedDevices = computed(() => {
   const ids = new Set<string>()
-  maintLocationGroups.value.forEach(g => g.deviceIds.forEach((id: string) => ids.add(id)))
+  maintLocationGroups.value.forEach(g => g.deviceIds.forEach((x: any) => ids.add(x.id)))
   return maintAllDevices.value.filter(d => ids.has(d.id))
 })
 const expandedMaintPlan = ref<number | null>(null)
@@ -699,16 +701,29 @@ function maintOnGroupLocationChange(gIdx: number) {
 }
 
 function maintToggleGroupDevice(gIdx: number, dev: any) {
-  const ids = maintLocationGroups.value[gIdx].deviceIds
-  const idx = ids.indexOf(dev.id)
-  if (idx >= 0) ids.splice(idx, 1)
-  else ids.push(dev.id)
+  const items = maintLocationGroups.value[gIdx].deviceIds
+  const idx = items.findIndex((x: any) => x.id === dev.id)
+  if (idx >= 0) items.splice(idx, 1)
+  else items.push({ id: dev.id, customContent: '' })
 }
 
 function maintAddLocationGroup() {
   maintLocationGroups.value.push({ location: '', deviceIds: [] })
 }
 
+function getDeviceName(devId: string): string {
+  const dev = maintAllDevices.value.find(d => d.id === devId)
+  return dev ? dev.name : devId
+}
+function isDeviceExtraExpanded(gIdx: number, devId: string): boolean {
+  return maintExpandedDevices.value[gIdx]?.includes(devId) || false
+}
+function maintToggleDeviceExtra(gIdx: number, devId: string) {
+  if (!maintExpandedDevices.value[gIdx]) maintExpandedDevices.value[gIdx] = []
+  const idx = maintExpandedDevices.value[gIdx].indexOf(devId)
+  if (idx >= 0) maintExpandedDevices.value[gIdx].splice(idx, 1)
+  else maintExpandedDevices.value[gIdx].push(devId)
+}
 function maintRemoveLocationGroup(gIdx: number) {
   maintLocationGroups.value.splice(gIdx, 1)
 }
@@ -1680,20 +1695,28 @@ function toggleItem(item: any) {
   font-size: 14px;
 }
 .hint-text { font-size: 12px; color: rgba(255,255,255,0.45); font-weight: normal; }
-.per-device-content { display: flex; flex-direction: column; gap: 10px; }
-.per-device-item {}
-.per-device-header {
-  font-size: 13px; color: #2dd4bf; font-weight: 500; margin-bottom: 4px;
+
+.device-extra-item { margin-top: 8px; }
+.device-extra-toggle {
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 10px;
+  background: rgba(45,212,191,0.08);
+  border: 1px solid rgba(45,212,191,0.2);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  color: #2dd4bf;
 }
-.per-device-item textarea {
-  width: 100%; padding: 8px 10px;
+.device-extra-toggle:hover { background: rgba(45,212,191,0.14); }
+.toggle-icon { font-size: 10px; }
+.toggle-label { font-weight: 500; }
+.device-extra-content textarea {
+  width: 100%; margin-top: 6px; padding: 8px 10px;
   border: 1px solid rgba(255,255,255,0.15);
   border-radius: 6px;
   background: rgba(255,255,255,0.05);
   color: rgba(255,255,255,0.85);
-  font-size: 13px;
-  resize: vertical;
-  box-sizing: border-box;
+  font-size: 13px; resize: vertical; box-sizing: border-box;
 }
 .maint-admin-wrapper .radio-options { display: flex; gap: 20px; }
 .maint-admin-wrapper .radio-label {
