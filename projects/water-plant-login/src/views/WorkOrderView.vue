@@ -456,6 +456,14 @@ async function syncMaintenanceOrdersFromDB() {
 }
 
 let syncTimer: any = null
+async function loadShiftStatus() {
+  if (!currentUser.value?.role) return
+  try {
+    const r = await fetch(`/api/handover/status?role=${encodeURIComponent(currentUser.value.role)}`)
+    const d = await r.json()
+    wsCurrentShift.value = d.currentShift || null
+  } catch(e) {}
+}
 onMounted(() => {
   initDeviceStatusFromWorkOrders()
   syncProblemOrdersFromDB()
@@ -552,9 +560,11 @@ function canDelayOrder(order: MaintenanceWorkOrder) {
 
 // ============ 新建问题工单 ============
 const createDialogVisible = ref(false)
+const wsCurrentShift = ref<any>(null)
+const wsAmIOnShift = computed(() => wsCurrentShift.value && wsCurrentShift.value.user_name === currentUser.value?.name)
 const createForm = ref({ content: '', images: '', videos: '' })
 
-function openCreateDialog() { if (!isOnDuty.value && currentUser.value?.role !== '维修组') return; createDialogVisible.value = true; createForm.value = { content: '', images: '', videos: '' } }
+function openCreateDialog() { if (!wsAmIOnShift.value && currentUser.value?.role !== '维修组') return; createDialogVisible.value = true; createForm.value = { content: '', images: '', videos: '' } }
 
 function handleImageUpload(e: Event, form: { images?: string }) {
   const files = (e.target as HTMLInputElement).files
@@ -588,7 +598,7 @@ function submitCreateProblem() {
 const createMaintenanceDialogVisible = ref(false)
 const createMaintenanceForm = ref({ content: '', level: 'medium' as const })
 
-function openCreateMaintenanceDialog() { if (!isOnDuty.value && currentUser.value?.role !== '维修组') return;
+function openCreateMaintenanceDialog() { if (!wsAmIOnShift.value && currentUser.value?.role !== '维修组') return;
   createMaintenanceDialogVisible.value = true
   createMaintenanceForm.value = { content: '', level: 'medium' }
 }

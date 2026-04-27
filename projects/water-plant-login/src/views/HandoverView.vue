@@ -113,10 +113,10 @@
             <label class="form-label">值班纪事</label>
             <div class="notes-editor">
               <div v-for="(note, idx) in handoverNoteLines" :key="idx" class="note-line-row">
-                <input v-model="handoverNoteLines[idx]" class="note-line-input" :disabled="!isOnDuty" :placeholder="'第' + (idx+1) + '条记录...'" @keydown.enter.prevent="addNoteLine(idx)" />
-                <button v-if="isOnDuty" class="note-del-btn" @click="removeNoteLine(idx)" title="删除此行">×</button>
+                <input v-model="handoverNoteLines[idx]" class="note-line-input" :disabled="!amIOnShift" :placeholder="'第' + (idx+1) + '条记录...'" @keydown.enter.prevent="addNoteLine(idx)" />
+                <button v-if="amIOnShift" class="note-del-btn" @click="removeNoteLine(idx)" title="删除此行">×</button>
               </div>
-              <button v-if="isOnDuty" class="note-add-btn" @click="addNoteLine(-1)">+ 添加行</button>
+              <button v-if="amIOnShift" class="note-add-btn" @click="addNoteLine(-1)">+ 添加行</button>
             </div>
           </div>
           <div class="check-list">
@@ -175,6 +175,8 @@ const teams = ['A班', 'B班', 'C班', 'D班']
 
 // 状态
 const currentShiftType = ref('日班')
+const currentShift = ref<any>(null)
+const amIOnShift = computed(() => currentShift.value && currentShift.value.user_name === currentUser.value?.name)
 const currentTeam = ref('A班')
 const selectedTeam = ref('A班')
 const handoverNotes = ref('')
@@ -265,6 +267,7 @@ async function loadData() {
     const { shift, team } = getCurrentShiftAndTeam()
     currentShiftType.value = shift
     currentTeam.value = team
+    currentShift.value = data.currentShift
 
     // 加载历史
     const histRes = await fetch(`${API_BASE}/history?role=${encodeURIComponent(role)}`)
