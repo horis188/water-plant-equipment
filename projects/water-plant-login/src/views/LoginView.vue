@@ -11,7 +11,11 @@ const handleLogin = (data: { username: string; password: string; verifyCode: str
     'admin': { name: '管理员', role: '系统管理人', avatar: '管', id: 1 },
     'zy': { name: '张远', role: '带班', avatar: '远', id: 2 },
     'yqzs': { name: '一期制水', role: '值班岗位', avatar: '制', id: 3 },
-    'wxz': { name: '维修组', role: '维修组', avatar: '维', id: 4 }
+    'wxz': { name: '维修组', role: '维修组', avatar: '维', id: 4 },
+    'wy': { name: '王一', role: '带班', avatar: '王', id: 5 },
+    'ce': { name: '陈二', role: '带班', avatar: '陈', id: 6 },
+    'zs': { name: '张三', role: '旧厂制水', avatar: '张', id: 7 },
+    'ls': { name: '李四', role: '投药间值班', avatar: '李', id: 8 }
   }
   const user = userMap[data.username]
   if (user) {

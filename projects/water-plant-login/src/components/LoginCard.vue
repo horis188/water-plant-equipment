@@ -61,12 +61,16 @@ const handleSubmit = async () => {
 
   await new Promise(resolve => setTimeout(resolve, 1500))
 
-  const validUsers = ['admin', 'zy', 'wxz', 'yqzs']
+  const validUsers = ['admin', 'zy', 'wxz', 'yqzs', 'wy', 'ce', 'zs', 'ls']
   const validPasswords: Record<string, string> = {
     admin: 'admin123',
     zy: '123',
     wxz: '123',
-    yqzs: '123'
+    yqzs: '123',
+    wy: '1234',
+    ce: '1234',
+    zs: '1234',
+    ls: '1234'
   }
   const mockSuccess = validUsers.includes(username.value) && validPasswords[username.value] === password.value
 
