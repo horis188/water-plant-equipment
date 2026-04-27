@@ -640,7 +640,7 @@ async function maintLoadUsers() {
         roleMap[u.role].push(u)
       }
       maintUsersByRole.value = roleMap
-      maintAllRoles.value = Object.keys(roleMap)
+maintAllRoles.value = [...new Set([...ALL_ROLES, ...Object.keys(roleMap)])]
     }
   } catch (err) { console.error('加载用户失败', err) }
 }
@@ -906,6 +906,7 @@ const locations = ref<any[]>([])
 const devices = ref<any[]>([])
 const selectedDeviceIds = ref<number[]>([])
 const deviceCheckItems = ref<Record<number, string>>({})
+const ALL_ROLES = ['系统管理人', '带班', '维修组', '值班岗位', '旧厂制水', '新地值班', '一期制水', '新高值班']
 const usersByRole = ref<Record<string, any[]>>({})
 const allRoles = ref<string[]>([])
 const selectedExecutorId = ref<string>('')
@@ -1029,7 +1030,7 @@ async function loadUsers() {
         roleMap[u.role].push(u)
       }
       usersByRole.value = roleMap
-      allRoles.value = Object.keys(roleMap)
+allRoles.value = [...new Set([...ALL_ROLES, ...Object.keys(roleMap)])]
     }
   } catch (err) {
     console.error('加载用户失败', err)
