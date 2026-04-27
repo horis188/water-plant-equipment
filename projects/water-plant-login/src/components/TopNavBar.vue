@@ -33,7 +33,7 @@
     <div class="nav-right">
       <!-- 用户信息 -->
       <div class="user-info">
-        <div class="user-avatar">{{ currentUser.avatar }}</div>
+        <div class="user-avatar" :title="'班组: ' + (currentUser.team || '未知')">{{ currentUser.team || currentUser.avatar }}</div>
         <div class="user-detail">
           <span class="user-name">{{ currentUser.name }}</span>
           <span class="user-role">{{ currentUser.role }}</span>

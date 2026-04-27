@@ -2,9 +2,9 @@ import { ref, computed } from 'vue'
 
 // ============ 当前登录用户 ============
 const saved = sessionStorage.getItem('currentUser')
-export const currentUser = ref(saved ? JSON.parse(saved) : { name: '张明', role: '运行班长', avatar: '张', id: 0 })
+export const currentUser = ref<{ name: string; role: string; avatar: string; id: number; team?: string }>(saved ? JSON.parse(saved) : { name: '张明', role: '运行班长', avatar: '张', id: 0 })
 
-export function setCurrentUser(user: { name: string; role: string; avatar: string; id: number }) {
+export function setCurrentUser(user: { name: string; role: string; avatar: string; id: number; team?: string }) {
   currentUser.value = user
   sessionStorage.setItem('currentUser', JSON.stringify(user))
 }
