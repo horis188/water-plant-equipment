@@ -12,7 +12,7 @@ export function setCurrentUser(user: { name: string; role: string; avatar: strin
 // ============ 值班状态判断 ============
 export const isOnDuty = computed(() => {
   const role = currentUser.value?.role
-  if (role !== '值班岗位' && role !== '带班') return false
+  if (!['值班岗位', '带班', '旧厂制水', '一期制水', '投药间值班', '新低值班', '新高值班'].includes(role)) return false
   const now = new Date()
   const hour = now.getHours()
   const min = now.getMinutes()
