@@ -528,8 +528,21 @@
                 </button>
               </div>
               <div class="form-row">
-                <label>保养内容（每行一项）</label>
-                <textarea v-model="maintForm.check_content" rows="4" placeholder="每行一个保养项"></textarea>
+                <label>保养内容（每行一项，全局）</label>
+                <textarea v-model="maintForm.check_content" rows="3" placeholder="所有设备统一保养内容，每行一项"></textarea>
+              </div>
+              <div v-if="maintAllSelectedDevices.length > 1" class="form-row">
+                <label>各设备单独内容 <span class="hint-text">（可选，覆盖全局）</span></label>
+                <div class="per-device-content">
+                  <div v-for="dev in maintAllSelectedDevices" :key="dev.id" class="per-device-item">
+                    <div class="per-device-header">{{ dev.name }}</div>
+                    <textarea
+                      v-model="maintDeviceContent[dev.id]"
+                      rows="3"
+                      :placeholder="'为 ' + dev.name + ' 设置单独的保养内容...'"
+                    ></textarea>
+                  </div>
+                </div>
               </div>
               <div class="form-row">
                 <label>保养周期 <span class="required">*</span></label>
@@ -587,6 +600,12 @@ const MAINT_API = '/api/maintenance'
 const maintPlans = ref<any[]>([])
 const maintShowDialog = ref(false)
 const maintEditingPlan = ref<any>(null)
+const maintDeviceContent = ref<Record<string, string>>({})
+const maintAllSelectedDevices = computed(() => {
+  const ids = new Set<string>()
+  maintLocationGroups.value.forEach(g => g.deviceIds.forEach((id: string) => ids.add(id)))
+  return devices.value.filter(d => ids.has(d.id))
+})
 const expandedMaintPlan = ref<number | null>(null)
 const expandedMaintTask = ref<number | null>(null)
 const myMaintTasks = ref<any[]>([])
@@ -1659,6 +1678,22 @@ function toggleItem(item: any) {
   background: rgba(255,255,255,0.08);
   color: #fff;
   font-size: 14px;
+}
+.hint-text { font-size: 12px; color: rgba(255,255,255,0.45); font-weight: normal; }
+.per-device-content { display: flex; flex-direction: column; gap: 10px; }
+.per-device-item {}
+.per-device-header {
+  font-size: 13px; color: #2dd4bf; font-weight: 500; margin-bottom: 4px;
+}
+.per-device-item textarea {
+  width: 100%; padding: 8px 10px;
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 6px;
+  background: rgba(255,255,255,0.05);
+  color: rgba(255,255,255,0.85);
+  font-size: 13px;
+  resize: vertical;
+  box-sizing: border-box;
 }
 .maint-admin-wrapper .radio-options { display: flex; gap: 20px; }
 .maint-admin-wrapper .radio-label {
