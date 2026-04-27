@@ -52,6 +52,7 @@
         <span class="tab-count">{{ myPendingCount }}</span>
       </button>
       <button 
+        v-if="isAdmin || currentUser.role === '维修组'"
         class="tab-btn" 
         :class="{ active: activeTab === 'maintenance' }"
         @click="activeTab = 'maintenance'"
