@@ -38,12 +38,12 @@ router.get('/status', async (req, res) => {
 
       const [wo1] = await pool.query(
         `SELECT id, content, status, '问题工单' as type, created_at FROM problem_orders 
-         WHERE reporter = ? AND created_at >= ${shiftWindow} AND created_at <= ?`,
+         WHERE reporter_name = ? AND created_at >= ${shiftWindow} AND created_at <= ?`,
         [lastRecord.handing_over_user, lastRecord.handover_time]
       )
       const [wo2] = await pool.query(
         `SELECT id, content, status, '维修工单' as type, created_at FROM maintenance_orders 
-         WHERE creator = ? AND created_at >= ${shiftWindow} AND created_at <= ?`,
+         WHERE assigner_name = ? AND created_at >= ${shiftWindow} AND created_at <= ?`,
         [lastRecord.handing_over_user, lastRecord.handover_time]
       )
       lastWorkorders = [...wo1, ...wo2]
@@ -115,7 +115,7 @@ router.get('/history', async (req, res) => {
 
   try {
     let where = `(handing_over_role = ? OR taking_over_role = ?)`
-    const params: any[] = [role, role]
+    const params = [role, role]
 
     if (shift_type) { where += ` AND shift_type = ?`; params.push(shift_type) }
     if (team) { where += ` AND team = ?`; params.push(team) }
