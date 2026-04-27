@@ -17,7 +17,7 @@
       <!-- 功能导航菜单 -->
       <nav class="menu-nav">
         <div
-          v-for="item in navItems"
+          v-for="item in visibleNavItems"
           :key="item.name"
           class="menu-item"
           :class="{ active: activeNav === item.name }"
@@ -49,7 +49,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { currentUser } from '../composables/useDeviceStore'
 
@@ -63,11 +63,16 @@ const navItems = ref([
   { name: '设备管理', path: '/device/inuse', icon: '🖥️' },
   { name: '巡检保养', path: '/inspection', icon: '🔍' },
   { name: '备件仓库', path: '/spareparts', icon: '📦' },
-  { name: '班组交接', path: '/handover', icon: '🔄' },
+  { name: '班组交接', path: '/handover', icon: '🔄', roles: ['值班岗位', '带班', '系统管理人'] },
   { name: '维修工单', path: '/workorder', icon: '🔧' },
   { name: '设备价值', path: '/asset', icon: '💰' },
   { name: '系统管理', path: '/admin', icon: '⚙️' }
 ])
+
+const visibleNavItems = computed(() => {
+  const role = currentUser.value?.role
+  return navItems.value.filter(item => !item.roles || item.roles.includes(role))
+})
 
 const activeNav = ref('')
 const pathToName: Record<string, string> = {
