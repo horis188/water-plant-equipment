@@ -95,6 +95,16 @@
           <span class="info-label">值班纪事：</span>
           <div class="notes-box">{{ lastHandover.notes }}</div>
         </div>
+        <div v-if="lastHandover.workorders && lastHandover.workorders.length > 0" class="info-workorders">
+          <span class="info-label">上时段工单：</span>
+          <div class="wo-list">
+            <div v-for="wo in lastHandover.workorders" :key="wo.id" class="wo-item">
+              <span class="wo-type-tag">{{ wo.type }}</span>
+              <span class="wo-content">{{ wo.content || wo.id }}</span>
+              <span class="wo-status" :class="'status-' + wo.status">{{ wo.status }}</span>
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- 交班操作区 -->
@@ -199,6 +209,16 @@ function parseNotesToLines(notes: string): void {
 }
 const lastHandover = ref<any>(null)
 const history = ref<any[]>([])
+const filterShift = ref('')
+const filterTeam = ref('')
+const filterUser = ref('')
+const filterStart = ref('')
+const filterEnd = ref('')
+const shiftTypes = [
+  { type: '早班', start: '08:00', end: '16:00' },
+  { type: '日班', start: '16:00', end: '23:00' },
+  { type: '夜班', start: '23:00', end: '08:00' }
+]
 
 // 巡检/工单状态
 const tasksTotal = ref(0)
@@ -270,8 +290,7 @@ async function loadData() {
     currentShift.value = data.currentShift
 
     // 加载历史
-    const histRes = await fetch(`${API_BASE}/history?role=${encodeURIComponent(role)}`)
-    history.value = await histRes.json()
+    await loadHistory()
   } catch (err) {
     console.error('加载交接数据失败', err)
   }
@@ -338,7 +357,29 @@ async function confirmTakeover() {
 function formatTime(timeStr: string): string {
   if (!timeStr) return '-'
   const d = new Date(timeStr)
-  return `${d.getMonth()+1}/${d.getDate()} ${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}`
+  return `${d.getFullYear()}-${(d.getMonth()+1).toString().padStart(2,'0')}-${d.getDate().toString().padStart(2,'0')} ${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}`
+}
+
+async function loadHistory() {
+  if (!currentUser.value) return
+  const role = currentUser.value.role
+  let url = `${API_BASE}/history?role=${encodeURIComponent(role)}&limit=50`
+  if (filterShift.value) url += `&shift_type=${encodeURIComponent(filterShift.value)}`
+  if (filterTeam.value) url += `&team=${encodeURIComponent(filterTeam.value)}`
+  if (filterUser.value) url += `&user=${encodeURIComponent(filterUser.value)}`
+  if (filterStart.value) url += `&start_date=${encodeURIComponent(filterStart.value)}`
+  if (filterEnd.value) url += `&end_date=${encodeURIComponent(filterEnd.value)}`
+  const res = await fetch(url)
+  history.value = await res.json()
+}
+
+function resetFilters() {
+  filterShift.value = ''
+  filterTeam.value = ''
+  filterUser.value = ''
+  filterStart.value = ''
+  filterEnd.value = ''
+  loadHistory()
 }
 
 onMounted(() => {

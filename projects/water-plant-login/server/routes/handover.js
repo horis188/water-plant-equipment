@@ -27,17 +27,30 @@ router.get('/status', async (req, res) => {
     )
     const currentShift = shifts[0] || null
 
-    // 获取当前班次的巡检任务完成情况
-    let tasksCompleted = true
-    let tasksTotal = 0
-    let tasksDone = 0
+    // 查找上一班的工单
+    let lastWorkorders = []
+    if (lastRecord) {
+      const shiftWindow = lastRecord.shift_type === '早班'
+        ? `DATE_SUB('${lastRecord.handover_time}', INTERVAL 9 HOUR)`
+        : lastRecord.shift_type === '日班'
+        ? `DATE_SUB('${lastRecord.handover_time}', INTERVAL 8 HOUR)`
+        : `DATE_SUB('${lastRecord.handover_time}', INTERVAL 8 HOUR)`
 
-    // 获取当前班次的工单处理情况
-    let workordersTotal = 0
-    let workordersDone = 0
+      const [wo1] = await pool.query(
+        `SELECT id, content, status, '问题工单' as type, created_at FROM problem_orders 
+         WHERE reporter = ? AND created_at >= ${shiftWindow} AND created_at <= ?`,
+        [lastRecord.handing_over_user, lastRecord.handover_time]
+      )
+      const [wo2] = await pool.query(
+        `SELECT id, content, status, '维修工单' as type, created_at FROM maintenance_orders 
+         WHERE creator = ? AND created_at >= ${shiftWindow} AND created_at <= ?`,
+        [lastRecord.handing_over_user, lastRecord.handover_time]
+      )
+      lastWorkorders = [...wo1, ...wo2]
+    }
 
     res.json({
-      lastHandover: lastRecord,
+      lastHandover: lastRecord ? { ...lastRecord, workorders: lastWorkorders } : null,
       currentShift,
       shiftTeams: ['A班', 'B班', 'C班', 'D班'],
       shiftTypes: [
@@ -45,11 +58,11 @@ router.get('/status', async (req, res) => {
         { type: '日班', start: '16:00', end: '23:00' },
         { type: '夜班', start: '23:00', end: '08:00' }
       ],
-      tasksCompleted,
-      tasksTotal,
-      tasksDone,
-      workordersTotal,
-      workordersDone
+      tasksCompleted: true,
+      tasksTotal: 0,
+      tasksDone: 0,
+      workordersTotal: 0,
+      workordersDone: 0
     })
   } catch (err) {
     res.status(500).json({ error: err.message })
@@ -75,15 +88,12 @@ router.post('/handover', async (req, res) => {
 router.post('/takeover', async (req, res) => {
   const { takingOverUser, takingOverRole, handoverId } = req.body
   try {
-    // 更新交接记录状态
     await pool.query(
       `UPDATE handover_records 
        SET taking_over_user = ?, taking_over_role = ?, status = 'completed'
        WHERE id = ?`,
       [takingOverUser, takingOverRole, handoverId]
     )
-
-    // 记录新的班次开始
     const [record] = await pool.query(`SELECT shift_type, team FROM handover_records WHERE id = ?`, [handoverId])
     if (record[0]) {
       const shiftStart = new Date()
@@ -92,24 +102,32 @@ router.post('/takeover', async (req, res) => {
         [takingOverRole, takingOverUser, takingOverUser, record[0].shift_type, record[0].team, shiftStart]
       )
     }
-
     res.json({ success: true })
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
 })
 
-// 获取交接历史
+// 获取交接历史（支持查询过滤）
 router.get('/history', async (req, res) => {
-  const { role, limit = 20 } = req.query
+  const { role, shift_type, team, user, start_date, end_date, limit = 50 } = req.query
   if (!role) return res.status(400).json({ error: '缺少 role 参数' })
 
   try {
+    let where = `(handing_over_role = ? OR taking_over_role = ?)`
+    const params: any[] = [role, role]
+
+    if (shift_type) { where += ` AND shift_type = ?`; params.push(shift_type) }
+    if (team) { where += ` AND team = ?`; params.push(team) }
+    if (user) { where += ` AND (handing_over_user = ? OR taking_over_user = ?)`; params.push(user, user) }
+    if (start_date) { where += ` AND handover_time >= ?`; params.push(start_date) }
+    if (end_date) { where += ` AND handover_time <= ?`; params.push(end_date + ' 23:59:59') }
+
+    params.push(Number(limit))
+
     const [records] = await pool.query(
-      `SELECT * FROM handover_records 
-       WHERE handing_over_role = ? OR taking_over_role = ?
-       ORDER BY handover_time DESC LIMIT ?`,
-      [role, role, Number(limit)]
+      `SELECT * FROM handover_records WHERE ${where} ORDER BY handover_time DESC LIMIT ?`,
+      params
     )
     res.json(records)
   } catch (err) {
