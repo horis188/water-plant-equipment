@@ -554,7 +554,7 @@ function canDelayOrder(order: MaintenanceWorkOrder) {
 const createDialogVisible = ref(false)
 const createForm = ref({ content: '', images: '', videos: '' })
 
-function openCreateDialog() { if (!isOnDuty.value) return; createDialogVisible.value = true; createForm.value = { content: '', images: '', videos: '' } }
+function openCreateDialog() { if (!isOnDuty.value && currentUser.value?.role !== '维修组') return; createDialogVisible.value = true; createForm.value = { content: '', images: '', videos: '' } }
 
 function handleImageUpload(e: Event, form: { images?: string }) {
   const files = (e.target as HTMLInputElement).files
@@ -588,7 +588,7 @@ function submitCreateProblem() {
 const createMaintenanceDialogVisible = ref(false)
 const createMaintenanceForm = ref({ content: '', level: 'medium' as const })
 
-function openCreateMaintenanceDialog() { if (!isOnDuty.value) return;
+function openCreateMaintenanceDialog() { if (!isOnDuty.value && currentUser.value?.role !== '维修组') return;
   createMaintenanceDialogVisible.value = true
   createMaintenanceForm.value = { content: '', level: 'medium' }
 }
