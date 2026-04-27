@@ -1674,10 +1674,10 @@ function toggleItem(item: any) {
   font-size: 14px;
 }
 .maint-admin-wrapper .cycle-label {
-  color: #ffffff;
+  color: #ffffff !important;
   white-space: nowrap;
-  font-weight: 600;
-  font-size: 14px;
+  font-weight: 600 !important;
+  font-size: 14px !important;
 }
 .maint-admin-wrapper .cycle-num {
   width: 60px !important; text-align: center;
@@ -1744,7 +1744,7 @@ function toggleItem(item: any) {
   align-items: center;
   margin-bottom: 10px;
 }
-.maint-admin-wrapper .grp-num { color: #ffffff; font-size: 13px; font-weight: 600; }
+.maint-admin-wrapper .grp-num { color: #ffffff !important; font-size: 13px; font-weight: 600; }
 .maint-admin-wrapper .grp-remove {
   background: none;
   border: none;
@@ -1801,7 +1801,7 @@ function toggleItem(item: any) {
 }
 .maint-admin-wrapper .selected-count {
   margin-top: 8px;
-  color: rgba(255, 255, 255, 0.9);
+  color: #ffffff !important;
   font-size: 13px;
   font-weight: 500;
 }
