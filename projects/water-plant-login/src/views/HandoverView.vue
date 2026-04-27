@@ -141,9 +141,9 @@ const API_BASE = '/api/handover'
 // 班组和班次
 const teams = ['A班', 'B班', 'C班', 'D班']
 const shiftTypes = [
-  { type: '早班', start: '08:00', end: '16:00', startHour: 8, endHour: 16 },
-  { type: '日班', start: '16:00', end: '23:00', startHour: 16, endHour: 23 },
-  { type: '夜班', start: '23:00', end: '08:00', startHour: 23, endHour: 8, overnight: true }
+  { type: '日班', start: '08:00', end: '16:00' },
+  { type: '夜班', start: '16:00', end: '23:00' },
+  { type: '早班', start: '23:00', end: '08:00', overnight: true }
 ]
 
 // 状态
@@ -183,8 +183,9 @@ function getCurrentShiftAndTeam(): { shift: string; team: string } {
   const now = new Date()
   const hour = now.getHours()
   let shift = '早班'
-  if (hour >= 16 && hour < 23) shift = '日班'
-  else if (hour >= 23 || hour < 8) shift = '夜班'
+  if (hour >= 8 && hour < 16) shift = '日班'
+  else if (hour >= 16 && hour < 23) shift = '夜班'
+  else shift = '早班'
 
   // 简单轮转：按日期和角色分配
   const dayOfYear = Math.floor((now.getTime() - new Date(now.getFullYear(), 0, 0).getTime()) / 86400000)
