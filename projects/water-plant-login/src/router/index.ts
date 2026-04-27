@@ -4,6 +4,7 @@ import MainDashboardView from '../views/MainDashboardView.vue'
 import DeviceManageView from '../views/DeviceManageView.vue'
 import DeviceDetailView from '../views/DeviceDetailView.vue'
 import SparepartsView from '../views/SparepartsView.vue'
+import HandoverView from '../views/HandoverView.vue'
 import WorkOrderView from '../views/WorkOrderView.vue'
 import InspectionView from '../views/InspectionView.vue'
 import InspectionAdminView from '../views/InspectionAdminView.vue'
@@ -60,6 +61,11 @@ const router = createRouter({
       path: '/spareparts',
       name: 'spareparts',
       component: SparepartsView
+    },
+    {
+      path: '/handover',
+      name: 'handover',
+      component: HandoverView
     },
     {
       path: '/workorder',
