@@ -572,7 +572,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import TopNavBar from '../components/TopNavBar.vue'
-import { currentUser, devices as maintDeviceStore } from '../composables/useDeviceStore'
+import { currentUser, devices as maintDeviceStore, isOnDuty } from '../composables/useDeviceStore'
 
 const API_BASE = '/api/inspection'
 const isAdmin = computed(() => currentUser.value?.role === '系统管理人')
@@ -732,6 +732,7 @@ function getPlanRemainingMs(plan: any, now: number): number {
 }
 
 function openMaintExecute(task: any) {
+  if (!isOnDuty.value) return;
   currentMaintTask.value = task
   maintCheckedItems.value = []
   maintHasAbnormal.value = false

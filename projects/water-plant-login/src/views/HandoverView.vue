@@ -111,7 +111,7 @@
           </div>
           <div class="form-row">
             <label class="form-label">值班纪事</label>
-            <textarea v-model="handoverNotes" class="form-textarea" placeholder="记录本班重要事项..." rows="3"></textarea>
+            <textarea v-model="handoverNotes" class="form-textarea" :disabled="!isOnDuty" placeholder="记录本班重要事项..." rows="3"></textarea>
           </div>
           <div class="check-list">
             <div class="check-item" :class="{ done: tasksCompleted }">
@@ -160,7 +160,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import TopNavBar from '../components/TopNavBar.vue'
-import { currentUser } from '../composables/useDeviceStore'
+import { currentUser, isOnDuty } from '../composables/useDeviceStore'
 
 const API_BASE = '/api/handover'
 
@@ -253,6 +253,7 @@ async function loadData() {
 
 // 交班
 async function submitHandover() {
+  if (!isOnDuty.value) { alert('非值班时间，无法交班'); return }
   if (!canHandover.value) {
     alert('请先完成本班巡检和工单任务')
     return

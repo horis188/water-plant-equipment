@@ -392,7 +392,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import TopNavBar from '../components/TopNavBar.vue'
-import { currentUser, updateDeviceStatusByOrder } from '../composables/useDeviceStore'
+import { currentUser, updateDeviceStatusByOrder, isOnDuty } from '../composables/useDeviceStore'
 import {
   matchDeviceByContent, problemOrders, maintenanceOrders,
   addProblemOrder, updateProblemOrder,
@@ -554,7 +554,7 @@ function canDelayOrder(order: MaintenanceWorkOrder) {
 const createDialogVisible = ref(false)
 const createForm = ref({ content: '', images: '', videos: '' })
 
-function openCreateDialog() { createDialogVisible.value = true; createForm.value = { content: '', images: '', videos: '' } }
+function openCreateDialog() { if (!isOnDuty.value) return; createDialogVisible.value = true; createForm.value = { content: '', images: '', videos: '' } }
 
 function handleImageUpload(e: Event, form: { images?: string }) {
   const files = (e.target as HTMLInputElement).files
@@ -588,7 +588,7 @@ function submitCreateProblem() {
 const createMaintenanceDialogVisible = ref(false)
 const createMaintenanceForm = ref({ content: '', level: 'medium' as const })
 
-function openCreateMaintenanceDialog() {
+function openCreateMaintenanceDialog() { if (!isOnDuty.value) return;
   createMaintenanceDialogVisible.value = true
   createMaintenanceForm.value = { content: '', level: 'medium' }
 }

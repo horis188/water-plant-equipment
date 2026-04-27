@@ -9,6 +9,31 @@ export function setCurrentUser(user: { name: string; role: string; avatar: strin
   sessionStorage.setItem('currentUser', JSON.stringify(user))
 }
 
+// ============ 值班状态判断 ============
+export const isOnDuty = computed(() => {
+  const role = currentUser.value?.role
+  if (role !== '值班岗位' && role !== '带班') return false
+  const now = new Date()
+  const hour = now.getHours()
+  const min = now.getMinutes()
+  const currentMinOfDay = hour * 60 + min
+  // 交接窗口：8:00±10、16:00±10、23:00±10
+  const windows = [
+    { name: '早班', startMin: 23 * 60, endMin: 8 * 60 + 10 },
+    { name: '日班', startMin: 8 * 60 - 10, endMin: 16 * 60 },
+    { name: '夜班', startMin: 16 * 60, endMin: 23 * 60 }
+  ]
+  for (const w of windows) {
+    if (w.name === '早班') {
+      // 23:00-次日08:10
+      if (currentMinOfDay >= w.startMin || currentMinOfDay <= w.endMin) return true
+    } else {
+      if (currentMinOfDay >= w.startMin && currentMinOfDay <= w.endMin) return true
+    }
+  }
+  return false
+})
+
 // ============ 设备基础数据（不含状态）============
 // statusValue: 0=在用, 1=告警, 2=维修中
 export const devices = ref([
