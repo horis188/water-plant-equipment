@@ -15,7 +15,8 @@ const handleLogin = (data: { username: string; password: string; verifyCode: str
     'wy': { name: '王一', role: '带班', avatar: '王', id: 5 },
     'ce': { name: '陈二', role: '带班', avatar: '陈', id: 6 },
     'zs': { name: '张三', role: '旧厂制水', avatar: '张', id: 7 },
-    'ls': { name: '李四', role: '投药间值班', avatar: '李', id: 8 }
+    'ls': { name: '李四', role: '投药间值班', avatar: '李', id: 8 },
+    'lm': { name: '李明', role: '旧厂制水', avatar: '李', id: 9 }
   }
   const user = userMap[data.username]
   if (user) {
