@@ -63,7 +63,7 @@ const navItems = ref([
   { name: '设备管理', path: '/device/inuse', icon: '🖥️' },
   { name: '巡检保养', path: '/inspection', icon: '🔍' },
   { name: '备件仓库', path: '/spareparts', icon: '📦' },
-  { name: '班组交接', path: '/handover', icon: '🔄', roles: ['值班岗位', '带班', '系统管理人', '旧厂制水'] },
+  { name: '班组交接', path: '/handover', icon: '🔄', roles: ['值班岗位', '带班', '系统管理人', '旧厂制水', '一期制水', '投药间值班', '新低值班', '新高值班'] },
   { name: '维修工单', path: '/workorder', icon: '🔧' },
   { name: '设备价值', path: '/asset', icon: '💰' },
   { name: '系统管理', path: '/admin', icon: '⚙️' }
