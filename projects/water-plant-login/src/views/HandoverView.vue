@@ -1,117 +1,141 @@
 <template>
   <div class="handover-page">
-    <div class="page-header" style="padding: 24px 32px 20px;">
+    <TopNavBar />
+    <div class="page-header">
       <div class="header-left">
         <h2 class="page-title">班组交接</h2>
         <span class="page-desc">{{ currentShiftLabel }}</span>
       </div>
+      <div class="header-actions">
+        <span class="shift-badge">{{ currentShiftType }}</span>
+        <span class="team-badge">{{ currentTeam }}</span>
+      </div>
     </div>
 
-    <div class="handover-content" style="padding: 0 32px;">
-      <!-- 当前状态卡片 -->
-      <div class="status-cards">
-        <div class="status-card">
-          <div class="status-label">当前班次</div>
-          <div class="status-value">{{ currentShiftType }}</div>
+    <!-- 状态卡片行 -->
+    <div class="status-cards-row" style="padding: 0 32px;">
+      <div class="stat-card">
+        <span class="stat-num" :class="tasksDone >= tasksTotal && tasksTotal > 0 ? 'stat-green' : 'stat-orange'">{{ tasksDone }}</span>
+        <span class="stat-lbl">巡检完成</span>
+      </div>
+      <div class="stat-sep">/</div>
+      <div class="stat-card">
+        <span class="stat-num stat-gray">{{ tasksTotal }}</span>
+        <span class="stat-lbl">巡检总数</span>
+      </div>
+      <div class="stat-sep">/</div>
+      <div class="stat-card">
+        <span class="stat-num" :class="workordersDone >= workordersTotal && workordersTotal > 0 ? 'stat-green' : 'stat-orange'">{{ workordersDone }}</span>
+        <span class="stat-lbl">工单处理</span>
+      </div>
+      <div class="stat-sep">/</div>
+      <div class="stat-card">
+        <span class="stat-num stat-gray">{{ workordersTotal }}</span>
+        <span class="stat-lbl">工单总数</span>
+      </div>
+    </div>
+
+    <!-- 待接班提示 -->
+    <div v-if="handoverStatus === 'pending' && lastHandover" class="pending-hint" style="padding: 0 32px;">
+      <div class="pending-hint-icon">⏳</div>
+      <div class="pending-hint-info">
+        <div class="pending-hint-title">待 {{ lastHandover.taking_over_user || '某人' }} 接班</div>
+        <div class="pending-hint-meta">
+          {{ lastHandover.handing_over_user }} ({{ lastHandover.handing_over_role }}) 交班 · {{ lastHandover.shift_type }} {{ lastHandover.team }}
+          · {{ formatTime(lastHandover.handover_time) }}
         </div>
-        <div class="status-card">
-          <div class="status-label">当前班组</div>
-          <div class="status-value">{{ currentTeam }}</div>
+        <div v-if="lastHandover.notes" class="pending-hint-notes">{{ lastHandover.notes }}</div>
+      </div>
+      <div class="pending-hint-actions">
+        <button class="dm-btn dm-btn-confirm" @click="confirmTakeover" :disabled="!canTakeover">确认接班</button>
+      </div>
+    </div>
+
+    <!-- 主内容区 -->
+    <div style="padding: 0 32px;">
+      <!-- 上一班交接信息 -->
+      <div v-if="lastHandover && handoverStatus !== 'pending'" class="info-card" style="margin-top: 20px;">
+        <div class="card-header">
+          <h3 class="card-title">上一班交接信息</h3>
+          <span class="card-tag" :class="lastHandover.status === 'completed' ? 'tag-done' : 'tag-wait'">
+            {{ lastHandover.status === 'completed' ? '已完成' : '待接班' }}
+          </span>
         </div>
-        <div class="status-card">
-          <div class="status-label">本班巡检</div>
-          <div class="status-value" :class="tasksDone >= tasksTotal ? 'done' : 'pending'">
-            {{ tasksDone }}/{{ tasksTotal }} 完成
+        <div class="info-grid">
+          <div class="info-item">
+            <span class="info-label">交班人</span>
+            <span class="info-value">{{ lastHandover.handing_over_user }}</span>
+          </div>
+          <div class="info-item">
+            <span class="info-label">角色</span>
+            <span class="info-value">{{ lastHandover.handing_over_role }}</span>
+          </div>
+          <div class="info-item">
+            <span class="info-label">班次</span>
+            <span class="info-value">{{ lastHandover.shift_type }} · {{ lastHandover.team }}</span>
+          </div>
+          <div class="info-item">
+            <span class="info-label">交接时间</span>
+            <span class="info-value">{{ formatTime(lastHandover.handover_time) }}</span>
+          </div>
+          <div class="info-item">
+            <span class="info-label">任务状态</span>
+            <span class="info-value" :class="lastHandover.tasks_status === 'completed' ? 'text-green' : 'text-orange'">
+              {{ lastHandover.tasks_status === 'completed' ? '已完成' : '未完成' }}
+            </span>
+          </div>
+          <div class="info-item">
+            <span class="info-label">工单状态</span>
+            <span class="info-value" :class="lastHandover.workorders_status === 'completed' ? 'text-green' : 'text-orange'">
+              {{ lastHandover.workorders_status === 'completed' ? '已完成' : '未完成' }}
+            </span>
           </div>
         </div>
-        <div class="status-card">
-          <div class="status-label">本班工单</div>
-          <div class="status-value" :class="workordersDone >= workordersTotal ? 'done' : 'pending'">
-            {{ workordersDone }}/{{ workordersTotal }} 处理
-          </div>
+        <div v-if="lastHandover.notes" class="info-notes">
+          <span class="info-label">值班纪事：</span>
+          <div class="notes-box">{{ lastHandover.notes }}</div>
         </div>
       </div>
 
-      <!-- 交接状态显示 -->
-      <div v-if="handoverStatus === 'pending'" class="handover-pending-card">
-        <div class="handover-pending-header">
-          <span class="pending-icon">⏳</span>
-          <span class="pending-text">待{{ lastHandover?.handing_over_user }}接班</span>
+      <!-- 交班操作区 -->
+      <div class="handover-form-card" style="margin-top: 20px;">
+        <div class="card-header">
+          <h3 class="card-title">交班信息</h3>
         </div>
-        <div class="handover-pending-info">
-          <p>交班人：{{ lastHandover?.handing_over_user }} ({{ lastHandover?.handing_over_role }})</p>
-          <p>交班时间：{{ formatTime(lastHandover?.handover_time) }}</p>
-          <p>班次：{{ lastHandover?.shift_type }} ({{ lastHandover?.team }})</p>
-          <p v-if="lastHandover?.notes">值班纪事：{{ lastHandover.notes }}</p>
-        </div>
-        <div class="handover-actions">
-          <button class="btn-confirm" @click="confirmTakeover" :disabled="!canTakeover">确认接班</button>
-        </div>
-      </div>
-
-      <!-- 正常交班/接班界面 -->
-      <div v-else class="handover-main-card">
-        <!-- 上一班交接信息 -->
-        <div v-if="lastHandover" class="last-handover-section">
-          <h3 class="section-title">上一班交接信息</h3>
-          <div class="handover-info-grid">
-            <div class="info-item">
-              <span class="info-label">交班人</span>
-              <span class="info-value">{{ lastHandover.handing_over_user }}</span>
-            </div>
-            <div class="info-item">
-              <span class="info-label">班次</span>
-              <span class="info-value">{{ lastHandover.shift_type }} {{ lastHandover.team }}</span>
-            </div>
-            <div class="info-item">
-              <span class="info-label">交班时间</span>
-              <span class="info-value">{{ formatTime(lastHandover.handover_time) }}</span>
-            </div>
-            <div class="info-item">
-              <span class="info-label">任务状态</span>
-              <span class="info-value" :class="lastHandover.tasks_status === 'completed' ? 'text-success' : 'text-warning'">
-                {{ lastHandover.tasks_status === 'completed' ? '已完成' : '未完成' }}
-              </span>
-            </div>
-          </div>
-          <div v-if="lastHandover.notes" class="handover-notes">
-            <span class="info-label">值班纪事：</span>
-            <p class="notes-content">{{ lastHandover.notes }}</p>
-          </div>
-        </div>
-
-        <!-- 交班表单 -->
-        <div class="handover-form-section">
-          <h3 class="section-title">交班信息</h3>
-          <div class="form-row">
-            <label>选择班组</label>
+        <div class="form-section">
+          <div class="form-row-inline">
+            <label class="form-label">选择班组</label>
             <div class="team-selector">
               <button v-for="t in teams" :key="t" class="team-btn" :class="{ active: selectedTeam === t }" @click="selectedTeam = t">{{ t }}</button>
             </div>
           </div>
           <div class="form-row">
-            <label>值班纪事</label>
-            <textarea v-model="handoverNotes" rows="4" placeholder="记录本班重要事项..."></textarea>
+            <label class="form-label">值班纪事</label>
+            <textarea v-model="handoverNotes" class="form-textarea" placeholder="记录本班重要事项..." rows="3"></textarea>
           </div>
-          <div class="handover-checklist">
+          <div class="check-list">
             <div class="check-item" :class="{ done: tasksCompleted }">
               <span class="check-icon">{{ tasksCompleted ? '✅' : '⬜' }}</span>
-              <span>本班巡检任务 {{ tasksDone }}/{{ tasksTotal }} 完成</span>
+              <span class="check-text">本班巡检任务 {{ tasksDone }}/{{ tasksTotal }} 完成</span>
             </div>
             <div class="check-item" :class="{ done: workordersCompleted }">
               <span class="check-icon">{{ workordersCompleted ? '✅' : '⬜' }}</span>
-              <span>本班工单 {{ workordersDone }}/{{ workordersTotal }} 处理</span>
+              <span class="check-text">本班工单 {{ workordersDone }}/{{ workordersTotal }} 处理</span>
             </div>
           </div>
-          <div class="handover-actions">
-            <button class="btn-primary" @click="submitHandover" :disabled="!canHandover">交班处理</button>
+          <div class="form-actions">
+            <button class="dm-btn dm-btn-primary" @click="submitHandover" :disabled="!canHandover">
+              交班处理
+            </button>
           </div>
         </div>
       </div>
 
       <!-- 交接历史 -->
-      <div class="history-section">
-        <h3 class="section-title">交接历史</h3>
+      <div class="history-card" style="margin-top: 20px; margin-bottom: 32px;">
+        <div class="card-header">
+          <h3 class="card-title">交接历史</h3>
+        </div>
         <div v-if="history.length === 0" class="empty-state">
           <span class="empty-icon">📋</span>
           <p>暂无交接记录</p>
@@ -120,10 +144,12 @@
           <div v-for="record in history" :key="record.id" class="history-item">
             <div class="history-time">{{ formatTime(record.handover_time) }}</div>
             <div class="history-info">
-              <span>{{ record.handing_over_user }} → {{ record.taking_over_user || '待接班' }}</span>
-              <span class="history-shift">{{ record.shift_type }} {{ record.team }}</span>
+              <span class="history-arrow">{{ record.handing_over_user }} → {{ record.taking_over_user || '待接班' }}</span>
+              <span class="history-meta">{{ record.shift_type }} {{ record.team }} · {{ record.handing_over_role }}</span>
             </div>
-            <div class="history-status" :class="record.status">{{ record.status === 'completed' ? '已完成' : '待接班' }}</div>
+            <span class="card-tag" :class="record.status === 'completed' ? 'tag-done' : 'tag-wait'">
+              {{ record.status === 'completed' ? '已完成' : '待接班' }}
+            </span>
           </div>
         </div>
       </div>
@@ -133,21 +159,16 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
+import TopNavBar from '../components/TopNavBar.vue'
 import { currentUser } from '../composables/useDeviceStore'
-
 
 const API_BASE = '/api/handover'
 
 // 班组和班次
 const teams = ['A班', 'B班', 'C班', 'D班']
-const shiftTypes = [
-  { type: '日班', start: '08:00', end: '16:00' },
-  { type: '夜班', start: '16:00', end: '23:00' },
-  { type: '早班', start: '23:00', end: '08:00', overnight: true }
-]
 
 // 状态
-const currentShiftType = ref('早班')
+const currentShiftType = ref('日班')
 const currentTeam = ref('A班')
 const selectedTeam = ref('A班')
 const handoverNotes = ref('')
@@ -167,7 +188,7 @@ const workordersCompleted = computed(() => workordersDone.value >= workordersTot
 
 const currentShiftLabel = computed(() => {
   const now = new Date()
-  return `${now.getMonth()+1}月${now.getDate()}日 ${currentShiftType.value} ${currentTeam.value}`
+  return `${now.getMonth()+1}月${now.getDate()}日`
 })
 
 const canHandover = computed(() => {
@@ -175,7 +196,10 @@ const canHandover = computed(() => {
 })
 
 const canTakeover = computed(() => {
-  return currentUser.value?.role === lastHandover.value?.taking_over_role
+  return lastHandover.value &&
+    (lastHandover.value.taking_over_user === currentUser.value?.name ||
+     lastHandover.value.taking_over_role === currentUser.value?.role ||
+     !lastHandover.value.taking_over_user)
 })
 
 // 判断当前应该哪个班在岗
@@ -187,9 +211,9 @@ function getCurrentShiftAndTeam(): { shift: string; team: string } {
   else if (hour >= 16 && hour < 23) shift = '夜班'
   else shift = '早班'
 
-  // 简单轮转：按日期和角色分配
+  // 简单轮转：按日期分配班组
   const dayOfYear = Math.floor((now.getTime() - new Date(now.getFullYear(), 0, 0).getTime()) / 86400000)
-  const roleIndex = ['系统管理人', '带班', '维修组', '值班岗位'].indexOf(currentUser.value?.role || '')
+  const roleIndex = ['系统管理人', '带班', '维修组', '值班岗位', '旧厂制水', '新低值班', '一期制水', '新高值班'].indexOf(currentUser.value?.role || '')
   const teamIndex = (dayOfYear + roleIndex) % 4
   const team = teams[teamIndex]
 
@@ -202,7 +226,7 @@ async function loadData() {
   const role = currentUser.value.role
 
   try {
-    const res = await fetch(`${API_BASE}/status?role=${encodeURIComponent(role)}`)
+    const res = await fetch(`${API_BASE}/status?role=${encodeURIComponent(role)}&userId=${currentUser.value.id}`)
     const data = await res.json()
 
     if (data.lastHandover) {
@@ -250,6 +274,7 @@ async function submitHandover() {
     if (!res.ok) throw new Error('交班失败')
     alert('交班成功')
     handoverStatus.value = 'pending'
+    handoverNotes.value = ''
     await loadData()
   } catch (err) {
     console.error('交班失败', err)
@@ -271,8 +296,9 @@ async function confirmTakeover() {
       })
     })
     if (!res.ok) throw new Error('接班失败')
-    alert('接班成功')
+    alert('接班成功，当前班次已开始')
     handoverStatus.value = 'completed'
+    lastHandover.value = null
     await loadData()
   } catch (err) {
     console.error('接班失败', err)
@@ -293,128 +319,182 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.handover-page { min-height: 100vh; background: #f5f7fa; }
+.handover-page {
+  min-height: 100vh;
+  background: #f0f2f5;
+}
 
-.status-cards {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 16px;
-  margin-bottom: 24px;
-}
-.status-card {
-  background: white;
-  border-radius: 8px;
-  padding: 20px;
-  text-align: center;
-}
-.status-label { color: #666; font-size: 14px; margin-bottom: 8px; }
-.status-value { font-size: 24px; font-weight: bold; color: #333; }
-.status-value.done { color: #52c41a; }
-.status-value.pending { color: #faad14; }
-
-.handover-pending-card {
-  background: #fffbeb;
-  border: 2px solid #faad14;
-  border-radius: 12px;
-  padding: 24px;
-  margin-bottom: 24px;
-}
-.handover-pending-header {
+.page-header {
+  background: linear-gradient(135deg, #1a7ab8 0%, #2a9fd8 100%);
+  padding: 20px 32px;
   display: flex;
   align-items: center;
-  gap: 12px;
-  font-size: 20px;
-  font-weight: bold;
-  color: #d48806;
-  margin-bottom: 16px;
+  justify-content: space-between;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
 }
-.pending-icon { font-size: 28px; }
-.handover-pending-info p { margin: 8px 0; color: #666; }
-.handover-actions { margin-top: 20px; }
+.header-left { display: flex; flex-direction: column; gap: 4px; }
+.page-title { color: #fff; font-size: 22px; font-weight: 600; margin: 0; letter-spacing: 1px; }
+.page-desc { color: rgba(255,255,255,0.75); font-size: 13px; }
+.header-actions { display: flex; gap: 10px; align-items: center; }
 
-.handover-main-card {
+.shift-badge, .team-badge {
+  padding: 4px 14px;
+  border-radius: 20px;
+  font-size: 14px;
+  font-weight: 500;
+  background: rgba(255,255,255,0.25);
+  color: #fff;
+}
+
+.status-cards-row {
+  display: flex;
+  align-items: center;
   background: white;
-  border-radius: 12px;
-  padding: 24px;
-  margin-bottom: 24px;
+  border-radius: 10px;
+  padding: 16px 24px;
+  margin: 20px 0;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.08);
 }
-.section-title { font-size: 18px; font-weight: bold; margin-bottom: 16px; color: #333; }
+.stat-card { display: flex; flex-direction: column; align-items: center; flex: 1; }
+.stat-num { font-size: 28px; font-weight: 700; }
+.stat-lbl { font-size: 12px; color: #999; margin-top: 2px; }
+.stat-sep { font-size: 22px; color: #ddd; padding: 0 8px; }
+.stat-green { color: #52c41a; }
+.stat-orange { color: #fa8c16; }
+.stat-gray { color: #333; }
 
-.last-handover-section { margin-bottom: 24px; }
-.handover-info-grid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 16px;
+.pending-hint {
+  display: flex;
+  align-items: center;
+  background: #fffbe6;
+  border: 1px solid #ffe58f;
+  border-radius: 10px;
+  padding: 16px 20px;
+  margin-bottom: 16px;
+  border-left: 4px solid #faad14;
 }
-.info-item { display: flex; flex-direction: column; gap: 4px; }
-.info-label { color: #999; font-size: 12px; }
-.info-value { font-size: 16px; font-weight: 500; }
-.text-success { color: #52c41a; }
-.text-warning { color: #faad14; }
+.pending-hint-icon { font-size: 32px; margin-right: 16px; }
+.pending-hint-info { flex: 1; }
+.pending-hint-title { font-size: 16px; font-weight: 600; color: #d48806; }
+.pending-hint-meta { font-size: 13px; color: #8c8c8c; margin-top: 4px; }
+.pending-hint-notes { font-size: 13px; color: #666; margin-top: 6px; background: #fff; padding: 8px; border-radius: 4px; }
+.pending-hint-actions { margin-left: 20px; }
 
-.handover-notes { margin-top: 12px; }
-.notes-content { background: #f5f7fa; padding: 12px; border-radius: 6px; margin-top: 4px; color: #666; }
+.info-card, .handover-form-card, .history-card {
+  background: white;
+  border-radius: 10px;
+  padding: 20px 24px;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+}
+.card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+.card-title { font-size: 16px; font-weight: 600; color: #333; margin: 0; }
+.card-tag {
+  padding: 2px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+}
+.tag-done { background: #f6ffed; color: #52c41a; }
+.tag-wait { background: #fffbe6; color: #faad14; }
 
-.handover-form-section {}
-.form-row { margin-bottom: 20px; }
-.form-row label { display: block; margin-bottom: 8px; font-weight: 500; }
-.form-row textarea { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; resize: vertical; }
+.info-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+.info-item { display: flex; flex-direction: column; gap: 3px; }
+.info-label { font-size: 12px; color: #999; }
+.info-value { font-size: 15px; font-weight: 500; color: #333; }
+.text-green { color: #52c41a; }
+.text-orange { color: #fa8c16; }
 
-.team-selector { display: flex; gap: 12px; }
+.info-notes { margin-top: 14px; }
+.notes-box {
+  background: #f8f8f8;
+  border-radius: 6px;
+  padding: 10px 14px;
+  font-size: 14px;
+  color: #666;
+  margin-top: 4px;
+  line-height: 1.6;
+}
+
+.form-section {}
+.form-row-inline { display: flex; align-items: center; gap: 16px; margin-bottom: 16px; }
+.form-row { margin-bottom: 16px; }
+.form-label { font-size: 14px; color: #666; font-weight: 500; min-width: 70px; }
+.form-textarea {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #d9d9d9;
+  border-radius: 6px;
+  font-size: 14px;
+  resize: vertical;
+  box-sizing: border-box;
+}
+.form-textarea:focus { border-color: #40a9ff; outline: none; }
+
+.team-selector { display: flex; gap: 10px; }
 .team-btn {
-  padding: 8px 24px;
-  border: 2px solid #ddd;
+  padding: 6px 20px;
+  border: 2px solid #e8e8e8;
   border-radius: 6px;
   background: white;
   cursor: pointer;
+  font-size: 14px;
   font-weight: 500;
+  color: #666;
+  transition: all 0.2s;
 }
-.team-btn.active { border-color: #1890ff; background: #e6f7ff; color: #1890ff; }
+.team-btn.active {
+  border-color: #1890ff;
+  background: #e6f7ff;
+  color: #1890ff;
+}
 
-.handover-checklist { margin: 20px 0; }
+.check-list { margin-bottom: 20px; }
 .check-item {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 12px;
-  background: #f5f7fa;
+  gap: 10px;
+  padding: 12px 14px;
+  background: #f8f8f8;
   border-radius: 6px;
   margin-bottom: 8px;
-  color: #666;
+  font-size: 14px;
+  color: #888;
 }
 .check-item.done { background: #f6ffed; color: #52c41a; }
 .check-icon { font-size: 18px; }
+.check-text {}
 
-.handover-actions { display: flex; gap: 12px; }
-.btn-primary, .btn-confirm {
-  padding: 10px 32px;
+.form-actions { margin-top: 10px; }
+
+.dm-btn {
+  padding: 8px 20px;
   border: none;
   border-radius: 6px;
-  font-size: 16px;
+  font-size: 14px;
   cursor: pointer;
   font-weight: 500;
+  transition: all 0.2s;
 }
-.btn-primary { background: #1890ff; color: white; }
-.btn-primary:disabled { background: #ccc; cursor: not-allowed; }
-.btn-confirm { background: #52c41a; color: white; }
-.btn-confirm:disabled { background: #ccc; cursor: not-allowed; }
+.dm-btn-primary { background: #1890ff; color: white; }
+.dm-btn-primary:hover { background: #40a9ff; }
+.dm-btn-primary:disabled { background: #d9d9d9; cursor: not-allowed; }
+.dm-btn-confirm { background: #52c41a; color: white; }
+.dm-btn-confirm:hover { background: #73d13d; }
+.dm-btn-confirm:disabled { background: #d9d9d9; cursor: not-allowed; }
 
-.history-section { background: white; border-radius: 12px; padding: 24px; }
-.history-list { margin-top: 12px; }
+.empty-state { text-align: center; padding: 40px 0; color: #999; }
+.empty-icon { font-size: 48px; display: block; margin-bottom: 12px; }
+
+.history-list {}
 .history-item {
   display: flex;
   align-items: center;
-  padding: 12px;
+  padding: 12px 0;
   border-bottom: 1px solid #f0f0f0;
 }
 .history-item:last-child { border-bottom: none; }
-.history-time { color: #999; font-size: 13px; width: 100px; }
+.history-time { font-size: 13px; color: #999; width: 90px; flex-shrink: 0; }
 .history-info { flex: 1; display: flex; flex-direction: column; gap: 2px; }
-.history-shift { color: #999; font-size: 13px; }
-.history-status { font-size: 13px; padding: 2px 10px; border-radius: 4px; }
-.history-status.completed { background: #f6ffed; color: #52c41a; }
-.history-status.pending { background: #fffbe6; color: #faad14; }
-
-.empty-state { text-align: center; padding: 40px; color: #999; }
-.empty-icon { font-size: 48px; display: block; margin-bottom: 12px; }
+.history-arrow { font-size: 14px; font-weight: 500; color: #333; }
+.history-meta { font-size: 12px; color: #999; }
 </style>
