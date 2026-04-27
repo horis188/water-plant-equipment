@@ -547,22 +547,18 @@
               
               <div class="form-row">
                 <label>保养周期 <span class="required">*</span></label>
-                <div class="cycle-input-row">
-                  <div class="cycle-segment">
-                    <span class="cycle-label">每</span>
-                    <input v-model.number="maintForm.cycle_value" type="number" min="1" class="cycle-num" />
-                    <select v-model="maintForm.cycle_type" class="cycle-unit-select">
-                      <option value="day">天</option>
-                      <option value="week">周</option>
-                      <option value="month">月</option>
-                      <option value="year">年</option>
-                    </select>
-                  </div>
-                  <div class="cycle-segment">
-                    <span class="cycle-label">执行</span>
-                    <input v-model.number="maintForm.cycle_count" type="number" min="1" class="cycle-num" />
-                    <span class="cycle-label">次</span>
-                  </div>
+                <div class="cycle-input-row cycle-single-row">
+                  <span class="cycle-label">每</span>
+                  <input v-model.number="maintForm.cycle_value" type="number" min="1" class="cycle-num" />
+                  <select v-model="maintForm.cycle_type" class="cycle-unit-select">
+                    <option value="day">天</option>
+                    <option value="week">周</option>
+                    <option value="month">月</option>
+                    <option value="year">年</option>
+                  </select>
+                  <span class="cycle-label">，执行</span>
+                  <input v-model.number="maintForm.cycle_count" type="number" min="1" class="cycle-num" />
+                  <span class="cycle-label">次</span>
                 </div>
               </div>
               <div class="form-row">
@@ -1665,6 +1661,12 @@ function toggleItem(item: any) {
   background: rgba(255,255,255,0.04);
   border-radius: 8px;
 }
+.maint-admin-wrapper .cycle-single-row {
+  flex-direction: row;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
 .maint-admin-wrapper .cycle-segment {
   display: flex;
   align-items: center;
@@ -1721,9 +1723,9 @@ function toggleItem(item: any) {
 }
 .maint-admin-wrapper .radio-options { display: flex; gap: 20px; }
 .maint-admin-wrapper .radio-label {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   color: rgba(255, 255, 255, 0.75);
   font-size: 14px;
   cursor: pointer;
