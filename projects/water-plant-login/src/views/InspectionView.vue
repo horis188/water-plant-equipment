@@ -275,9 +275,10 @@
       </div>
     </div>
 
-    <!-- 保养计划内容（仅管理员可见） -->
+    <!-- 保养计划内容 -->
     <div v-show="activeTab === 'maintenance'" class="tab-content">
-      <div class="maint-admin-wrapper">
+      <!-- 系统管理人：完整管理界面 -->
+      <div v-if="isAdmin" class="maint-admin-wrapper">
         <div class="page-header" style="padding: 24px 32px 20px;">
           <div class="header-left">
             <h2 class="page-title">保养计划管理</h2>
@@ -368,8 +369,102 @@
             </div>
           </div>
         </div>
+      </div>
 
-        <!-- 新建/编辑弹窗 -->
+      <!-- 非系统管理人：保养任务列表 -->
+      <div v-if="!isAdmin" class="maint-admin-wrapper">
+        <div class="page-header" style="padding: 24px 32px 20px;">
+          <div class="header-left">
+            <h2 class="page-title">保养任务</h2>
+            <span class="page-desc">执行分配给您的设备保养任务</span>
+          </div>
+        </div>
+        <div style="padding: 0 32px;">
+          <div v-if="myMaintTasks.length === 0" class="empty-state">
+            <span class="empty-icon">📋</span>
+            <p>暂无待执行任务</p>
+          </div>
+          <div v-for="task in myMaintTasks" :key="task.id" class="plan-card" style="margin-bottom: 16px;">
+            <div class="plan-header">
+              <div class="plan-info">
+                <h3 class="plan-name">{{ task.name }}</h3>
+                <div class="plan-meta">
+                  <span class="meta-tag">👤 {{ task.executor_name || '未分配' }}</span>
+                  <span class="meta-tag">🏷️ {{ task.device_type }}</span>
+                  <span v-if="task.remainingMs != null" class="meta-tag" :class="task.remainingMs < 0 ? 'tag-overdue' : 'tag-remaining'">
+                    {{ task.remainingMs < 0 ? '已超时' : '剩余' }} {{ formatMaintRemaining(task.remainingMs) }}
+                  </span>
+                </div>
+              </div>
+              <div class="plan-actions">
+                <button class="btn-edit" @click="toggleMaintTask(task.id)">{{ expandedMaintTask === task.id ? '收起' : '查看详情' }}</button>
+                <button class="btn-primary" style="margin-left:8px;" @click="openMaintExecute(task)">执行保养</button>
+              </div>
+            </div>
+            <div v-if="expandedMaintTask === task.id" class="maint-detail-section" style="padding: 0;">
+              <div v-for="item in task.items" :key="item.id" class="detail-device-item">
+                <div class="detail-device-header">
+                  <div class="detail-device-name">🖥️ {{ item.device_name }}</div>
+                  <div class="detail-device-tags">
+                    <span class="detail-tag tag-pending">○ 待处理</span>
+                  </div>
+                </div>
+                <div v-if="item.check_content" class="detail-check-list">
+                  <div v-for="(check, ci) in item.check_content.split('\n').filter((c: string) => c.trim())" :key="ci" class="check-item">
+                    <div class="check-dot dot-pending"></div>
+                    <span class="check-text">{{ check }}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 执行保养弹窗（仅非管理员） -->
+      <div v-if="maintExecuteDialog" class="dialog-overlay" @click.self="maintExecuteDialog = false">
+        <div class="dialog">
+          <div class="dialog-header">
+            <h3>执行保养</h3>
+            <button class="dialog-close" @click="maintExecuteDialog = false">×</button>
+          </div>
+          <div class="dialog-body">
+            <div class="execute-info">
+              <div class="execute-device">{{ currentMaintTask?.name }}</div>
+              <div class="execute-plan">📍{{ currentMaintTask?.device_type }}</div>
+            </div>
+            <div v-if="currentMaintTask?.items" class="execute-checklist">
+              <div v-for="(item, idx) in currentMaintTask.items" :key="idx" class="detail-device-item">
+                <div class="detail-device-header">
+                  <div class="detail-device-name">🖥️ {{ item.device_name }}</div>
+                </div>
+                <div v-if="item.check_content" class="detail-check-list">
+                  <div v-for="(check, ci) in item.check_content.split('\n').filter((c: string) => c.trim())" :key="ci" class="check-item">
+                    <div class="check-box-wrap">
+                      <input type="checkbox" v-model="maintCheckedItems" :value="check" :id="'mcheck-' + idx + '-' + ci" class="check-input" />
+                      <label :for="'mcheck-' + idx + '-' + ci" class="check-label">{{ check }}</label>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="abnormal-section">
+              <label class="abnormal-label">
+                <input type="checkbox" v-model="maintHasAbnormal" class="check-input" />
+                <span>发现异常</span>
+              </label>
+              <textarea v-if="maintHasAbnormal" v-model="maintAbnormalDesc" placeholder="描述异常情况..." rows="3"></textarea>
+            </div>
+          </div>
+          <div class="dialog-footer">
+            <button class="btn-cancel" @click="maintExecuteDialog = false">取消</button>
+            <button class="btn-confirm" @click="submitMaintResult">提交保养结果</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 新建/编辑弹窗（仅管理员） -->
+      <div v-if="maintShowDialog && isAdmin" class="dialog-overlay" @click.self="maintCloseDialog">
         <div v-if="maintShowDialog" class="dialog-overlay" @click.self="maintCloseDialog">
           <div class="dialog">
             <div class="dialog-header">
@@ -488,6 +583,13 @@ const maintPlans = ref<any[]>([])
 const maintShowDialog = ref(false)
 const maintEditingPlan = ref<any>(null)
 const expandedMaintPlan = ref<number | null>(null)
+const expandedMaintTask = ref<number | null>(null)
+const myMaintTasks = ref<any[]>([])
+const maintExecuteDialog = ref(false)
+const currentMaintTask = ref<any>(null)
+const maintCheckedItems = ref<string[]>([])
+const maintHasAbnormal = ref(false)
+const maintAbnormalDesc = ref('')
 const maintRecords = ref<Record<number, any[]>>({})
 const maintUsersByRole = ref<Record<string, any[]>>({})
 const maintAllRoles = ref<string[]>([])
@@ -515,13 +617,15 @@ function cycleCountLabel(type: string, value: number, count: number) {
 
 function formatMaintRemaining(ms: number): string {
   if (ms == null) return ''
+  if (ms === Infinity) return '已完成'
   if (ms < 0) return `已超时 ${Math.abs(Math.round(ms / 86400000))}天`
-  const days = Math.round(ms / 86400000)
-  if (days === 0) {
-    const hours = Math.round(ms / 3600000)
-    return `剩余 ${hours}小时`
-  }
-  return `剩余 ${days}天`
+  const totalMins = Math.floor(ms / 60000)
+  const days = Math.floor(totalMins / 1440)
+  const hours = Math.floor((totalMins % 1440) / 60)
+  const mins = totalMins % 60
+  if (days > 0) return `${days}天${hours}小时`
+  if (hours > 0) return `${hours}小时${mins}分钟`
+  return `${mins}分钟`
 }
 
 async function maintLoadUsers() {
@@ -593,6 +697,75 @@ function toggleMaintDetail(planId: number) {
   expandedMaintPlan.value = planId
   if (!maintRecords.value[planId]) {
     fetchMaintRecords(planId)
+  }
+}
+
+function toggleMaintTask(taskId: number) {
+  if (expandedMaintTask.value === taskId) {
+    expandedMaintTask.value = null
+    return
+  }
+  expandedMaintTask.value = taskId
+}
+
+async function loadMyMaintTasks() {
+  if (!currentUser.value) return
+  const role = currentUser.value.role
+  if (role === '系统管理人') return
+  try {
+    const res = await fetch(`${MAINT_API}/plans`)
+    const allPlans = await res.json()
+    const now = Date.now()
+    myMaintTasks.value = allPlans.filter((p: any) => p.executor_role === role).map((p: any) => {
+      const rem = getPlanRemainingMs(p, now)
+      return { ...p, remainingMs: rem }
+    })
+  } catch (err) {
+    console.error('加载保养任务失败', err)
+  }
+}
+
+function getPlanRemainingMs(plan: any, now: number): number {
+  if (!plan.next_execute_time) return 0
+  const target = new Date(plan.next_execute_time).getTime()
+  return target - now
+}
+
+function openMaintExecute(task: any) {
+  currentMaintTask.value = task
+  maintCheckedItems.value = []
+  maintHasAbnormal.value = false
+  maintAbnormalDesc.value = ''
+  maintExecuteDialog.value = true
+}
+
+async function submitMaintResult() {
+  if (!currentMaintTask.value) return
+  const task = currentMaintTask.value
+  try {
+    const results = maintCheckedItems.value.map((item: string) => ({ content: item, status: 'done' }))
+    const res = await fetch(`${MAINT_API}/records`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        plan_id: task.id,
+        device_id: task.items?.[0]?.device_id || null,
+        device_name: task.items?.[0]?.device_name || task.name,
+        executor_id: currentUser.value?.id,
+        executor_name: currentUser.value?.name,
+        results,
+        has_abnormal: maintHasAbnormal.value,
+        abnormal_desc: maintAbnormalDesc.value
+      })
+    })
+    if (!res.ok) throw new Error('提交失败')
+    alert('保养任务已完成')
+    maintExecuteDialog.value = false
+    currentMaintTask.value = null
+    await loadMyMaintTasks()
+  } catch (err) {
+    console.error('提交失败', err)
+    alert('提交失败，请重试')
   }
 }
 
@@ -1003,6 +1176,8 @@ onMounted(async () => {
     maintLoadUsers()
     await maintLoadPlans()
     maintLoadDeviceData()
+  } else {
+    await loadMyMaintTasks()
   }
   const timer = setInterval(() => {
     const now = Date.now()
