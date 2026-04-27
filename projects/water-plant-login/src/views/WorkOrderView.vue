@@ -468,6 +468,7 @@ onMounted(() => {
   initDeviceStatusFromWorkOrders()
   syncProblemOrdersFromDB()
   syncMaintenanceOrdersFromDB()
+  loadShiftStatus()
   syncTimer = setInterval(() => {
     syncProblemOrdersFromDB()
     syncMaintenanceOrdersFromDB()
