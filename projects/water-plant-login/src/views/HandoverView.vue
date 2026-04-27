@@ -8,7 +8,7 @@
       </div>
       <div class="header-actions">
         <span class="shift-badge">{{ currentShiftType }}</span>
-        <span class="team-badge">{{ currentTeam }}</span>
+        <span class="team-badge">{{ currentUser.team || 'A班' }}</span>
       </div>
     </div>
 
