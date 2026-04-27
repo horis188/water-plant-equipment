@@ -111,7 +111,13 @@
           </div>
           <div class="form-row">
             <label class="form-label">值班纪事</label>
-            <textarea v-model="handoverNotes" class="form-textarea" :disabled="!isOnDuty" placeholder="记录本班重要事项..." rows="3"></textarea>
+            <div class="notes-editor">
+              <div v-for="(note, idx) in handoverNoteLines" :key="idx" class="note-line-row">
+                <input v-model="handoverNoteLines[idx]" class="note-line-input" :disabled="!isOnDuty" :placeholder="'第' + (idx+1) + '条记录...'" @keydown.enter.prevent="addNoteLine(idx)" />
+                <button v-if="isOnDuty" class="note-del-btn" @click="removeNoteLine(idx)" title="删除此行">×</button>
+              </div>
+              <button v-if="isOnDuty" class="note-add-btn" @click="addNoteLine(-1)">+ 添加行</button>
+            </div>
           </div>
           <div class="check-list">
             <div class="check-item" :class="{ done: tasksCompleted }">
@@ -172,7 +178,23 @@ const currentShiftType = ref('日班')
 const currentTeam = ref('A班')
 const selectedTeam = ref('A班')
 const handoverNotes = ref('')
+const handoverNoteLines = ref<string[]>([''])
 const handoverStatus = ref<'idle' | 'pending' | 'completed'>('idle')
+
+function addNoteLine(afterIdx: number) {
+  handoverNoteLines.value.splice(afterIdx + 1, 0, '')
+}
+function removeNoteLine(idx: number) {
+  if (handoverNoteLines.value.length > 1) {
+    handoverNoteLines.value.splice(idx, 1)
+  }
+}
+function buildNotesFromLines(): string {
+  return handoverNoteLines.value.filter(l => l.trim()).join('\n')
+}
+function parseNotesToLines(notes: string): void {
+  handoverNoteLines.value = notes ? notes.split('\n').filter((l: string) => l.trim()) : ['']
+}
 const lastHandover = ref<any>(null)
 const history = ref<any[]>([])
 
@@ -232,6 +254,7 @@ async function loadData() {
     if (data.lastHandover) {
       lastHandover.value = data.lastHandover
       handoverStatus.value = data.lastHandover.status === 'pending' ? 'pending' : 'idle'
+      parseNotesToLines(data.lastHandover.notes || '')
     }
 
     tasksTotal.value = data.tasksTotal || 0
@@ -267,7 +290,7 @@ async function submitHandover() {
         handingOverRole: currentUser.value?.role,
         shiftType: currentShiftType.value,
         team: selectedTeam.value,
-        notes: handoverNotes.value,
+        notes: buildNotesFromLines(),
         tasksStatus: tasksCompleted.value ? 'completed' : 'pending',
         workordersStatus: workordersCompleted.value ? 'completed' : 'pending'
       })
@@ -276,6 +299,7 @@ async function submitHandover() {
     alert('交班成功')
     handoverStatus.value = 'pending'
     handoverNotes.value = ''
+    handoverNoteLines.value = ['']
     await loadData()
   } catch (err) {
     console.error('交班失败', err)
@@ -418,18 +442,39 @@ onMounted(() => {
 .form-row-inline { display: flex; align-items: center; gap: 16px; margin-bottom: 16px; }
 .form-row { margin-bottom: 16px; }
 .form-label { font-size: 14px; color: rgba(255,255,255,0.6); font-weight: 500; min-width: 70px; }
-.form-textarea {
-  width: 100%;
-  padding: 10px 12px;
+.notes-editor { display: flex; flex-direction: column; gap: 6px; }
+.note-line-row { display: flex; align-items: center; gap: 6px; }
+.note-line-input {
+  flex: 1;
+  padding: 8px 12px;
   border: 1px solid rgba(255,255,255,0.15);
   border-radius: 6px;
   font-size: 14px;
-  resize: vertical;
-  box-sizing: border-box;
   background: rgba(255,255,255,0.05);
   color: rgba(255,255,255,0.85);
+  box-sizing: border-box;
 }
-.form-textarea:focus { border-color: #40a9ff; outline: none; }
+.note-line-input:focus { border-color: #40a9ff; outline: none; }
+.note-line-input:disabled { opacity: 0.5; cursor: not-allowed; }
+.note-del-btn {
+  width: 28px; height: 28px;
+  border: none; border-radius: 50%;
+  background: rgba(239,68,68,0.2); color: #ef4444;
+  font-size: 18px; cursor: pointer; line-height: 1;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+.note-del-btn:hover { background: rgba(239,68,68,0.4); }
+.note-add-btn {
+  align-self: flex-start;
+  padding: 6px 16px;
+  border: 1px dashed rgba(45,212,191,0.4);
+  border-radius: 6px;
+  background: rgba(45,212,191,0.08);
+  color: #2dd4bf; font-size: 13px; cursor: pointer;
+  margin-top: 4px;
+}
+.note-add-btn:hover { background: rgba(45,212,191,0.15); }
 
 .team-selector { display: flex; gap: 10px; }
 .team-btn {

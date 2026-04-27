@@ -88,8 +88,8 @@ router.post('/takeover', async (req, res) => {
     if (record[0]) {
       const shiftStart = new Date()
       await pool.query(
-        `INSERT INTO handover_shifts (role, user_id, shift_type, team, shift_start) VALUES (?, ?, ?, ?, ?)`,
-        [takingOverRole, takingOverUser, record[0].shift_type, record[0].team, shiftStart]
+        `INSERT INTO handover_shifts (role, user_id, user_name, shift_type, team, shift_start) VALUES (?, ?, ?, ?, ?, ?)`,
+        [takingOverRole, takingOverUser, takingOverUser, record[0].shift_type, record[0].team, shiftStart]
       )
     }
 
