@@ -33,7 +33,7 @@
           已解决 {{ problemOrders.filter(o => o.status === 'self_resolved' && isRecentResolved(o)).length }}
         </span>
       </div>
-      <div v-if="currentUser.role !== '维修组'" class="wo-actions">
+      <div v-if="wsAmIOnShift || currentUser.role === '维修组'" class="wo-actions">
         <button class="dm-btn dm-btn-primary" @click="currentUser.role === '带班' ? openCreateMaintenanceDialog() : openCreateDialog()">
           {{ currentUser.role === '带班' ? '+ 新建维修工单' : '+ 新建问题工单' }}
         </button>
