@@ -1674,7 +1674,8 @@ function toggleItem(item: any) {
 .maint-admin-wrapper .cycle-label {
   color: rgba(255,255,255,0.9);
   white-space: nowrap;
-  font-weight: 500;
+  font-weight: 600;
+  font-size: 14px;
 }
 .maint-admin-wrapper .cycle-num {
   width: 60px !important; text-align: center;
@@ -1741,7 +1742,7 @@ function toggleItem(item: any) {
   align-items: center;
   margin-bottom: 10px;
 }
-.maint-admin-wrapper .grp-num { color: rgba(255, 255, 255, 0.5); font-size: 12px; }
+.maint-admin-wrapper .grp-num { color: rgba(255, 255, 255, 0.85); font-size: 13px; font-weight: 600; }
 .maint-admin-wrapper .grp-remove {
   background: none;
   border: none;
@@ -1763,8 +1764,8 @@ function toggleItem(item: any) {
 .maint-admin-wrapper .add-location-btn {
   margin-top: 10px;
   background: none;
-  border: 1px dashed rgba(45, 212, 191, 0.3);
-  color: rgba(45, 212, 191, 0.7);
+  border: 1px dashed rgba(45, 212, 191, 0.45);
+  color: rgba(45, 212, 191, 0.9);
   padding: 8px 16px;
   border-radius: 6px;
   font-size: 13px;
@@ -1797,9 +1798,10 @@ function toggleItem(item: any) {
   color: #2DD4BF;
 }
 .maint-admin-wrapper .selected-count {
-  margin-top: 10px;
-  color: rgba(255, 255, 255, 0.4);
-  font-size: 12px;
+  margin-top: 8px;
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 13px;
+  font-weight: 500;
 }
 .ins-page {
   min-height: 100vh;
