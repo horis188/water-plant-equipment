@@ -1672,7 +1672,7 @@ function toggleItem(item: any) {
   font-size: 14px;
 }
 .maint-admin-wrapper .cycle-label {
-  color: rgba(255,255,255,0.9);
+  color: #ffffff;
   white-space: nowrap;
   font-weight: 600;
   font-size: 14px;
@@ -1710,7 +1710,7 @@ function toggleItem(item: any) {
 }
 .device-extra-toggle:hover { background: rgba(45,212,191,0.14); }
 .toggle-icon { font-size: 10px; }
-.toggle-label { font-weight: 500; }
+.toggle-label { font-weight: 500; color: #fff; }
 .device-extra-content textarea {
   width: 100%; margin-top: 6px; padding: 8px 10px;
   border: 1px solid rgba(255,255,255,0.15);
@@ -1742,7 +1742,7 @@ function toggleItem(item: any) {
   align-items: center;
   margin-bottom: 10px;
 }
-.maint-admin-wrapper .grp-num { color: rgba(255, 255, 255, 0.85); font-size: 13px; font-weight: 600; }
+.maint-admin-wrapper .grp-num { color: #ffffff; font-size: 13px; font-weight: 600; }
 .maint-admin-wrapper .grp-remove {
   background: none;
   border: none;
@@ -1799,7 +1799,7 @@ function toggleItem(item: any) {
 }
 .maint-admin-wrapper .selected-count {
   margin-top: 8px;
-  color: rgba(255, 255, 255, 0.75);
+  color: rgba(255, 255, 255, 0.9);
   font-size: 13px;
   font-weight: 500;
 }
