@@ -476,12 +476,12 @@ onMounted(() => {
   font-weight: 500;
   transition: all 0.2s;
 }
-.dm-btn-primary { background: #1890ff; color: white; }
-.dm-btn-primary:hover { background: #40a9ff; }
-.dm-btn-primary:disabled { background: #d9d9d9; cursor: not-allowed; }
-.dm-btn-confirm { background: #52c41a; color: white; }
-.dm-btn-confirm:hover { background: #73d13d; }
-.dm-btn-confirm:disabled { background: #d9d9d9; cursor: not-allowed; }
+.dm-btn-primary { background: #2DD4BF; color: #0a192f; font-weight: 600; }
+.dm-btn-primary:hover { background: #5eead4; }
+.dm-btn-primary:disabled { background: rgba(255,255,255,0.1); color: rgba(255,255,255,0.3); cursor: not-allowed; }
+.dm-btn-confirm { background: #2DD4BF; color: #0a192f; font-weight: 600; }
+.dm-btn-confirm:hover { background: #5eead4; }
+.dm-btn-confirm:disabled { background: rgba(255,255,255,0.1); color: rgba(255,255,255,0.3); cursor: not-allowed; }
 
 .empty-state { text-align: center; padding: 40px 0; color: rgba(255,255,255,0.4); }
 .empty-icon { font-size: 48px; display: block; margin-bottom: 12px; }
