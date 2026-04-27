@@ -534,17 +534,21 @@
               <div class="form-row">
                 <label>保养周期 <span class="required">*</span></label>
                 <div class="cycle-input-row">
-                  <span>每</span>
-                  <input v-model.number="maintForm.cycle_value" type="number" min="1" class="cycle-num" />
-                  <select v-model="maintForm.cycle_type" class="cycle-unit-select">
-                    <option value="day">天</option>
-                    <option value="week">周</option>
-                    <option value="month">月</option>
-                    <option value="year">年</option>
-                  </select>
-                  <span>执行</span>
-                  <input v-model.number="maintForm.cycle_count" type="number" min="1" class="cycle-num" />
-                  <span>次</span>
+                  <div class="cycle-segment">
+                    <span class="cycle-label">每</span>
+                    <input v-model.number="maintForm.cycle_value" type="number" min="1" class="cycle-num" />
+                    <select v-model="maintForm.cycle_type" class="cycle-unit-select">
+                      <option value="day">天</option>
+                      <option value="week">周</option>
+                      <option value="month">月</option>
+                      <option value="year">年</option>
+                    </select>
+                  </div>
+                  <div class="cycle-segment">
+                    <span class="cycle-label">执行</span>
+                    <input v-model.number="maintForm.cycle_count" type="number" min="1" class="cycle-num" />
+                    <span class="cycle-label">次</span>
+                  </div>
                 </div>
               </div>
               <div class="form-row">
@@ -1533,8 +1537,8 @@ function toggleItem(item: any) {
   background: #0f3248;
   border: 1px solid rgba(45, 212, 191, 0.2);
   border-radius: 12px;
-  width: 680px;
-  max-height: 85vh;
+  width: 720px;
+  max-height: 90vh;
   overflow-y: auto;
 }
 .maint-admin-wrapper .dialog-header {
@@ -1621,13 +1625,41 @@ function toggleItem(item: any) {
 .maint-admin-wrapper .btn-confirm:hover { background: rgba(45, 212, 191, 0.25); }
 .maint-admin-wrapper .cycle-input-row {
   display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px 12px;
+  background: rgba(255,255,255,0.04);
+  border-radius: 8px;
+}
+.maint-admin-wrapper .cycle-segment {
+  display: flex;
   align-items: center;
   gap: 8px;
-  color: rgba(255, 255, 255, 0.65);
   font-size: 14px;
 }
-.maint-admin-wrapper .cycle-num { width: 70px !important; text-align: center; }
-.maint-admin-wrapper .cycle-unit-select { width: 100px !important; }
+.maint-admin-wrapper .cycle-label {
+  color: rgba(255,255,255,0.9);
+  white-space: nowrap;
+  font-weight: 500;
+}
+.maint-admin-wrapper .cycle-num {
+  width: 60px !important; text-align: center;
+  padding: 5px 6px;
+  border: 1px solid rgba(255,255,255,0.2);
+  border-radius: 6px;
+  background: rgba(255,255,255,0.08);
+  color: #fff;
+  font-size: 14px;
+}
+.maint-admin-wrapper .cycle-unit-select {
+  width: 90px !important;
+  padding: 5px 8px;
+  border: 1px solid rgba(255,255,255,0.2);
+  border-radius: 6px;
+  background: rgba(255,255,255,0.08);
+  color: #fff;
+  font-size: 14px;
+}
 .maint-admin-wrapper .radio-options { display: flex; gap: 20px; }
 .maint-admin-wrapper .radio-label {
   display: flex;
@@ -1979,7 +2011,7 @@ function toggleItem(item: any) {
   cursor: pointer;
 }
 
-.dialog-body { padding: 20px 22px; }
+.dialog-body { padding: 20px 28px; }
 
 .form-row-two {
   display: grid;
@@ -2074,9 +2106,10 @@ function toggleItem(item: any) {
 
 .form-row label {
   display: block;
-  color: rgba(255, 255, 255, 0.6);
-  font-size: 13px;
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 14px;
   margin-bottom: 7px;
+  font-weight: 500;
 }
 
 .form-row input,
