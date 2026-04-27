@@ -604,7 +604,7 @@ const maintDeviceContent = ref<Record<string, string>>({})
 const maintAllSelectedDevices = computed(() => {
   const ids = new Set<string>()
   maintLocationGroups.value.forEach(g => g.deviceIds.forEach((id: string) => ids.add(id)))
-  return devices.value.filter(d => ids.has(d.id))
+  return maintAllDevices.value.filter(d => ids.has(d.id))
 })
 const expandedMaintPlan = ref<number | null>(null)
 const expandedMaintTask = ref<number | null>(null)
