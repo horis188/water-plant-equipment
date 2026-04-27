@@ -396,7 +396,7 @@ const getLevelClass = (level: string) => {
           </div>
           <div class="shift-buttons">
             <button class="shift-btn">生成工单</button>
-            <button class="shift-btn">班组交接</button>
+            <button class="shift-btn" @click="router.push('/handover')">班组交接</button>
           </div>
         </div>
 
