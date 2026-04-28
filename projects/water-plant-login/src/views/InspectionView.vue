@@ -516,7 +516,7 @@
                       </select>
                       <div v-if="grp.location" class="device-selector">
                         <div class="available-devices">
-                          <div v-for="dev in maintGetDevicesForLocation(grp.location)" :key="dev.id" class="device-option" :class="{ selected: grp.deviceIds.includes(dev.id) }" @click="maintToggleGroupDevice(gIdx, dev)">{{ dev.name }}</div>
+                          <div v-for="dev in maintGetDevicesForLocation(grp.location)" :key="dev.id" class="device-option" :class="{ selected: grp.deviceIds.some((x: any) => x.id === dev.id) }" @click="maintToggleGroupDevice(gIdx, dev)">{{ dev.name }}</div>
                         </div>
                         <div v-if="grp.deviceIds.length > 0" class="selected-count">已选 {{ grp.deviceIds.length }} 台</div>
                         <div v-for="devObj in grp.deviceIds" :key="devObj.id" class="device-extra-item">
@@ -886,7 +886,7 @@ async function maintSavePlan() {
   const allDeviceIds = maintLocationGroups.value.flatMap(g => g.deviceIds)
   const selectedDevs = maintAllDevices.value.filter(d => allDeviceIds.includes(d.id))
   const items = maintLocationGroups.value.filter(g => g.location && g.deviceIds.length > 0).flatMap(g => {
-    const devs = maintAllDevices.value.filter(d => g.deviceIds.includes(d.id))
+    const devs = maintAllDevices.value.filter(d => g.deviceIds.some((x: any) => x.id === d.id))
     return devs.map(dev => ({ device_id: dev.id, device_name: dev.name, location: dev.location, check_content: maintForm.value.check_content }))
   })
   const payload = {
@@ -1372,6 +1372,190 @@ function toggleItem(item: any) {
 <style scoped>
 
 
+/* 新建/编辑保养计划弹窗（独立于 maint-admin-wrapper，dialog 在模板中直接挂载） */
+.ins-page .dialog-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+.ins-page .dialog {
+  background: #0f3248;
+  border: 1px solid rgba(45, 212, 191, 0.2);
+  border-radius: 12px;
+  width: 880px;
+  max-height: 90vh;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(45, 212, 191, 0.3) transparent;
+}
+.ins-page .dialog::-webkit-scrollbar { width: 6px; }
+.ins-page .dialog::-webkit-scrollbar-track { background: transparent; }
+.ins-page .dialog::-webkit-scrollbar-thumb { background: rgba(45, 212, 191, 0.3); border-radius: 3px; }
+.ins-page .dialog-header {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 20px 24px; border-bottom: 1px solid rgba(45, 212, 191, 0.1);
+}
+.ins-page .dialog-header h3 { color: #fff; font-size: 18px; margin: 0; }
+.ins-page .dialog-close {
+  background: none; border: none; color: rgba(255, 255, 255, 0.4);
+  font-size: 22px; cursor: pointer;
+}
+.ins-page .dialog-body {
+  padding: 24px 24px 20px; display: flex; flex-direction: column;
+}
+.ins-page .form-row { margin-bottom: 18px; transition: all 0.2s ease; }
+.ins-page .dialog-body label {
+  display: block; box-sizing: border-box;
+  color: rgba(255, 255, 255, 0.65); font-size: 13px; font-weight: 500;
+  line-height: 1.4; margin-bottom: 8px;
+}
+.ins-page .required { color: #F97316; margin-left: 2px; }
+.ins-page .form-row input,
+.ins-page .form-row select,
+.ins-page .form-row textarea {
+  width: 100%; background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(45, 212, 191, 0.3);
+  border-radius: 6px; color: #fff; padding: 10px 12px;
+  font-size: 14px; box-sizing: border-box;
+}
+.ins-page .form-row textarea { resize: vertical; min-height: 80px; }
+.ins-page .form-row-two { display: flex; gap: 16px; margin-bottom: 18px; }
+.ins-page .form-col { flex: 1; }
+.ins-page .form-col select,
+.ins-page .form-col input {
+  width: 100%; background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(45, 212, 191, 0.3);
+  border-radius: 6px; color: #fff; padding: 10px 12px;
+  font-size: 14px; box-sizing: border-box;
+}
+.ins-page .dialog-footer {
+  display: flex; justify-content: flex-end; gap: 12px;
+  padding: 16px 24px; border-top: 1px solid rgba(45, 212, 191, 0.1);
+  background: #0f3248; position: sticky; bottom: 0;
+  border-radius: 0 0 12px 12px;
+}
+.ins-page .btn-cancel {
+  background: none; border: 1px solid rgba(255, 255, 255, 0.2);
+  color: rgba(255, 255, 255, 0.6); padding: 8px 20px;
+  border-radius: 6px; font-size: 14px; cursor: pointer;
+}
+.ins-page .btn-confirm {
+  background: rgba(45, 212, 191, 0.15); border: 1px solid rgba(45, 212, 191, 0.4);
+  color: #2DD4BF; padding: 8px 20px; border-radius: 6px;
+  font-size: 14px; cursor: pointer;
+}
+.ins-page .btn-confirm:hover { background: rgba(45, 212, 191, 0.25); }
+.ins-page .cycle-input-row {
+  display: flex; flex-direction: column; gap: 10px;
+  padding: 12px 14px; background: rgba(255,255,255,0.04);
+  border-radius: 8px; border: 1px solid rgba(45, 212, 191, 0.12);
+}
+.ins-page .cycle-input-row label {
+  color: rgba(255, 255, 255, 0.6) !important;
+  font-size: 13px !important; margin-bottom: 0 !important;
+}
+.ins-page .cycle-single-row {
+  flex-direction: row; align-items: center; flex-wrap: wrap; gap: 6px;
+}
+.ins-page .cycle-segment { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+.ins-page .cycle-label {
+  color: #ffffff !important; white-space: nowrap;
+  font-weight: 600 !important; font-size: 14px !important;
+}
+.ins-page .dialog-body .cycle-label {
+  color: #ffffff !important; font-weight: 600 !important; font-size: 14px !important;
+}
+.ins-page .cycle-num {
+  width: 60px !important; text-align: center; padding: 5px 6px;
+  border: 1px solid rgba(255,255,255,0.2); border-radius: 6px;
+  background: rgba(255,255,255,0.08); color: #fff; font-size: 14px;
+}
+.ins-page .cycle-unit-select {
+  width: 90px !important; padding: 5px 8px;
+  border: 1px solid rgba(255,255,255,0.2); border-radius: 6px;
+  background: rgba(255,255,255,0.08); color: #fff; font-size: 14px;
+}
+.ins-page .hint-text { font-size: 12px; color: rgba(255,255,255,0.45); font-weight: normal; }
+.ins-page .device-extra-item { margin-top: 12px; }
+.ins-page .device-extra-toggle {
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 10px; background: rgba(45,212,191,0.08);
+  border: 1px solid rgba(45,212,191,0.2); border-radius: 6px;
+  cursor: pointer; font-size: 13px; color: #2dd4bf;
+}
+.ins-page .device-extra-toggle:hover { background: rgba(45,212,191,0.14); }
+.ins-page .toggle-icon { font-size: 10px; }
+.ins-page .toggle-label { font-weight: 500; color: #fff; }
+.ins-page .device-extra-content textarea {
+  width: 100%; margin-top: 6px; padding: 8px 10px;
+  border: 1px solid rgba(255,255,255,0.15); border-radius: 6px;
+  background: rgba(255,255,255,0.05); color: rgba(255,255,255,0.85);
+  font-size: 13px; resize: vertical; box-sizing: border-box;
+}
+.ins-page .radio-options { display: flex; gap: 20px; padding: 8px 0; }
+.ins-page .radio-label {
+  display: inline-flex; align-items: center; gap: 10px;
+  color: rgba(255, 255, 255, 0.75); font-size: 14px;
+  cursor: pointer; padding: 6px 12px; border-radius: 6px;
+  border: 1px solid transparent; transition: all 0.2s;
+}
+.ins-page .radio-label:hover {
+  border-color: rgba(45, 212, 191, 0.3); background: rgba(45, 212, 191, 0.06);
+}
+.ins-page .radio-label input[type="radio"] {
+  accent-color: #2DD4BF; width: 16px; height: 16px; flex-shrink: 0;
+}
+.ins-page .location-group-list {
+  display: flex; flex-direction: column; gap: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(45, 212, 191, 0.12); border-radius: 10px; padding: 16px;
+}
+.ins-page .location-group {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(45, 212, 191, 0.15); border-radius: 8px; padding: 14px;
+}
+.ins-page .grp-header {
+  display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;
+}
+.ins-page .grp-num { color: #ffffff !important; font-size: 13px; font-weight: 600; }
+.ins-page .grp-remove {
+  background: none; border: none; color: rgba(255, 100, 100, 0.6);
+  font-size: 18px; cursor: pointer;
+}
+.ins-page .grp-body { display: flex; flex-direction: column; gap: 10px; }
+.ins-page .grp-location {
+  width: 100%; background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(45, 212, 191, 0.3); border-radius: 6px;
+  color: #fff; padding: 8px 12px; font-size: 14px; box-sizing: border-box;
+}
+.ins-page .add-location-btn {
+  margin-top: 10px; background: none;
+  border: 1px dashed rgba(45, 212, 191, 0.45); color: rgba(45, 212, 191, 0.9);
+  padding: 8px 16px; border-radius: 6px; font-size: 13px;
+  cursor: pointer; width: 100%; transition: all 0.2s;
+}
+.ins-page .add-location-btn:hover { border-color: #2DD4BF; color: #2DD4BF; }
+.ins-page .device-selector {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(45, 212, 191, 0.2); border-radius: 8px; padding: 12px;
+}
+.ins-page .available-devices { display: flex; flex-wrap: wrap; gap: 8px; }
+.ins-page .device-option {
+  padding: 6px 14px; border-radius: 6px; font-size: 13px;
+  cursor: pointer; border: 1px solid rgba(45, 212, 191, 0.2);
+  color: rgba(255, 255, 255, 0.7); background: rgba(255, 255, 255, 0.04);
+  transition: all 0.2s;
+}
+.ins-page .device-option:hover { border-color: rgba(45, 212, 191, 0.5); color: #2DD4BF; }
+.ins-page .device-option.selected {
+  background: rgba(45, 212, 191, 0.15); border-color: #2DD4BF; color: #2DD4BF;
+}
+.ins-page .selected-count { margin-top: 8px; color: #ffffff !important; font-size: 13px; font-weight: 500; }
+
 /* 保养计划统计栏 */
 .maint-stats-row {
   display: flex;
@@ -1567,9 +1751,17 @@ function toggleItem(item: any) {
   background: #0f3248;
   border: 1px solid rgba(45, 212, 191, 0.2);
   border-radius: 12px;
-  width: 720px;
+  width: 880px;
   max-height: 90vh;
   overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(45, 212, 191, 0.3) transparent;
+}
+.maint-admin-wrapper .dialog::-webkit-scrollbar { width: 6px; }
+.maint-admin-wrapper .dialog::-webkit-scrollbar-track { background: transparent; }
+.maint-admin-wrapper .dialog::-webkit-scrollbar-thumb {
+  background: rgba(45, 212, 191, 0.3);
+  border-radius: 3px;
 }
 .maint-admin-wrapper .dialog-header {
   display: flex;
@@ -1586,12 +1778,23 @@ function toggleItem(item: any) {
   font-size: 22px;
   cursor: pointer;
 }
-.maint-admin-wrapper .dialog-body { padding: 24px; }
-.maint-admin-wrapper .form-row { margin-bottom: 20px; }
-.maint-admin-wrapper .form-row label {
+.maint-admin-wrapper .dialog-body {
+  padding: 24px 24px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+.maint-admin-wrapper .form-row {
+  margin-bottom: 18px;
+  transition: all 0.2s ease;
+}
+.maint-admin-wrapper .dialog-body label {
   display: block;
-  color: rgba(255, 255, 255, 0.6);
+  box-sizing: border-box;
+  color: rgba(255, 255, 255, 0.65);
   font-size: 13px;
+  font-weight: 500;
+  line-height: 1.4;
   margin-bottom: 8px;
 }
 .maint-admin-wrapper .required { color: #F97316; margin-left: 2px; }
@@ -1608,14 +1811,13 @@ function toggleItem(item: any) {
   box-sizing: border-box;
 }
 .maint-admin-wrapper .form-row textarea { resize: vertical; min-height: 80px; }
-.maint-admin-wrapper .form-row-two { display: flex; gap: 16px; margin-bottom: 20px; }
-.maint-admin-wrapper .form-col { flex: 1; }
-.maint-admin-wrapper .form-col label {
-  display: block;
-  color: rgba(255, 255, 255, 0.6);
-  font-size: 13px;
-  margin-bottom: 8px;
+.maint-admin-wrapper .form-row-two {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 18px;
 }
+.maint-admin-wrapper .form-col { flex: 1; }
+
 .maint-admin-wrapper .form-col select,
 .maint-admin-wrapper .form-col input {
   width: 100%;
@@ -1633,6 +1835,10 @@ function toggleItem(item: any) {
   gap: 12px;
   padding: 16px 24px;
   border-top: 1px solid rgba(45, 212, 191, 0.1);
+  background: #0f3248;
+  position: sticky;
+  bottom: 0;
+  border-radius: 0 0 12px 12px;
 }
 .maint-admin-wrapper .btn-cancel {
   background: none;
@@ -1657,9 +1863,15 @@ function toggleItem(item: any) {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  padding: 10px 12px;
+  padding: 12px 14px;
   background: rgba(255,255,255,0.04);
   border-radius: 8px;
+  border: 1px solid rgba(45, 212, 191, 0.12);
+}
+.maint-admin-wrapper .cycle-input-row label {
+  color: rgba(255, 255, 255, 0.6) !important;
+  font-size: 13px !important;
+  margin-bottom: 0 !important;
 }
 .maint-admin-wrapper .cycle-single-row {
   flex-direction: row;
@@ -1676,6 +1888,11 @@ function toggleItem(item: any) {
 .maint-admin-wrapper .cycle-label {
   color: #ffffff !important;
   white-space: nowrap;
+  font-weight: 600 !important;
+  font-size: 14px !important;
+}
+.maint-admin-wrapper .dialog-body .cycle-label {
+  color: #ffffff !important;
   font-weight: 600 !important;
   font-size: 14px !important;
 }
@@ -1699,7 +1916,7 @@ function toggleItem(item: any) {
 }
 .hint-text { font-size: 12px; color: rgba(255,255,255,0.45); font-weight: normal; }
 
-.device-extra-item { margin-top: 8px; }
+.device-extra-item { margin-top: 12px; }
 .device-extra-toggle {
   display: flex; align-items: center; gap: 6px;
   padding: 6px 10px;
@@ -1721,17 +1938,42 @@ function toggleItem(item: any) {
   color: rgba(255,255,255,0.85);
   font-size: 13px; resize: vertical; box-sizing: border-box;
 }
-.maint-admin-wrapper .radio-options { display: flex; gap: 20px; }
+.maint-admin-wrapper .radio-options {
+  display: flex;
+  gap: 20px;
+  padding: 8px 0;
+}
 .maint-admin-wrapper .radio-label {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 10px;
   color: rgba(255, 255, 255, 0.75);
   font-size: 14px;
   cursor: pointer;
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  transition: all 0.2s;
 }
-.maint-admin-wrapper .radio-label input[type="radio"] { accent-color: #2DD4BF; width: 16px; height: 16px; }
-.maint-admin-wrapper .location-group-list { display: flex; flex-direction: column; gap: 12px; }
+.maint-admin-wrapper .radio-label:hover {
+  border-color: rgba(45, 212, 191, 0.3);
+  background: rgba(45, 212, 191, 0.06);
+}
+.maint-admin-wrapper .radio-label input[type="radio"] {
+  accent-color: #2DD4BF;
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+.maint-admin-wrapper .location-group-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(45, 212, 191, 0.12);
+  border-radius: 10px;
+  padding: 16px;
+}
 .maint-admin-wrapper .location-group {
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid rgba(45, 212, 191, 0.15);
@@ -1752,7 +1994,11 @@ function toggleItem(item: any) {
   font-size: 18px;
   cursor: pointer;
 }
-.maint-admin-wrapper .grp-body { display: flex; flex-direction: column; gap: 10px; }
+.maint-admin-wrapper .grp-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
 .maint-admin-wrapper .grp-location {
   width: 100%;
   background: rgba(255, 255, 255, 0.06);
