@@ -52,13 +52,12 @@
         <span class="tab-count">{{ myPendingCount }}</span>
       </button>
       <button 
-        v-if="isAdmin"
         class="tab-btn" 
         :class="{ active: activeTab === 'maintenance' }"
         @click="activeTab = 'maintenance'"
       >
         <span class="tab-icon">🔧</span>
-        保养计划管理
+        {{ isAdmin ? '保养计划管理' : '保养任务' }}
       </button>
     </div>
 
