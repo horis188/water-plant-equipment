@@ -36,20 +36,25 @@ export const isOnDuty = computed(() => {
 
 // ============ 设备基础数据（不含状态）============
 // statusValue: 0=在用, 1=告警, 2=维修中
-export const devices = ref([
-  { id: 'D-001', name: '1号取水泵', type: '水泵', model: 'WQ400-300-15', vendor: '上海泵业', location: '取水泵房', value: 125000, doc: 'WQ400说明书.pdf', remark: '轴承定期检查', params: '电压:380V,电流:30A,功率:15kW,管径:DN100', statusValue: 0 },
-  { id: 'D-002', name: '2号取水泵', type: '水泵', model: 'WQ400-300-15', vendor: '上海泵业', location: '取水泵房', value: 125000, doc: 'WQ400说明书.pdf', remark: '', params: '电压:380V,电流:30A,功率:15kW,管径:DN100', statusValue: 0 },
-  { id: 'D-003', name: '1号送水泵', type: '水泵', model: 'KDL250-400A', vendor: '凯德拉水泵', location: '送水泵房', value: 98000, doc: null, remark: '', params: '电压:380V,电流:22A,功率:11kW,管径:DN80', statusValue: 0 },
-  { id: 'D-004', name: '2号送水泵', type: '水泵', model: 'KDL250-400A', vendor: '凯德拉水泵', location: '送水泵房', value: 98000, doc: null, remark: '', params: '电压:380V,电流:22A,功率:11kW,管径:DN80', statusValue: 0 },
-  { id: 'D-005', name: '3号取水泵', type: '水泵', model: 'WQ400-300-15', vendor: '上海泵业', location: '取水泵房', value: 125000, doc: '维修手册.docx', remark: '轴承损坏维修中', params: '电压:380V,电流:30A,功率:15kW,管径:DN100', statusValue: 2 },
-  { id: 'D-006', name: '1号滤池风机', type: '其他', model: 'BK-50', vendor: '安庆风机', location: '滤池车间', value: 35000, doc: null, remark: '', params: '电压:380V,电流:11A,功率:5.5kW,管径:DN50', statusValue: 1 },
-  { id: 'D-007', name: '水质监测仪', type: '仪表', model: 'YSI-6600', vendor: '哈希中国', location: '中控室', value: 68000, doc: 'YSI操作手册.pdf', remark: '', params: '电压:220V,电流:2A,功率:0.5kW,管径:DN20', statusValue: 0 },
-  { id: 'D-008', name: '1号配电柜', type: '其他', model: 'GGD-2000A', vendor: '正泰电器', location: '配电室', value: 45000, doc: '配电柜技术参数.doc', remark: '', params: '电压:380V,电流:2000A,功率:0kW,管径:-', statusValue: 0 },
-  { id: 'D-009', name: '加药计量泵', type: '水泵', model: 'M-100', vendor: '德国威尔泵', location: '加药间', value: 22000, doc: null, remark: '流量异常', params: '电压:220V,电流:3.5A,功率:0.8kW,管径:DN15', statusValue: 0 },
-  { id: 'D-010', name: '污泥脱水机', type: '其他', model: 'LD-200', vendor: '兴达环保', location: '污泥处理间', value: 150000, doc: '脱水机维护手册.pdf', remark: '', params: '电压:380V,电流:15A,功率:7.5kW,管径:DN100', statusValue: 2 },
-  { id: 'D-011', name: '二氧化氯发生器', type: '仪表', model: 'CL-5000', vendor: '山东绿晨', location: '加药间', value: 38000, doc: null, remark: '', params: '电压:220V,电流:6A,功率:1.5kW,管径:DN25', statusValue: 0 },
-  { id: 'D-012', name: '中控室工控机', type: '其他', model: 'IPC-610L', vendor: '研华科技', location: '中控室', value: 28000, doc: '工控机规格书.pdf', remark: '', params: '电压:220V,电流:1.5A,功率:0.3kW,管径:-', statusValue: 0 }
-])
+// DB里status存的是数字0/1/2，所以映射也用数字
+const statusValueMap: Record<number, number> = { 0: 0, 1: 1, 2: 2 }
+const statusLabelMap: Record<number, string> = { 0: '在用', 1: '告警', 2: '维修中' }
+
+export const devices = ref<any[]>([])
+
+export async function loadDevicesFromDB() {
+  try {
+    const res = await fetch('/api/devices')
+    const dbDevices = await res.json()
+    devices.value = dbDevices.map((d: any) => ({
+      ...d,
+      id: String(d.id),
+      statusValue: statusValueMap[d.status] ?? 0
+    }))
+  } catch (err) {
+    console.error('加载设备失败', err)
+  }
+}
 
 // ============ 维修工单数据 ============
 export const workOrders = ref([
@@ -108,7 +113,7 @@ export function addDeviceChangeLog(deviceId: string, change: { field: string; fi
 }
 
 // 更新设备状态（根据工单状态）
-export function updateDeviceStatusByOrder(deviceId: string, newStatus: string, operator?: string) {
+export async function updateDeviceStatusByOrder(deviceId: string, newStatus: string, operator?: string) {
   if (!deviceId) return
   const device = devices.value.find(d => d.id === deviceId)
   if (!device) return
@@ -120,17 +125,30 @@ export function updateDeviceStatusByOrder(deviceId: string, newStatus: string, o
   
   if (oldStatusValue === newStatusValue) return
   
-  // 更新设备状态值
-  device.statusValue = newStatusValue
-  
-  // 记录设备变动
+  // 记录设备变动（先记，等API成功后再改本地）
   const statusLabels: Record<number, string> = { 0: '在用', 1: '告警', 2: '维修中' }
-  addDeviceChangeLog(deviceId, {
-    field: 'status',
+  const changeLog = {
+    field: 'status' as const,
     fieldLabel: '设备状态',
     oldValue: statusLabels[oldStatusValue] || '在用',
     newValue: newStatus
-  }, operator || currentUser.value.name)
+  }
+  
+  // 同步到数据库，成功后再更新本地，失败则回滚
+  try {
+    const res = await fetch(`/api/devices/${deviceId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: newStatus })
+    })
+    if (!res.ok) throw new Error('API失败')
+    // API成功，更新本地
+    device.statusValue = newStatusValue
+    addDeviceChangeLog(deviceId, changeLog, operator || currentUser.value.name)
+  } catch (err) {
+    console.error('同步设备状态失败，已回滚', err)
+    // 不做回滚（本地状态未变），仅提示
+  }
 }
 
 // 解析参数字符串为各子字段
@@ -149,13 +167,23 @@ function parseParams(paramsStr: string): Record<string, string> {
 }
 
 // ============ CRUD 操作 ============
-export function addDevice(data: Omit<typeof devices.value[0], 'id'>) {
-  const id = 'D-' + String(Date.now()).slice(-6)
-  devices.value.push({ ...data, id })
-  return id
+export async function addDevice(data: Omit<typeof devices.value[0], 'id'>) {
+  const frontendId = 'D-' + String(Date.now()).slice(-6)
+  const record = { ...data, id: frontendId, statusValue: statusValueMap[data.status] ?? 0 }
+  devices.value.push(record)
+  try {
+    await fetch('/api/devices', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    })
+  } catch (err) {
+    console.error('新增设备失败', err)
+  }
+  return frontendId
 }
 
-export function updateDevice(id: string, data: Partial<typeof devices.value[0]>, operator?: string) {
+export async function updateDevice(id: string, data: Partial<typeof devices.value[0]>, operator?: string) {
   const idx = devices.value.findIndex(d => d.id === id)
   if (idx !== -1) {
     const oldDevice = devices.value[idx]
@@ -173,10 +201,11 @@ export function updateDevice(id: string, data: Partial<typeof devices.value[0]>,
     ]
 
     for (const { key, label } of trackFields) {
-      const oldVal = String(oldDevice[key] ?? '')
-      const newVal = String(data[key] ?? '')
+      const k = key as string
+      const oldVal = String((oldDevice as any)[k] ?? '')
+      const newVal = String((data as any)[k] ?? '')
       if (oldVal !== newVal) {
-        changes.push({ field: key, fieldLabel: label, oldValue: oldVal || '-', newValue: newVal || '-' })
+        changes.push({ field: k, fieldLabel: label, oldValue: oldVal || '-', newValue: newVal || '-' })
       }
     }
 
@@ -211,11 +240,28 @@ export function updateDevice(id: string, data: Partial<typeof devices.value[0]>,
     } else {
       devices.value[idx] = { ...oldDevice, ...data }
     }
+
+    // 同步数据库
+    try {
+      const { id: _id, statusValue: _sv, ...putData } = devices.value[idx]
+      await fetch(`/api/devices/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(putData)
+      })
+    } catch (err) {
+      console.error('更新设备失败', err)
+    }
   }
 }
 
-export function deleteDevice(id: string) {
+export async function deleteDevice(id: string) {
   devices.value = devices.value.filter(d => d.id !== id)
+  try {
+    await fetch(`/api/devices/${id}`, { method: 'DELETE' })
+  } catch (err) {
+    console.error('删除设备失败', err)
+  }
 }
 
 // ============ 带完整状态的设备列表 ============

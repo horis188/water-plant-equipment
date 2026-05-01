@@ -52,12 +52,14 @@
         <span class="tab-count">{{ myPendingCount }}</span>
       </button>
       <button 
+        v-if="isAdmin || currentUser?.role === '维修组'"
         class="tab-btn" 
         :class="{ active: activeTab === 'maintenance' }"
         @click="activeTab = 'maintenance'"
       >
         <span class="tab-icon">🔧</span>
         {{ isAdmin ? '保养计划管理' : '保养任务' }}
+        <span v-if="maintPlans.length > 0" class="tab-badge">{{ maintPlans.length }}</span>
       </button>
     </div>
 
@@ -89,55 +91,136 @@
         </div>
       </div>
 
-      <!-- 进度条 -->
-      <div class="progress-section">
-        <div class="progress-info">
-          <span class="progress-label">我的巡检任务</span>
-          <span class="progress-value">{{ myTasks.filter(t => t.is_completed).length }}/{{ myTasks.length }}</span>
+      <!-- 管理员：所有账号巡检任务 -->
+      <div v-if="isAdmin" class="admin-all-tasks">
+        <div class="admin-tasks-header">
+          <span class="admin-tasks-title">所有账号巡检任务</span>
+          <span class="admin-tasks-count">{{ adminTasks.length }} 项任务</span>
         </div>
-        <div class="progress-bar">
-          <div class="progress-fill" :style="{ width: (myTasks.length > 0 ? Math.round(myTasks.filter(t => t.is_completed).length / myTasks.length * 100) : 0) + '%' }"></div>
+
+        <div v-if="adminTasks.length === 0" class="plans-empty">暂无巡检任务</div>
+
+        <!-- 按执行人分组显示 -->
+        <div v-for="(tasks, executorRole) in adminTasksGrouped" :key="executorRole" class="admin-executor-group">
+          <div class="admin-executor-header">
+            <span class="admin-executor-name">👤 {{ executorRole }}</span>
+            <span class="admin-executor-count">{{ tasks.filter(t => t.is_completed).length }}/{{ tasks.length }}</span>
+          </div>
+
+          <div 
+            v-for="task in tasks" 
+            :key="task.plan_id + '-' + task.device_id" 
+            class="device-card admin-task-card"
+            :class="task.is_completed ? 'done' : 'pending'"
+            @click="expandedAdminTask = expandedAdminTask === (task.plan_id + '-' + task.device_id) ? null : (task.plan_id + '-' + task.device_id)"
+          >
+            <div class="card-check" :class="task.is_completed ? (task.has_abnormal ? 'abnormal' : 'done') : 'pending'">
+              <svg v-if="task.is_completed && !task.has_abnormal" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+                <path d="M5 13l4 4L19 7"/>
+              </svg>
+              <svg v-if="task.has_abnormal" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+                <path d="M12 9v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+              </svg>
+            </div>
+            <div class="card-body">
+              <div class="card-name">{{ task.device_name }}</div>
+              <div class="card-location">
+                <span class="loc-icon">📍</span>
+                {{ task.location }} · {{ task.plan_name }}
+              </div>
+              <div v-if="task.check_content" class="task-check-items">
+                <span v-for="(item, idx) in task.check_content.split('\n').filter((l: string) => l.trim())" :key="idx" class="check-item-tag">{{ item }}</span>
+              </div>
+              <div v-if="!task.is_completed && task.remainingMs < Infinity" class="task-remaining" :class="task.remainingMs < 0 ? 'overdue' : task.remainingMs < 1800000 ? 'urgent' : ''">
+                <span v-if="task.remainingMs < 0">已超时 {{ formatRemaining(-task.remainingMs) }}</span>
+                <span v-else>剩余 {{ formatRemaining(task.remainingMs) }}</span>
+              </div>
+
+              <!-- 展开的巡检项目详情（直接在卡片内） -->
+              <div v-if="expandedAdminTask === (task.plan_id + '-' + task.device_id)" class="inline-detail">
+                <div class="detail-title">巡检项目详情</div>
+                <div v-if="task.check_content" class="detail-items">
+                  <div 
+                    v-for="(item, idx) in task.check_content.split('\n').filter((l: string) => l.trim())" 
+                    :key="idx" 
+                    class="detail-item"
+                    :class="task.is_completed ? (task.has_abnormal ? 'abnormal' : 'done') : 'pending'"
+                  >
+                    <span class="detail-icon">{{ 
+                      hasCheckedItem(task, item) ? '✓' : 
+                      (!task.is_completed && task.status !== 'abnormal' ? '○' : '⚠️') 
+                    }}</span>
+                    <span class="detail-text">{{ item }}</span>
+                    <span class="detail-status">{{ 
+                      hasCheckedItem(task, item) ? '已检查' : '未检查'
+                    }}</span>
+                  </div>
+                </div>
+                <div v-else class="detail-empty">暂无巡检项目</div>
+              </div>
+            </div>
+            <div class="card-actions">
+              <div class="card-status" :class="task.is_completed ? (task.has_abnormal ? 'abnormal' : 'done') : (task.status === 'in_progress' ? 'pending' : 'pending')">
+                {{ task.is_completed ? (task.has_abnormal ? '有异常' : '已完成') : (task.status === 'in_progress' ? '进行中' : '待执行') }}
+              </div>
+              <div class="expand-arrow">{{ expandedAdminTask === (task.plan_id + '-' + task.device_id) ? '▲' : '▼' }}</div>
+            </div>
+          </div>
         </div>
       </div>
 
-      <!-- 我的任务列表 -->
-      <div class="device-list">
-        <div v-if="myTasks.length === 0" class="plans-empty">暂无待执行的巡检任务</div>
-        <div 
-          v-for="task in myTasks" 
-          :key="task.plan_id + '-' + task.device_id" 
-          class="device-card"
-          :class="task.is_completed ? 'done' : 'pending'"
-          @click="task.is_completed ? null : executeTask(task)"
-          :style="{ cursor: task.is_completed ? 'default' : 'pointer' }"
-        >
-          <div class="card-check" :class="task.is_completed ? (task.has_abnormal ? 'abnormal' : 'done') : 'pending'">
-            <svg v-if="task.is_completed && !task.has_abnormal" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
-              <path d="M5 13l4 4L19 7"/>
-            </svg>
-            <svg v-if="task.has_abnormal" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
-              <path d="M12 9v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
-            </svg>
+      <!-- 非管理员：进度条和我的任务列表 -->
+      <template v-else>
+        <!-- 进度条 -->
+        <div class="progress-section">
+          <div class="progress-info">
+            <span class="progress-label">我的巡检任务</span>
+            <span class="progress-value">{{ myTasks.filter(t => t.is_completed).length }}/{{ myTasks.length }}</span>
           </div>
-          <div class="card-body">
-            <div class="card-name">{{ task.device_name }}</div>
-            <div class="card-location">
-              <span class="loc-icon">📍</span>
-              {{ task.location }} · {{ task.plan_name }}
-            </div>
-            <div v-if="task.check_content" class="task-check-items">
-              <span v-for="(item, idx) in task.check_content.split('\n').filter((l: string) => l.trim())" :key="idx" class="check-item-tag">{{ item }}</span>
-            </div>
-            <div v-if="!task.is_completed && task.remainingMs < Infinity" class="task-remaining" :class="task.remainingMs < 0 ? 'overdue' : task.remainingMs < 1800000 ? 'urgent' : ''">
-              <span v-if="task.remainingMs < 0">已超时 {{ formatRemaining(-task.remainingMs) }}</span>
-              <span v-else>剩余 {{ formatRemaining(task.remainingMs) }}</span>
-            </div>
-          </div>
-          <div class="card-status" :class="task.is_completed ? (task.has_abnormal ? 'abnormal' : 'done') : 'pending'">
-            {{ task.is_completed ? (task.has_abnormal ? '有异常' : '已完成') : '待执行' }}
+          <div class="progress-bar">
+            <div class="progress-fill" :style="{ width: (myTasks.length > 0 ? Math.round(myTasks.filter(t => t.is_completed).length / myTasks.length * 100) : 0) + '%' }"></div>
           </div>
         </div>
-      </div>
+
+        <!-- 我的任务列表 -->
+        <div class="device-list">
+          <div v-if="myTasks.length === 0" class="plans-empty">暂无待执行的巡检任务</div>
+          <div 
+            v-for="task in myTasks" 
+            :key="task.plan_id + '-' + task.device_id" 
+            class="device-card"
+            :class="task.is_completed ? 'done' : 'pending'"
+            @click="task.is_completed ? null : executeTask(task)"
+            :style="{ cursor: task.is_completed ? 'default' : 'pointer' }"
+          >
+            <div class="card-check" :class="task.is_completed ? (task.has_abnormal ? 'abnormal' : 'done') : 'pending'">
+              <svg v-if="task.is_completed && !task.has_abnormal" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+                <path d="M5 13l4 4L19 7"/>
+              </svg>
+              <svg v-if="task.has_abnormal" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+                <path d="M12 9v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+              </svg>
+            </div>
+            <div class="card-body">
+              <div class="card-name">{{ task.device_name }}</div>
+              <div class="card-location">
+                <span class="loc-icon">📍</span>
+                {{ task.location }} · {{ task.plan_name }}
+              </div>
+              <div v-if="task.check_content" class="task-check-items">
+                <span v-for="(item, idx) in task.check_content.split('\n').filter((l: string) => l.trim())" :key="idx" class="check-item-tag">{{ item }}</span>
+              </div>
+              <div v-if="!task.is_completed && task.remainingMs < Infinity" class="task-remaining" :class="task.remainingMs < 0 ? 'overdue' : task.remainingMs < 1800000 ? 'urgent' : ''">
+                <span v-if="task.remainingMs < 0">已超时 {{ formatRemaining(-task.remainingMs) }}</span>
+                <span v-else>剩余 {{ formatRemaining(task.remainingMs) }}</span>
+              </div>
+            </div>
+            <div class="card-status" :class="task.is_completed ? (task.has_abnormal ? 'abnormal' : 'done') : (task.status === 'in_progress' ? 'pending' : 'pending')">
+              {{ task.is_completed ? (task.has_abnormal ? '有异常' : '已完成') : (task.status === 'in_progress' ? '进行中' : '待执行') }}
+            </div>
+          </div>
+        </div>
+      </template>
     </div>
 
     <!-- 新建/编辑计划弹窗 -->
@@ -255,8 +338,15 @@
           <div class="execute-checklist">
             <div v-for="(item, idx) in (currentTask?.check_content || '').split('\n').filter((l: string) => l.trim())" :key="idx" class="check-row">
               <div class="check-box-wrap">
-                <input type="checkbox" v-model="checkedItems" :value="item" :id="'check-' + idx" class="check-input" />
-                <label :for="'check-' + idx" class="check-label">{{ item }}</label>
+                <input 
+                  type="checkbox" 
+                  v-model="checkedItems" 
+                  :value="item" 
+                  :id="'check-' + idx" 
+                  class="check-input"
+                  :disabled="isItemAlreadyChecked(item)"
+                />
+                <label :for="'check-' + idx" class="check-label" :class="{ 'item-checked': isItemAlreadyChecked(item) }">{{ item }}</label>
               </div>
             </div>
           </div>
@@ -352,7 +442,8 @@
                   <div v-if="getDeviceRecord(plan.id, item.device_name)?.results" class="detail-check-list">
                     <div v-for="(check, ci) in (getDeviceRecord(plan.id, item.device_name)?.results || [])" :key="ci" class="detail-check-row">
                       <div class="check-dot dot-done"></div>
-                      <span class="check-text">{{ check }}</span>
+                      <span class="check-text">{{ typeof check === 'string' ? check : check.content }}</span>
+                      <span v-if="check.remark" class="check-remark">备注：{{ check.remark }}</span>
                     </div>
                   </div>
                   <div v-else-if="item.check_content" class="detail-check-list">
@@ -398,15 +489,16 @@
               </div>
               <div class="plan-actions">
                 <button class="btn-edit" @click="toggleMaintTask(task.id)">{{ expandedMaintTask === task.id ? '收起' : '查看详情' }}</button>
-                <button class="btn-primary" style="margin-left:8px;" @click="openMaintExecute(task)">执行保养</button>
               </div>
             </div>
             <div v-if="expandedMaintTask === task.id" class="maint-detail-section" style="padding: 0;">
-              <div v-for="item in task.items" :key="item.id" class="detail-device-item">
+              <div v-for="item in task.items" :key="item.id" class="detail-device-item" :style="{ cursor: item.recordStatus === 'pending' ? 'pointer' : 'default' }" @click="item.recordStatus === 'pending' && openMaintExecute(task, item)">
                 <div class="detail-device-header">
                   <div class="detail-device-name">🖥️ {{ item.device_name }}</div>
                   <div class="detail-device-tags">
-                    <span class="detail-tag tag-pending">○ 待处理</span>
+                    <span v-if="item.recordStatus === 'done'" class="detail-tag tag-done">✓ 已完成</span>
+                    <span v-else-if="item.recordStatus === 'abnormal'" class="detail-tag tag-abnormal">⚠ 有异常</span>
+                    <span v-else class="detail-tag tag-pending">○ 点击执行</span>
                   </div>
                 </div>
                 <div v-if="item.check_content" class="detail-check-list">
@@ -431,20 +523,21 @@
           <div class="dialog-body">
             <div class="execute-info">
               <div class="execute-device">{{ currentMaintTask?.name }}</div>
-              <div class="execute-plan">📍{{ currentMaintTask?.device_type }}</div>
+              <div class="execute-plan">📍 {{ currentMaintItem?.device_name }}</div>
             </div>
-            <div v-if="currentMaintTask?.items" class="execute-checklist">
-              <div v-for="(item, idx) in currentMaintTask.items" :key="idx" class="detail-device-item">
-                <div class="detail-device-header">
-                  <div class="detail-device-name">🖥️ {{ item.device_name }}</div>
+            <div v-if="currentMaintItem?.check_content" class="execute-checklist">
+              <div v-for="(check, ci) in currentMaintItem.check_content.split('\n').filter((c: string) => c.trim())" :key="ci" class="check-item">
+                <div class="check-box-wrap">
+                  <input type="checkbox" v-model="maintCheckedItems" :value="check" :id="'mcheck-' + ci" class="check-input" />
+                  <label :for="'mcheck-' + ci" class="check-label">{{ check }}</label>
                 </div>
-                <div v-if="item.check_content" class="detail-check-list">
-                  <div v-for="(check, ci) in item.check_content.split('\n').filter((c: string) => c.trim())" :key="ci" class="check-item">
-                    <div class="check-box-wrap">
-                      <input type="checkbox" v-model="maintCheckedItems" :value="check" :id="'mcheck-' + idx + '-' + ci" class="check-input" />
-                      <label :for="'mcheck-' + idx + '-' + ci" class="check-label">{{ check }}</label>
-                    </div>
-                  </div>
+                <div v-if="maintCheckedItems.includes(check)" class="check-remark-wrap">
+                  <input
+                    type="text"
+                    v-model="maintItemRemarks[check]"
+                    :placeholder="'备注（选填）'"
+                    class="check-remark-input"
+                  />
                 </div>
               </div>
             </div>
@@ -586,7 +679,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import TopNavBar from '../components/TopNavBar.vue'
-import { currentUser, devices as maintDeviceStore, isOnDuty } from '../composables/useDeviceStore'
+import { currentUser, devices as maintDeviceStore, isOnDuty, updateDeviceStatusByOrder, loadDevicesFromDB } from '../composables/useDeviceStore'
 
 const API_BASE = '/api/inspection'
 const isAdmin = computed(() => currentUser.value?.role === '系统管理人')
@@ -608,7 +701,9 @@ const expandedMaintTask = ref<number | null>(null)
 const myMaintTasks = ref<any[]>([])
 const maintExecuteDialog = ref(false)
 const currentMaintTask = ref<any>(null)
+const currentMaintItem = ref<any>(null)
 const maintCheckedItems = ref<string[]>([])
+const maintItemRemarks = ref<Record<string, string>>({})
 const maintHasAbnormal = ref(false)
 const maintAbnormalDesc = ref('')
 const maintRecords = ref<Record<number, any[]>>({})
@@ -644,9 +739,9 @@ function formatMaintRemaining(ms: number): string {
   const days = Math.floor(totalMins / 1440)
   const hours = Math.floor((totalMins % 1440) / 60)
   const mins = totalMins % 60
-  if (days > 0) return `${days}天${hours}小时`
-  if (hours > 0) return `${hours}小时${mins}分钟`
-  return `${mins}分钟`
+  if (days > 0) return `剩余时间 ${days}天${hours}小时`
+  if (hours > 0) return `剩余时间 ${hours}小时${mins}分钟`
+  return `剩余时间 ${mins}分钟`
 }
 
 async function maintLoadUsers() {
@@ -674,9 +769,9 @@ async function maintLoadPlans() {
 }
 
 function maintLoadDeviceData() {
-  maintAllDevices.value = maintDeviceStore.value.map((d: any) => ({ id: d.id, name: d.name, location: d.location }))
+  maintAllDevices.value = devices.value.map((d: any) => ({ id: d.id, name: d.name, location: d.location }))
   const locMap = new Map<string, number>()
-  for (const d of maintDeviceStore.value) {
+  for (const d of devices.value) {
     if (d.location && !locMap.has(d.location)) locMap.set(d.location, locMap.size + 1)
   }
   maintLocations.value = Array.from(locMap.entries()).map(([name, id]) => ({ id, name }))
@@ -750,10 +845,21 @@ async function loadMyMaintTasks() {
     const res = await fetch(`${MAINT_API}/plans`)
     const allPlans = await res.json()
     const now = Date.now()
-    myMaintTasks.value = allPlans.filter((p: any) => p.executor_role === role).map((p: any) => {
+    myMaintTasks.value = allPlans.filter((p: any) => p.executor_role === role).map(async (p: any) => {
       const rem = getPlanRemainingMs(p, now)
+      // 加载该计划的执行记录，标记每个设备项的状态
+      try {
+        const recs = await (await fetch(`${MAINT_API}/records/${p.id}`)).json()
+        p.items = p.items.map((item: any) => {
+          const rec = recs.find((r: any) => r.device_name === item.device_name)
+          return { ...item, recordStatus: rec ? (rec.has_abnormal == 1 ? 'abnormal' : 'done') : 'pending' }
+        })
+      } catch {}
       return { ...p, remainingMs: rem }
     })
+    // 等所有异步处理完成
+    const resolved = await Promise.all(myMaintTasks.value)
+    myMaintTasks.value = resolved
   } catch (err) {
     console.error('加载保养任务失败', err)
   }
@@ -765,27 +871,29 @@ function getPlanRemainingMs(plan: any, now: number): number {
   return target - now
 }
 
-function openMaintExecute(task: any) {
-  if (!isOnDuty.value) return;
+function openMaintExecute(task: any, item: any) {
   currentMaintTask.value = task
+  currentMaintItem.value = item
   maintCheckedItems.value = []
   maintHasAbnormal.value = false
   maintAbnormalDesc.value = ''
+  maintItemRemarks.value = {}
   maintExecuteDialog.value = true
 }
 
 async function submitMaintResult() {
   if (!currentMaintTask.value) return
   const task = currentMaintTask.value
+  const item = currentMaintItem.value
   try {
-    const results = maintCheckedItems.value.map((item: string) => ({ content: item, status: 'done' }))
+    const results = maintCheckedItems.value.map((content: string) => ({ content, status: 'done', remark: maintItemRemarks.value[content] || '' }))
     const res = await fetch(`${MAINT_API}/records`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         plan_id: task.id,
-        device_id: task.items?.[0]?.device_id || null,
-        device_name: task.items?.[0]?.device_name || task.name,
+        device_id: item?.device_id || null,
+        device_name: item?.device_name || task.name,
         executor_id: currentUser.value?.id,
         executor_name: currentUser.value?.name,
         results,
@@ -794,9 +902,35 @@ async function submitMaintResult() {
       })
     })
     if (!res.ok) throw new Error('提交失败')
+    // 有异常时自动生成维修工单
+    if (maintHasAbnormal.value && maintAbnormalDesc.value) {
+      await fetch('/api/workorders/maintenance', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          content: `【保养异常】${item?.device_name || task.name}：${maintAbnormalDesc.value}`,
+          level: 'medium',
+          status: 'pending',
+          assigner_name: currentUser.value?.name,
+          handler_name: null,
+          problem_order_id: null,
+          deviceId: item?.device_id || null
+        })
+      })
+      // 保养异常 -> 设备状态变为维修中
+      if (item?.device_id) await updateDeviceStatusByOrder(item.device_id, '维修中', currentUser.value?.name)
+    }
+    // 立即更新本地任务状态，不需要等reload
+    if (currentMaintItem.value) {
+      currentMaintItem.value.recordStatus = maintHasAbnormal.value ? 'abnormal' : 'done'
+    }
     alert('保养任务已完成')
     maintExecuteDialog.value = false
     currentMaintTask.value = null
+    currentMaintItem.value = null
+    maintItemRemarks.value = {}
+    maintHasAbnormal.value = false
+    maintAbnormalDesc.value = ''
     await loadMyMaintTasks()
   } catch (err) {
     console.error('提交失败', err)
@@ -859,14 +993,22 @@ function maintEditPlan(plan: any) {
         locMap.get(dev.location)!.push(dev.id)
       }
     }
+    // 填充每台设备的专属保养内容
+    maintDeviceContent.value = {}
+    for (const item of plan.items) {
+      if (item.device_id && item.check_content) {
+        maintDeviceContent.value[String(item.device_id)] = item.check_content
+      }
+    }
     if (locMap.size > 0) {
-      maintLocationGroups.value = Array.from(locMap.entries()).map(([loc, ids]) => ({ location: loc, deviceIds: ids }))
+      maintLocationGroups.value = Array.from(locMap.entries()).map(([loc, ids]) => ({ location: loc, deviceIds: ids.map(id => ({ id, customContent: '' })) }))
     } else {
       // 匹配不到时用名称兜底
       maintLocationGroups.value = [{ location: '', deviceIds: [] }]
     }
   } else {
     maintLocationGroups.value = [{ location: '', deviceIds: [] }]
+    maintDeviceContent.value = {}
   }
   maintShowDialog.value = true
 }
@@ -878,15 +1020,31 @@ function maintCloseDialog() {
 
 async function maintSavePlan() {
   const validGroups = maintLocationGroups.value.filter(g => g.location && g.deviceIds.length > 0)
-  if (!maintForm.value.name || !maintSelectedRole.value || !maintSelectedExecutorId.value || validGroups.length === 0 || !maintForm.value.device_type) {
-    alert('请填写必填项（*标记）')
+  if (!maintForm.value.name) {
+    alert('请填写计划名称')
     return
   }
-  const allDeviceIds = maintLocationGroups.value.flatMap(g => g.deviceIds)
+  if (!maintSelectedRole.value) {
+    alert('请选择执行角色')
+    return
+  }
+  if (!maintSelectedExecutorId.value) {
+    alert('请选择执行人')
+    return
+  }
+  if (validGroups.length === 0) {
+    alert('请选择地点和设备')
+    return
+  }
+  if (!maintForm.value.device_type) {
+    alert('请选择设备类型')
+    return
+  }
+  const allDeviceIds = maintLocationGroups.value.flatMap(g => g.deviceIds.map((x: any) => x.id))
   const selectedDevs = maintAllDevices.value.filter(d => allDeviceIds.includes(d.id))
   const items = maintLocationGroups.value.filter(g => g.location && g.deviceIds.length > 0).flatMap(g => {
     const devs = maintAllDevices.value.filter(d => g.deviceIds.some((x: any) => x.id === d.id))
-    return devs.map(dev => ({ device_id: dev.id, device_name: dev.name, location: dev.location, check_content: maintForm.value.check_content }))
+    return devs.map(dev => ({ device_id: dev.id, device_name: dev.name, location: dev.location, check_content: maintDeviceContent.value[dev.id] || maintForm.value.check_content || '' }))
   })
   const payload = {
     name: maintForm.value.name,
@@ -900,13 +1058,19 @@ async function maintSavePlan() {
     cycle_count: maintForm.value.cycle_count,
     has_third_party: maintForm.value.has_third_party,
     third_party_name: maintForm.value.has_third_party ? maintForm.value.third_party_name : '',
+    location: validGroups[0]?.location || '',
     items
   }
   try {
     if (maintEditingPlan.value) {
       await fetch(`${MAINT_API}/plans/${maintEditingPlan.value.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
     } else {
-      await fetch(`${MAINT_API}/plans`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+      const res = await fetch(`${MAINT_API}/plans`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}))
+        alert('创建失败: ' + (errData.error || res.status))
+        return
+      }
     }
     await maintLoadPlans()
     maintCloseDialog()
@@ -1041,7 +1205,8 @@ async function loadDevices() {
   try {
     const res = await fetch('/api/devices')
     const data = await res.json()
-    devices.value = data.length > 0 ? data : mockDevices
+    const statusValueMap: Record<string, number> = { '在用': 0, '告警': 1, '维修中': 2 }
+    devices.value = data.length > 0 ? data.map((d: any) => ({ ...d, id: String(d.id), statusValue: statusValueMap[d.status] ?? 0 })) : mockDevices
   } catch {
     devices.value = mockDevices
   }
@@ -1205,10 +1370,11 @@ async function deletePlan(id: number) {
 onMounted(async () => {
   await loadPlans()
   loadLocations()
-  loadDevices()
+  await loadDevices()
   loadUsers()
   await loadMyTasks()
   if (isAdmin.value) {
+    await loadAdminTasks()
     maintLoadUsers()
     await maintLoadPlans()
     maintLoadDeviceData()
@@ -1231,11 +1397,24 @@ const doneCount = computed(() => inspectionItems.value.filter(i => i.status === 
 const totalCount = computed(() => inspectionItems.value.length)
 const pendingCount = computed(() => inspectionItems.value.filter(i => i.status === 'pending').length)
 const myTasks = ref<any[]>([])
+const adminTasks = ref<any[]>([]) // 管理员查看所有账号任务
+const expandedAdminTask = ref<string | null>(null)
 
 // 用 myTasks 统计
 const myDoneCount = computed(() => myTasks.value.filter(t => t.is_completed).length)
 const myPendingCount = computed(() => myTasks.value.filter(t => !t.is_completed).length)
 const myAbnormalCount = computed(() => myTasks.value.filter(t => t.has_abnormal).length)
+
+// 管理员按执行角色分组任务
+const adminTasksGrouped = computed(() => {
+  const groups: Record<string, any[]> = {}
+  for (const t of adminTasks.value) {
+    const role = t.executor_role || '未知角色'
+    if (!groups[role]) groups[role] = []
+    groups[role].push(t)
+  }
+  return groups
+})
 
 async function loadMyTasks() {
   if (!currentUser.value) return
@@ -1261,6 +1440,31 @@ async function loadMyTasks() {
     myTasks.value = tasks
   } catch (err) {
     console.error('加载任务失败', err)
+  }
+}
+
+// 管理员加载所有账号的巡检任务
+async function loadAdminTasks() {
+  if (!isAdmin.value) return
+  try {
+    // 获取所有用户的任务（不带executor_id参数）
+    const res = await fetch(`${API_BASE}/pending-tasks`)
+    const tasks = await res.json()
+    const now = Date.now()
+    for (const t of tasks) {
+      const plan = plans.value.find((p: any) => p.id === t.plan_id)
+      const rem = getTaskRemainingMs(t, plan, now)
+      t.remainingMs = rem
+    }
+    // 按执行角色分组，再按剩余时间排序
+    tasks.sort((a: any, b: any) => {
+      const roleCmp = (a.executor_role || '').localeCompare(b.executor_role || '')
+      if (roleCmp !== 0) return roleCmp
+      return a.remainingMs - b.remainingMs
+    })
+    adminTasks.value = tasks
+  } catch (err) {
+    console.error('加载所有任务失败', err)
   }
 }
 
@@ -1312,9 +1516,62 @@ function formatRemaining(ms: number): string {
 }
 
 async function executeTask(task: any) {
-  // 弹出巡检执行对话框
+  // 已完成的任务不能再次执行
+  if (task.is_completed) return
+  // 弹出巡检执行对话框，加载已有检查进度
   currentTask.value = task
+  // 加载已检查的项目（如果有记录的话）
+  if (task.results) {
+    try {
+      let results = task.results
+      if (typeof results === 'string') {
+        results = JSON.parse(results)
+        if (typeof results === 'string') results = JSON.parse(results)
+      }
+      checkedItems.value = Array.isArray(results) ? [...results] : []
+    } catch {
+      checkedItems.value = []
+    }
+  } else {
+    checkedItems.value = []
+  }
   showExecuteDialog.value = true
+}
+
+function isItemChecked(task: any, item: string): boolean {
+  if (!task.is_completed) return false
+  if (!task.results) return false
+  try {
+    let results = task.results
+    // results 可能是双重编码的字符串，需要解析两次
+    if (typeof results === 'string') {
+      results = JSON.parse(results)
+      if (typeof results === 'string') {
+        results = JSON.parse(results)
+      }
+    }
+    return Array.isArray(results) && results.includes(item)
+  } catch {
+    return false
+  }
+}
+
+function isItemAlreadyChecked(item: string): boolean {
+  return checkedItems.value.includes(item)
+}
+
+function hasCheckedItem(task: any, item: string): boolean {
+  if (!task.results) return false
+  try {
+    let results = task.results
+    if (typeof results === 'string') {
+      results = JSON.parse(results)
+      if (typeof results === 'string') results = JSON.parse(results)
+    }
+    return Array.isArray(results) && results.includes(item)
+  } catch {
+    return false
+  }
 }
 
 function markTaskComplete(task: any, abnormal: boolean) {
@@ -1327,6 +1584,10 @@ function markTaskComplete(task: any, abnormal: boolean) {
 
 async function submitTaskResult() {
   if (!currentTask.value) return
+  // 有异常时二次确认
+  if (hasAbnormal.value && !confirm('请确认巡检项目情况，提交后不能再次执行，是否继续？')) {
+    return
+  }
   try {
     const res = await fetch(`${API_BASE}/records`, {
       method: 'POST',
@@ -1340,15 +1601,21 @@ async function submitTaskResult() {
         executor_name: currentUser.value?.name || '',
         results: JSON.stringify(checkedItems.value),
         has_abnormal: hasAbnormal.value ? 1 : 0,
-        abnormal_desc: abnormalDesc.value
+        abnormal_desc: abnormalDesc.value,
+        all_items: (currentTask.value?.check_content || '').split('\n').map((l: string) => l.trim()).filter(Boolean)
       })
     })
     if (!res.ok) throw new Error('提交失败')
     const data = await res.json()
-    if (data.duplicate) {
-      alert('该任务已在2小时内提交过，无需重复提交')
-    } else {
+    if (data.status === 'in_progress') {
+      // 部分完成，仍在进行中，刷新进度
+    } else if (data.status === 'completed' || data.status === 'abnormal') {
       markTaskComplete(currentTask.value, hasAbnormal.value)
+    }
+    // 巡检异常 -> 设备状态变为告警
+    if (hasAbnormal.value && currentTask.value?.device_id) {
+      await loadDevicesFromDB() // 确保设备数据已加载
+      await updateDeviceStatusByOrder(String(currentTask.value.device_id), '告警', currentUser.value?.name)
     }
     showExecuteDialog.value = false
     checkedItems.value = []
@@ -1356,6 +1623,7 @@ async function submitTaskResult() {
     abnormalDesc.value = ''
     currentTask.value = null
     loadMyTasks()
+    loadAdminTasks()
   } catch (err) {
     console.error('提交失败', err)
     alert('提交失败，请重试')
@@ -2169,6 +2437,15 @@ function toggleItem(item: any) {
   font-weight: 600;
 }
 
+.tab-badge {
+  background: rgba(45, 212, 191, 0.2);
+  color: #2DD4BF;
+  padding: 1px 7px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
 /* 管理员工具栏 */
 .section-toolbar {
   margin-bottom: 16px;
@@ -2226,6 +2503,82 @@ function toggleItem(item: any) {
   text-align: center;
   padding: 20px 0;
 }
+
+/* 管理员所有账号任务视图 */
+.admin-all-tasks { margin-top: 16px; }
+.admin-tasks-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+.admin-tasks-title { font-size: 16px; font-weight: 600; color: #fff; }
+.admin-tasks-count { font-size: 13px; color: rgba(255,255,255,0.5); }
+
+.admin-executor-group { margin-bottom: 20px; }
+.admin-executor-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  background: rgba(45, 212, 191, 0.1);
+  border-radius: 6px;
+  margin-bottom: 8px;
+}
+.admin-executor-name { font-size: 14px; font-weight: 600; color: #2DD4BF; }
+.admin-executor-count { font-size: 12px; color: rgba(255,255,255,0.5); }
+
+.card-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+.btn-expand {
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.1);
+  color: rgba(255,255,255,0.6);
+  padding: 3px 10px;
+  border-radius: 4px;
+  font-size: 11px;
+  cursor: pointer;
+}
+.btn-expand:hover { background: rgba(255,255,255,0.12); color: #fff; }
+
+.admin-task-detail { margin-top: 8px; }
+.detail-content {
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 6px;
+  padding: 12px;
+}
+.detail-title { font-size: 13px; font-weight: 600; color: rgba(255,255,255,0.7); margin-bottom: 10px; }
+.detail-items { display: flex; flex-direction: column; gap: 6px; }
+.detail-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: rgba(255,255,255,0.02);
+  border-radius: 4px;
+  font-size: 12px;
+}
+.detail-item.done { color: #22C55E; }
+.detail-item.abnormal { color: #fb923c; }
+.detail-item.pending { color: rgba(255,255,255,0.4); }
+.detail-icon { font-size: 12px; }
+.detail-text { flex: 1; color: rgba(255,255,255,0.8); }
+.detail-status { font-size: 11px; }
+.detail-empty { color: rgba(255,255,255,0.3); font-size: 12px; text-align: center; padding: 10px; }
+
+.inline-detail {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255,255,255,0.07);
+}
+
+.expand-arrow { font-size: 12px; color: rgba(255,255,255,0.4); }
 
 .plan-item {
   display: flex;
@@ -3010,11 +3363,55 @@ function toggleItem(item: any) {
   cursor: pointer;
 }
 
+.check-input:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
 .check-label {
   color: rgba(255, 255, 255, 0.85);
   font-size: 14px;
   cursor: pointer;
   flex: 1;
+}
+
+.check-label.item-checked {
+  color: #2DD4BF;
+  opacity: 0.8;
+}
+
+.check-item {
+  padding: 6px 0;
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+}
+
+.check-remark {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.4);
+  margin-left: 8px;
+}
+
+
+
+.check-remark-input {
+  width: 100%;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(45,212,191,0.2);
+  border-radius: 6px;
+  color: rgba(255,255,255,0.85);
+  font-size: 13px;
+  padding: 6px 10px;
+  box-sizing: border-box;
+}
+
+.check-remark-input:focus {
+  outline: none;
+  border-color: rgba(45,212,191,0.5);
+  background: rgba(255,255,255,0.08);
+}
+
+.check-remark-input::placeholder {
+  color: rgba(255,255,255,0.3);
 }
 
 .abnormal-section {

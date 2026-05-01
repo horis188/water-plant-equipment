@@ -31,11 +31,18 @@ router.get('/plans', async (req, res) => {
           plan.executor_name = plan.executor_role
         }
       } catch { plan.executor_name = plan.executor_role }
-      // 统计
-      const [done] = await pool.query('SELECT COUNT(DISTINCT device_id) as cnt FROM maintenance_records WHERE plan_id = ? AND has_abnormal = 0', [plan.id])
-      const [abnormal] = await pool.query('SELECT COUNT(DISTINCT device_id) as cnt FROM maintenance_records WHERE plan_id = ? AND has_abnormal = 1', [plan.id])
-      plan.doneCount = done[0]?.cnt || 0
-      plan.abnormalCount = abnormal[0]?.cnt || 0
+      // 按设备最新记录状态统计（每个设备只算一次，取最新记录的状态）
+      const [statusRows] = await pool.query(`
+        SELECT device_id, has_abnormal FROM maintenance_records r1
+        WHERE plan_id = ? AND record_time = (
+          SELECT MAX(record_time) FROM maintenance_records r2 WHERE r2.plan_id = r1.plan_id AND r2.device_id = r1.device_id
+        )
+      `, [plan.id])
+      const deviceStatusMap = {}
+      for (const row of statusRows) { deviceStatusMap[row.device_id] = row.has_abnormal }
+      const statusValues = Object.values(deviceStatusMap)
+      plan.doneCount = statusValues.filter(v => v === 0).length
+      plan.abnormalCount = statusValues.filter(v => v === 1).length
       plan.totalCount = items.length
       // 计算剩余时间
       plan.remainingMs = calcRemainingMs(plan)
@@ -61,8 +68,21 @@ router.post('/records', async (req, res) => {
       'INSERT INTO maintenance_records (plan_id, device_id, device_name, executor_id, executor_name, results, has_abnormal, abnormal_desc) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
       [plan_id, device_id || null, device_name || '', executor_id || null, executor_name || '', JSON.stringify(results || []), has_abnormal ? 1 : 0, abnormal_desc || '']
     )
+    // 更新计划下次执行时间
+    const [plans] = await pool.query('SELECT cycle_type, cycle_value FROM maintenance_plans WHERE id = ?', [plan_id])
+    if (plans.length > 0) {
+      const { cycle_type, cycle_value } = plans[0]
+      const now = new Date()
+      let next = new Date(now)
+      if (cycle_type === 'day') next.setDate(now.getDate() + (cycle_value || 1))
+      else if (cycle_type === 'week') next.setDate(now.getDate() + (cycle_value || 1) * 7)
+      else if (cycle_type === 'month') next.setMonth(now.getMonth() + (cycle_value || 1))
+      else if (cycle_type === 'year') next.setFullYear(now.getFullYear() + (cycle_value || 1))
+      await pool.query('UPDATE maintenance_plans SET next_execute_time = ? WHERE id = ?', [next.toISOString().slice(0, 19).replace('T', ' '), plan_id])
+    }
     res.json({ success: true })
   } catch (err) {
+    console.error('[POST /records error]', err.message)
     res.status(500).json({ error: err.message })
   }
 })
@@ -86,20 +106,30 @@ router.get('/records/:planId', async (req, res) => {
 
 // 创建保养计划
 router.post('/plans', async (req, res) => {
-  const { name, executor_role, executor_ids, device_name, device_type, check_content, cycle_type, cycle_value, has_third_party, third_party_name, items } = req.body
+  const { name, executor_role, executor_ids, location, device_name, device_type, check_content, cycle_type, cycle_value, has_third_party, third_party_name, items } = req.body
   const conn = await pool.getConnection()
   try {
     await conn.beginTransaction()
+    // 计算下次执行时间 = 当前时间 + 周期
+    const now = new Date()
+    let next = new Date(now)
+    const cv = cycle_value || 1
+    if (cycle_type === 'day') next.setDate(now.getDate() + cv)
+    else if (cycle_type === 'week') next.setDate(now.getDate() + cv * 7)
+    else if (cycle_type === 'month') next.setMonth(now.getMonth() + cv)
+    else if (cycle_type === 'year') next.setFullYear(now.getFullYear() + cv)
+    else next.setMonth(now.getMonth() + cv) // 默认月
+
     const [result] = await conn.query(
-      `INSERT INTO maintenance_plans (name, executor_role, executor_ids, device_name, device_type, check_content, cycle_type, cycle_value, has_third_party, third_party_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [name, executor_role || '', executor_ids || '[]', device_name || '', device_type || '', check_content || '', cycle_type || 'month', cycle_value || 1, has_third_party ? 1 : 0, third_party_name || '']
+      `INSERT INTO maintenance_plans (name, executor_role, executor_ids, location, device_name, device_type, check_content, cycle_type, cycle_value, has_third_party, third_party_name, next_execute_time) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [name, executor_role || '', executor_ids || '[]', location || '', device_name || '', device_type || '', check_content || '', cycle_type || 'month', cycle_value || 1, has_third_party ? 1 : 0, third_party_name || '', next.toISOString().slice(0, 19).replace('T', ' ')]
     )
     const planId = result.insertId
     if (items && items.length > 0) {
       for (const item of items) {
         await conn.query(
-          'INSERT INTO maintenance_items (plan_id, device_name, check_content) VALUES (?, ?, ?)',
-          [planId, item.device_name || '', item.check_content || '']
+          'INSERT INTO maintenance_items (plan_id, device_id, device_name, check_content) VALUES (?, ?, ?, ?)',
+          [planId, item.device_id || null, item.device_name || '', item.check_content || '']
         )
       }
     }
@@ -115,15 +145,31 @@ router.post('/plans', async (req, res) => {
 
 // 更新保养计划
 router.put('/plans/:id', async (req, res) => {
-  const { name, executor_role, executor_ids, device_name, device_type, check_content, cycle_type, cycle_value, has_third_party, third_party_name } = req.body
+  const { name, executor_role, executor_ids, location, device_name, device_type, check_content, cycle_type, cycle_value, has_third_party, third_party_name, items } = req.body
+  const conn = await pool.getConnection()
   try {
-    await pool.query(
-      `UPDATE maintenance_plans SET name=?, executor_role=?, executor_ids=?, device_name=?, device_type=?, check_content=?, cycle_type=?, cycle_value=?, has_third_party=?, third_party_name=? WHERE id=?`,
-      [name, executor_role || '', executor_ids || '[]', device_name || '', device_type || '', check_content || '', cycle_type || 'month', cycle_value || 1, has_third_party ? 1 : 0, third_party_name || '', req.params.id]
+    await conn.beginTransaction()
+    await conn.query(
+      `UPDATE maintenance_plans SET name=?, executor_role=?, executor_ids=?, location=?, device_name=?, device_type=?, check_content=?, cycle_type=?, cycle_value=?, has_third_party=?, third_party_name=? WHERE id=?`,
+      [name, executor_role || '', executor_ids || '[]', location || '', device_name || '', device_type || '', check_content || '', cycle_type || 'month', cycle_value || 1, has_third_party ? 1 : 0, third_party_name || '', req.params.id]
     )
+    // 更新保养项：先删后插
+    await conn.query('DELETE FROM maintenance_items WHERE plan_id = ?', [req.params.id])
+    if (items && items.length > 0) {
+      for (const item of items) {
+        await conn.query(
+          'INSERT INTO maintenance_items (plan_id, device_id, device_name, check_content) VALUES (?, ?, ?, ?)',
+          [req.params.id, item.device_id || null, item.device_name || '', item.check_content || '']
+        )
+      }
+    }
+    await conn.commit()
     res.json({ id: req.params.id, name })
   } catch (err) {
+    await conn.rollback()
     res.status(500).json({ error: err.message })
+  } finally {
+    conn.release()
   }
 })
 

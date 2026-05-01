@@ -132,33 +132,66 @@ router.get('/records', async (req, res) => {
 
 // 提交巡检结果 → 写入 inspection_task_records
 router.post('/records', async (req, res) => {
-  const { plan_id, device_id, device_name, executor, executor_id, executor_name, results, has_abnormal, abnormal_desc } = req.body
+  const { plan_id, device_id, device_name, executor, executor_id, executor_name, results, has_abnormal, abnormal_desc, all_items } = req.body
   const check_date = new Date().toISOString().split('T')[0]
   const check_time = new Date().toTimeString().split(' ')[0]
   try {
-    // 检查2小时内是否已有记录（同计划+设备+执行人+2小时窗口）
+    // 检查是否已有记录（同计划+设备+执行人）
     const [existing] = await pool.query(
-      `SELECT id FROM inspection_task_records WHERE plan_id = ? AND device_id = ? AND executor_id = ? AND TIMESTAMPDIFF(HOUR, created_at, NOW()) < 2`,
+      `SELECT * FROM inspection_task_records WHERE plan_id = ? AND device_id = ? AND executor_id = ? ORDER BY created_at DESC LIMIT 1`,
       [plan_id, device_id, executor_id]
     )
-    if (existing.length > 0) {
-      return res.json({ id: existing[0].id, duplicate: true })
+
+    // results 可能是前端传来的 JSON 字符串，也可能是对象，统一转为 JSON 字符串存储
+    let resultsData = results
+    if (typeof results === 'string') {
+      try { resultsData = JSON.parse(results) } catch { resultsData = [] }
     }
+    const newResults = JSON.stringify(Array.isArray(resultsData) ? resultsData : [])
+    // 判断是否全部项目都已检查（对比 all_items 中的所有非空项）
+    const allItemsList = (all_items || []).filter((l) => l.trim())
+    const allDone = allItemsList.length > 0 && allItemsList.every((li) => (results || []).includes(li))
+    // 有异常时直接标记为abnormal并终结任务，否则按全部完成判断
+    const status = has_abnormal ? 'abnormal' : (allDone ? 'completed' : 'in_progress')
+
+    if (existing.length > 0) {
+      // 合并已有记录：追加新的检查项（不去重，保留所有历史）
+      let existingResults = []
+      try { existingResults = JSON.parse(existing[0].check_items || '[]') } catch {}
+      const mergedResults = [...new Set([...existingResults, ...(Array.isArray(resultsData) ? resultsData : [])])]
+      await pool.query(
+        `UPDATE inspection_task_records SET check_items = ?, status = ?, has_abnormal = ?, abnormal_desc = ? WHERE id = ?`,
+        [JSON.stringify(mergedResults), status, has_abnormal ? 1 : 0, abnormal_desc || null, existing[0].id]
+      )
+      // 有异常时生成问题工单
+      if (has_abnormal && abnormal_desc) {
+        const [poResult] = await pool.query(
+          'INSERT INTO problem_orders (content, reporter_name, status, device_id) VALUES (?, ?, ?, ?)',
+          [`【巡检异常】${device_name}：${abnormal_desc}`, executor_name || executor, 'pending', device_id]
+        )
+        const problemOrderId = poResult.insertId
+        await pool.query('UPDATE inspection_task_records SET problem_order_id = ? WHERE id = ?', [problemOrderId, existing[0].id])
+        return res.json({ id: existing[0].id, status, problem_order_id: problemOrderId })
+      }
+      return res.json({ id: existing[0].id, status, merged: true })
+    }
+
+    // 新建记录
     const [result] = await pool.query(
       `INSERT INTO inspection_task_records (plan_id, device_id, device_name, executor_id, executor_name, check_date, check_time, status, has_abnormal, abnormal_desc, check_items) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [plan_id, device_id, device_name, executor_id, executor_name || executor, check_date, check_time, has_abnormal ? 'abnormal' : 'completed', has_abnormal ? 1 : 0, abnormal_desc || null, JSON.stringify(results)]
+      [plan_id, device_id, device_name, executor_id, executor_name || executor, check_date, check_time, status, has_abnormal ? 1 : 0, abnormal_desc || null, newResults]
     )
     const recordId = result.insertId
     let problemOrderId = null
     if (has_abnormal && abnormal_desc) {
       const [poResult] = await pool.query(
-        'INSERT INTO problem_orders (content, reporter_name, status) VALUES (?, ?, ?)',
-        [`【巡检异常】${device_name}：${abnormal_desc}`, executor_name || executor, 'pending']
+        'INSERT INTO problem_orders (content, reporter_name, status, device_id) VALUES (?, ?, ?, ?)',
+        [`【巡检异常】${device_name}：${abnormal_desc}`, executor_name || executor, 'pending', device_id]
       )
       problemOrderId = poResult.insertId
       await pool.query('UPDATE inspection_task_records SET problem_order_id = ? WHERE id = ?', [problemOrderId, recordId])
     }
-    res.json({ id: recordId, problem_order_id: problemOrderId })
+    res.json({ id: recordId, problem_order_id: problemOrderId, status })
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
@@ -175,7 +208,11 @@ router.get('/pending-tasks', async (req, res) => {
 
     const recordMap = new Map()
     for (const r of taskRecords) {
-      recordMap.set(`${r.plan_id}-${r.device_id}-${r.executor_id}`, r)
+      // 管理员视图（无executor_id）时，按 plan_id+device_id 匹配任意执行人的记录
+      const key = executor_id
+        ? `${r.plan_id}-${r.device_id}-${r.executor_id}`
+        : `${r.plan_id}-${r.device_id}`
+      recordMap.set(key, r)
     }
 
     const [plans] = await pool.query('SELECT * FROM inspection_plans')
@@ -187,7 +224,10 @@ router.get('/pending-tasks', async (req, res) => {
 
       const [items] = await pool.query('SELECT * FROM inspection_items WHERE plan_id = ?', [plan.id])
       for (const item of items) {
-        const rec = recordMap.get(`${plan.id}-${item.device_id}-${executor_id}`)
+        const key = executor_id
+          ? `${plan.id}-${item.device_id}-${executor_id}`
+          : `${plan.id}-${item.device_id}`
+        const rec = recordMap.get(key)
         result.push({
           plan_id: plan.id,
           plan_name: plan.name,
@@ -199,10 +239,12 @@ router.get('/pending-tasks', async (req, res) => {
           device_id: item.device_id,
           device_name: item.device_name,
           check_content: item.check_content,
-          is_completed: !!rec,
+          all_items: (item.check_content || '').split('\n').map((l) => l.trim()).filter(Boolean),
+          is_completed: !!(rec && (rec.status === 'completed' || rec.status === 'abnormal')),
           has_abnormal: rec ? rec.has_abnormal : 0,
           status: rec ? rec.status : 'pending',
           abnormal_desc: rec ? (rec.abnormal_desc || '') : '',
+          results: rec ? (rec.check_items || '') : '',
           record_id: rec ? rec.id : null,
           record_created_at: rec ? rec.created_at : null
         })

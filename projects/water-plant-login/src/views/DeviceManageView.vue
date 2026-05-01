@@ -239,14 +239,17 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import TopNavBar from '../components/TopNavBar.vue'
-import { deviceListWithStatus, addDevice, updateDevice, deleteDevice, currentUser, deviceChangeLog } from '../composables/useDeviceStore'
+import { deviceListWithStatus, addDevice, updateDevice, deleteDevice, currentUser, deviceChangeLog, loadDevicesFromDB } from '../composables/useDeviceStore'
 
 const route = useRoute()
 const router = useRouter()
 
+onMounted(() => {
+  loadDevicesFromDB()
+})
 
 // 页面标题
 const pageTitle = computed(() => {
@@ -1148,6 +1151,7 @@ function downloadBlob(content: string, filename: string, mime: string) {
   padding: 20px;
   max-height: 65vh;
   overflow-y: auto;
+  color: #fff;
 }
 
 .dialog-footer {

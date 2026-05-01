@@ -2,7 +2,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import WaterBackground from '../components/WaterBackground.vue'
-import { deviceStats, deviceListWithStatus, deviceChangeLog, currentUser } from '../composables/useDeviceStore'
+import { deviceStats, deviceListWithStatus, deviceChangeLog, currentUser, loadDevicesFromDB } from '../composables/useDeviceStore'
 import { spareparts } from '../composables/useSparepartStore'
 import { maintenanceOrders } from '../composables/useWorkOrderStore'
 
@@ -125,6 +125,7 @@ function formatRemaining(ms: number): string {
 
 onMounted(() => {
   loadInspectionTasks()
+  loadDevicesFromDB()
 })
 
 const workOrderNotifications = ref([

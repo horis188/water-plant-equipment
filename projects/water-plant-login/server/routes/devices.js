@@ -31,10 +31,20 @@ router.post('/', async (req, res) => {
 router.put('/:id', async (req, res) => {
   const { name, type, model, location, params, status, value, vendor, remark } = req.body
   try {
-    await pool.query(
-      'UPDATE devices SET name=?, type=?, model=?, location=?, params=?, status=?, value=?, vendor=?, remark=? WHERE id=?',
-      [name, type, model, location, params, status, value, vendor, remark, req.params.id]
-    )
+    const updates = []
+    const values = []
+    if (name !== undefined) { updates.push('name=?'); values.push(name) }
+    if (type !== undefined) { updates.push('type=?'); values.push(type) }
+    if (model !== undefined) { updates.push('model=?'); values.push(model) }
+    if (location !== undefined) { updates.push('location=?'); values.push(location) }
+    if (params !== undefined) { updates.push('params=?'); values.push(params) }
+    if (status !== undefined) { updates.push('status=?'); values.push(status) }
+    if (value !== undefined) { updates.push('value=?'); values.push(value) }
+    if (vendor !== undefined) { updates.push('vendor=?'); values.push(vendor) }
+    if (remark !== undefined) { updates.push('remark=?'); values.push(remark) }
+    if (updates.length === 0) return res.status(400).json({ error: 'No fields to update' })
+    values.push(req.params.id)
+    await pool.query(`UPDATE devices SET ${updates.join(', ')} WHERE id=?`, values)
     res.json({ id: req.params.id, ...req.body })
   } catch (err) {
     res.status(500).json({ error: err.message })
@@ -56,6 +66,23 @@ router.get('/changes', async (req, res) => {
   try {
     const [rows] = await pool.query('SELECT * FROM device_changes ORDER BY id DESC LIMIT 100')
     res.json(rows)
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// 批量更新设备状态
+router.post('/batch-status', async (req, res) => {
+  const { updates } = req.body // [{id, status}, ...]
+  try {
+    const statusMap = { '在用': 0, '告警': 1, '维修中': 2 }
+    for (const u of updates) {
+      const v = statusMap[u.status]
+      if (v !== undefined) {
+        await pool.query('UPDATE devices SET status = ? WHERE id = ?', [v, u.id])
+      }
+    }
+    res.json({ success: true })
   } catch (err) {
     res.status(500).json({ error: err.message })
   }

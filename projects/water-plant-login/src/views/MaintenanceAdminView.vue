@@ -44,6 +44,24 @@
             <span v-for="(line, idx) in plan.check_content.split('\n').filter((l: string) => l.trim())" :key="idx" class="content-item">{{ line }}</span>
           </div>
         </div>
+
+        <!-- 执行情况统计 -->
+        <div class="maint-stats-row">
+          <div class="maint-stat-item">
+            <span class="stat-num stat-green">{{ plan.doneCount || 0 }}</span>
+            <span class="stat-lbl">已完成</span>
+          </div>
+          <div class="maint-stat-sep">/</div>
+          <div class="maint-stat-item">
+            <span class="stat-num stat-red">{{ plan.abnormalCount || 0 }}</span>
+            <span class="stat-lbl">有异常</span>
+          </div>
+          <div class="maint-stat-sep">/</div>
+          <div class="maint-stat-item">
+            <span class="stat-num stat-cyan">{{ plan.totalCount || 0 }}</span>
+            <span class="stat-lbl">总数</span>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -900,4 +918,32 @@ onMounted(() => {
   border-color: #2DD4BF;
   color: #2DD4BF;
 }
+
+/* 执行情况统计 */
+.maint-stats-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  font-size: 13px;
+}
+.maint-stat-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.maint-stat-sep {
+  color: #666;
+}
+.stat-num {
+  font-weight: 700;
+  font-size: 18px;
+}
+.stat-lbl {
+  font-size: 12px;
+  color: #888;
+}
+.stat-green { color: #22C55E !important; }
+.stat-red { color: #EF4444 !important; }
+.stat-cyan { color: #06B6D4 !important; }
 </style>

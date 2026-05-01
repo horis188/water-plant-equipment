@@ -79,6 +79,7 @@
         </div>
         <div class="wo-card-actions">
           <button v-if="canHandleProblem(order)" class="action-btn" @click.stop="openProblemHandle(order)">处理</button>
+          <button v-if="currentUser.role === '系统管理人'" class="action-btn action-btn-danger" @click.stop="openProblemDelete(order)">删除</button>
         </div>
       </div>
       <div v-if="filteredProblemOrders.length === 0" class="empty-row">暂无问题工单</div>
@@ -109,9 +110,10 @@
         <div class="wo-card-actions">
           <button v-if="canAcceptOrder(order)" class="action-btn" @click.stop="acceptOrder(order)">接单</button>
           <button v-if="canDelayOrder(order)" class="action-btn" @click.stop="openDelayDialog(order)">延时</button>
-          <button v-if="(currentUser.role === '维修组' || currentUser.role === '系统管理人') && (order.status === 'processing' || order.status === 'delay')" class="action-btn action-btn-primary" @click.stop="openCompleteDialog(order)">完成</button>
+          <button v-if="(currentUser.role === '维修组' || currentUser.role === '系统管理人') && (order.status === 'processing' || order.status === 'delay' || order.status === 'returned')" class="action-btn action-btn-primary" @click.stop="openCompleteDialog(order)">完成</button>
           <button v-if="(currentUser.role === '维修组' || currentUser.role === '系统管理人') && order.status === 'processing'" class="action-btn action-btn-primary" @click.stop="openProblemCloseDialog(order)">问题工单闭环</button>
           <button v-if="(currentUser.role === '带班' || currentUser.role === '系统管理人') && order.status === 'completed'" class="action-btn" @click.stop="openReviewDialog(order)">审核</button>
+          <button v-if="currentUser.role === '系统管理人'" class="action-btn action-btn-danger" @click.stop="openMaintenanceDelete(order)">删除</button>
         </div>
       </div>
       <div v-if="filteredMaintenanceOrders.length === 0" class="empty-row">暂无维修工单</div>
@@ -128,6 +130,13 @@
           <div class="form-row">
             <label>问题描述 <span class="required">*</span></label>
             <textarea v-model="createForm.content" placeholder="请描述发现的问题" rows="4"></textarea>
+          </div>
+          <div class="form-row">
+            <label>关联设备</label>
+            <select v-model="createForm.deviceId">
+              <option :value="null">-- 不关联设备 --</option>
+              <option v-for="d in devices" :key="d.id" :value="d.id">{{ d.name }} ({{ d.location }})</option>
+            </select>
           </div>
           <div class="form-row">
             <label>图片</label>
@@ -386,17 +395,52 @@
         </div>
       </div>
     </div>
+
+    <!-- 删除问题工单弹窗 -->
+    <div v-if="problemDeleteVisible" class="dm-dialog-overlay" @click.self="problemDeleteVisible = false">
+      <div class="dm-dialog">
+        <div class="dialog-header">
+          <h3>删除问题工单</h3>
+          <button class="dialog-close" @click="problemDeleteVisible = false">×</button>
+        </div>
+        <div class="dialog-body">
+          <p>确定要删除问题工单 <strong>{{ deletingProblemOrder?.id }}</strong> 吗？此操作不可恢复。</p>
+        </div>
+        <div class="dialog-footer">
+          <button class="dm-btn dm-btn-cancel" @click="problemDeleteVisible = false">取消</button>
+          <button class="dm-btn dm-btn-danger" @click="confirmProblemDelete">确认删除</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 删除维修工单弹窗 -->
+    <div v-if="maintenanceDeleteVisible" class="dm-dialog-overlay" @click.self="maintenanceDeleteVisible = false">
+      <div class="dm-dialog">
+        <div class="dialog-header">
+          <h3>删除维修工单</h3>
+          <button class="dialog-close" @click="maintenanceDeleteVisible = false">×</button>
+        </div>
+        <div class="dialog-body">
+          <p>确定要删除维修工单 <strong>{{ deletingMaintenanceOrder?.id }}</strong> 吗？此操作不可恢复。</p>
+        </div>
+        <div class="dialog-footer">
+          <button class="dm-btn dm-btn-cancel" @click="maintenanceDeleteVisible = false">取消</button>
+          <button class="dm-btn dm-btn-danger" @click="confirmMaintenanceDelete">确认删除</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import TopNavBar from '../components/TopNavBar.vue'
-import { currentUser, updateDeviceStatusByOrder, isOnDuty } from '../composables/useDeviceStore'
+import { currentUser, updateDeviceStatusByOrder, isOnDuty, loadDevicesFromDB, devices } from '../composables/useDeviceStore'
 import {
   matchDeviceByContent, problemOrders, maintenanceOrders,
   addProblemOrder, updateProblemOrder,
   addMaintenanceOrder, updateMaintenanceOrder,
+  deleteProblemOrder, deleteMaintenanceOrder,
   initDeviceStatusFromWorkOrders,
   statusLabel, statusColor, levelLabel,
   ProblemWorkOrder, MaintenanceWorkOrder
@@ -407,9 +451,12 @@ async function syncProblemOrdersFromDB() {
   try {
     const res = await fetch('/api/workorders/problem')
     const dbOrders = await res.json()
-    // 合并到本地（去重）
+    // 合并到本地（去重），优先用数据库中的device_id，fallback到关键词匹配
     for (const o of dbOrders) {
       const exists = problemOrders.value.find(p => p.id === o.id)
+      // 优先用数据库中已有的device_id，否则用关键词匹配
+      const dbDeviceId = o.device_id ? String(o.device_id) : null
+      const orderDeviceId = dbDeviceId || matchDeviceByContent(o.content || '') || undefined
       if (!exists) {
         problemOrders.value.push({
           id: o.id,
@@ -418,11 +465,18 @@ async function syncProblemOrdersFromDB() {
           content: o.content,
           status: o.status,
           shiftId: '',
+          deviceId: orderDeviceId,
           images: o.images ? JSON.parse(o.images) : [],
           videos: o.videos ? JSON.parse(o.videos) : [],
           createdAt: new Date(o.created_at).toLocaleString('zh-CN'),
           resolution: o.resolution
         })
+      } else {
+        // 更新已有工单的deviceId
+        const idx = problemOrders.value.findIndex(p => p.id === o.id)
+        if (idx !== -1) {
+          problemOrders.value[idx] = { ...problemOrders.value[idx], deviceId: orderDeviceId }
+        }
       }
     }
   } catch {}
@@ -432,26 +486,23 @@ async function syncMaintenanceOrdersFromDB() {
   try {
     const res = await fetch('/api/workorders/maintenance')
     const dbOrders = await res.json()
-    for (const o of dbOrders) {
-      const exists = maintenanceOrders.value.find(m => m.id === o.id)
-      if (!exists) {
-        maintenanceOrders.value.push({
-          id: o.id,
-          content: o.content,
-          level: o.level,
-          status: o.status,
-          assignerId: o.assigner_name || '',
-          assignerName: o.assigner_name || '',
-          handlerId: o.handler_name || '',
-          handlerName: o.handler_name || '',
-          problemOrderId: o.problem_order_id || null,
-          participants: [],
-          delayDays: 0,
-          sparepartUsage: [],
-          createdAt: new Date(o.created_at).toLocaleString('zh-CN')
-        })
-      }
-    }
+    // 完全替换内存数据，保证与数据库同步
+    maintenanceOrders.value = dbOrders.map((o: any) => ({
+      id: String(o.id),
+      content: o.content,
+      level: o.level || 'medium',
+      status: o.status,
+      assignerId: o.assigner_name || '',
+      assignerName: o.assigner_name || '',
+      handlerId: o.handler_name || '',
+      handlerName: o.handler_name || '',
+      problemOrderId: o.problem_order_id || null,
+      participants: [],
+      delayDays: 0,
+      sparepartUsage: [],
+      returnReason: o.return_reason || '',
+      createdAt: o.created_at ? new Date(o.created_at).toLocaleString('zh-CN') : ''
+    }))
   } catch {}
 }
 
@@ -465,13 +516,19 @@ async function loadShiftStatus() {
   } catch(e) {}
 }
 onMounted(() => {
-  initDeviceStatusFromWorkOrders()
-  syncProblemOrdersFromDB()
-  syncMaintenanceOrdersFromDB()
+  loadDevicesFromDB().then(() => {
+    syncProblemOrdersFromDB().then(() => {
+      syncMaintenanceOrdersFromDB().then(() => {
+        initDeviceStatusFromWorkOrders()
+      })
+    })
+  })
   loadShiftStatus()
   syncTimer = setInterval(() => {
     syncProblemOrdersFromDB()
-    syncMaintenanceOrdersFromDB()
+    syncMaintenanceOrdersFromDB().then(() => {
+      initDeviceStatusFromWorkOrders()
+    })
   }, 5000)
 })
 onUnmounted(() => { if (syncTimer) clearInterval(syncTimer) })
@@ -563,9 +620,9 @@ function canDelayOrder(order: MaintenanceWorkOrder) {
 const createDialogVisible = ref(false)
 const wsCurrentShift = ref<any>(null)
 const wsAmIOnShift = computed(() => wsCurrentShift.value && wsCurrentShift.value.user_name === currentUser.value?.name)
-const createForm = ref({ content: '', images: '', videos: '' })
+const createForm = ref<{ content: string; images: string; videos: string; deviceId: number | null }>({ content: '', images: '', videos: '', deviceId: null })
 
-function openCreateDialog() { if (!wsAmIOnShift.value && currentUser.value?.role !== '维修组') return; createDialogVisible.value = true; createForm.value = { content: '', images: '', videos: '' } }
+function openCreateDialog() { if (!wsAmIOnShift.value && currentUser.value?.role !== '维修组') return; createDialogVisible.value = true; createForm.value = { content: '', images: '', videos: '', deviceId: null } }
 
 function handleImageUpload(e: Event, form: { images?: string }) {
   const files = (e.target as HTMLInputElement).files
@@ -590,7 +647,8 @@ function submitCreateProblem() {
     content: createForm.value.content,
     images: createForm.value.images ? createForm.value.images.split(',').map(s => s.trim()) : [],
     videos: createForm.value.videos ? createForm.value.videos.split(',').map(s => s.trim()) : [],
-    status: 'pending'
+    status: 'pending',
+    deviceId: createForm.value.deviceId ? String(createForm.value.deviceId) : undefined
   })
   createDialogVisible.value = false
 }
@@ -632,7 +690,7 @@ function openProblemHandle(order: ProblemWorkOrder) {
   handleDialogVisible.value = true
 }
 
-function submitHandleProblem() {
+async function submitHandleProblem() {
   if (!handlingOrder.value) return
   
   // 获取关联的设备ID
@@ -649,7 +707,7 @@ function submitHandleProblem() {
     // 自行解决后设备恢复在用
     const deviceId = getDeviceId()
     if (deviceId) {
-      updateDeviceStatusByOrder(deviceId, '在用', currentUser.value.name)
+      await updateDeviceStatusByOrder(deviceId, '在用', currentUser.value.name)
     }
   } else {
     updateProblemOrder(handlingOrder.value.id, { status: 'to_maintenance' })
@@ -667,7 +725,7 @@ function submitHandleProblem() {
     // 问题工单转维修，设备状态变为维修中
     const deviceId = getDeviceId()
     if (deviceId) {
-      updateDeviceStatusByOrder(deviceId, '维修中', currentUser.value.name)
+      await updateDeviceStatusByOrder(deviceId, '维修中', currentUser.value.name)
     }
   }
   handleDialogVisible.value = false
@@ -705,9 +763,9 @@ function openCompleteDialog(order: MaintenanceWorkOrder) {
   completeDialogVisible.value = true
 }
 
-function submitComplete() {
+async function submitComplete() {
   if (!completingOrder.value) return
-  updateMaintenanceOrder(completingOrder.value.id, {
+  await updateMaintenanceOrder(completingOrder.value.id, {
     status: 'completed',
     completionNote: completeForm.value.note,
     completionImages: completeForm.value.images ? completeForm.value.images.split(',').map(s => s.trim()) : [],
@@ -720,12 +778,12 @@ function submitComplete() {
   if (order.problemOrderId) {
     const problemOrder = problemOrders.value.find(p => p.id === order.problemOrderId)
     if (problemOrder?.deviceId) {
-      updateDeviceStatusByOrder(problemOrder.deviceId, '在用', currentUser.value.name)
+      await updateDeviceStatusByOrder(problemOrder.deviceId, '在用', currentUser.value.name)
     }
   } else {
     const deviceId = matchDeviceByContent(order.content || '')
     if (deviceId) {
-      updateDeviceStatusByOrder(deviceId, '在用', currentUser.value.name)
+      await updateDeviceStatusByOrder(deviceId, '在用', currentUser.value.name)
     }
   }
   completeDialogVisible.value = false
@@ -742,7 +800,7 @@ function openProblemCloseDialog(order: MaintenanceWorkOrder) {
   problemCloseDialogVisible.value = true
 }
 
-function submitProblemClose() {
+async function submitProblemClose() {
   if (!closingOrder.value || !problemCloseForm.value.reason) return
   const order = closingOrder.value
   
@@ -756,7 +814,7 @@ function submitProblemClose() {
   }
   
   // 关闭维修工单
-  updateMaintenanceOrder(order.id, {
+  await updateMaintenanceOrder(order.id, {
     status: 'closed',
     completionNote: problemCloseForm.value.reason,
     completionImages: problemCloseForm.value.images ? problemCloseForm.value.images.split(',').map(s => s.trim()) : [],
@@ -765,7 +823,7 @@ function submitProblemClose() {
   
   // 如果有来源问题工单，关闭它并记录原因
   if (order.problemOrderId) {
-    updateProblemOrder(order.problemOrderId, {
+    await updateProblemOrder(order.problemOrderId, {
       status: 'closed',
       resolution: problemCloseForm.value.reason,
       resolutionImages: problemCloseForm.value.images ? problemCloseForm.value.images.split(',').map(s => s.trim()) : [],
@@ -776,7 +834,7 @@ function submitProblemClose() {
   // 工单闭环后设备恢复在用
   const deviceId = getDeviceId()
   if (deviceId) {
-    updateDeviceStatusByOrder(deviceId, '在用', currentUser.value.name)
+    await updateDeviceStatusByOrder(deviceId, '在用', currentUser.value.name)
   }
   
   problemCloseDialogVisible.value = false
@@ -795,7 +853,7 @@ function openReviewDialog(order: MaintenanceWorkOrder) {
   reviewDialogVisible.value = true
 }
 
-function submitReview() {
+async function submitReview() {
   if (!reviewingOrder.value) return
   if (reviewResult.value === 'reject' && !reviewForm.value.reason) return
   const order = reviewingOrder.value
@@ -810,25 +868,32 @@ function submitReview() {
   }
   
   if (reviewResult.value === 'pass') {
-    updateMaintenanceOrder(order.id, {
+    await updateMaintenanceOrder(order.id, {
       status: 'closed',
       closedAt: new Date().toLocaleString('zh-CN')
     })
-    // 审核通过后设备恢复在用
+    // 审核通过后同时闭环关联的问题工单
+    if (order.problemOrderId) {
+      await updateProblemOrder(order.problemOrderId, {
+        status: 'closed',
+        closedAt: new Date().toLocaleString('zh-CN')
+      })
+    }
+    // 设备恢复在用
     const deviceId = getDeviceId(order)
     if (deviceId) {
-      updateDeviceStatusByOrder(deviceId, '在用', currentUser.value.name)
+      await updateDeviceStatusByOrder(deviceId, '在用', currentUser.value.name)
     }
   } else {
-    updateMaintenanceOrder(order.id, {
+    await updateMaintenanceOrder(order.id, {
       status: 'returned',
       returnReason: reviewForm.value.reason,
       returnImages: reviewForm.value.images ? reviewForm.value.images.split(',').map(s => s.trim()) : []
     })
-    // 退回后设备状态变为告警
+    // 退回后设备状态不变（维修中），因为维修工单还在、问题未解决
     const deviceId = getDeviceId(order)
     if (deviceId) {
-      updateDeviceStatusByOrder(deviceId, '告警', currentUser.value.name)
+      await updateDeviceStatusByOrder(deviceId, '维修中', currentUser.value.name)
     }
   }
   reviewDialogVisible.value = false
@@ -848,13 +913,24 @@ function openMaintenanceDetail(order: MaintenanceWorkOrder) {
   detailDialogVisible.value = true
 }
 
-function returnOrder(order: ProblemWorkOrder | MaintenanceWorkOrder) {
+async function returnOrder(order: ProblemWorkOrder | MaintenanceWorkOrder) {
+  // 获取设备ID
+  const getDeviceId = () => {
+    if ('problemOrderId' in order && order.problemOrderId) {
+      const po = problemOrders.value.find(p => p.id === order.problemOrderId)
+      return po?.deviceId || null
+    }
+    return matchDeviceByContent(order.content || '')
+  }
+  const deviceId = getDeviceId()
   if ('reporterId' in order) {
-    // Problem order - return to pending
-    updateProblemOrder(order.id, { status: 'pending' })
+    // Problem order - return to pending，设备变为告警
+    await updateProblemOrder(order.id, { status: 'pending' })
+    if (deviceId) await updateDeviceStatusByOrder(deviceId, '告警', currentUser.value.name)
   } else {
-    // Maintenance order - return to pending
-    updateMaintenanceOrder(order.id, { status: 'pending', handlerId: undefined, handlerName: undefined })
+    // Maintenance order - return to pending，设备变为维修中
+    await updateMaintenanceOrder(order.id, { status: 'pending', handlerId: undefined, handlerName: undefined })
+    if (deviceId) await updateDeviceStatusByOrder(deviceId, '维修中', currentUser.value.name)
   }
   detailDialogVisible.value = false
 }
@@ -893,6 +969,36 @@ function acceptOrder(order: MaintenanceWorkOrder) {
     status: 'processing'
   })
   // 接单后设备状态保持维修中（由转维修时已设置）
+}
+
+// ============ 删除工单 ============
+const problemDeleteVisible = ref(false)
+const maintenanceDeleteVisible = ref(false)
+const deletingProblemOrder = ref<ProblemWorkOrder | null>(null)
+const deletingMaintenanceOrder = ref<MaintenanceWorkOrder | null>(null)
+
+function openProblemDelete(order: ProblemWorkOrder) {
+  deletingProblemOrder.value = order
+  problemDeleteVisible.value = true
+}
+
+function confirmProblemDelete() {
+  if (!deletingProblemOrder.value) return
+  deleteProblemOrder(deletingProblemOrder.value.id)
+  problemDeleteVisible.value = false
+  deletingProblemOrder.value = null
+}
+
+function openMaintenanceDelete(order: MaintenanceWorkOrder) {
+  deletingMaintenanceOrder.value = order
+  maintenanceDeleteVisible.value = true
+}
+
+function confirmMaintenanceDelete() {
+  if (!deletingMaintenanceOrder.value) return
+  deleteMaintenanceOrder(deletingMaintenanceOrder.value.id)
+  maintenanceDeleteVisible.value = false
+  deletingMaintenanceOrder.value = null
 }
 </script>
 
@@ -968,6 +1074,8 @@ function acceptOrder(order: MaintenanceWorkOrder) {
 }
 .action-btn:hover { background: rgba(45,212,191,0.2); }
 .action-btn-primary { background: #2DD4BF; color: #0a192f; border-color: #2DD4BF; font-weight: 600; }
+.action-btn-danger { background: rgba(239,68,68,0.2); color: #EF4444; border-color: rgba(239,68,68,0.4); }
+.action-btn-danger:hover { background: rgba(239,68,68,0.35); }
 .icon-btn { background: rgba(239,68,68,0.2); color: #EF4444; border: none; border-radius: 4px; padding: 2px 8px; cursor: pointer; }
 
 /* Tabs */
@@ -996,7 +1104,9 @@ function acceptOrder(order: MaintenanceWorkOrder) {
 }
 .dialog-header h3 { color: #fff; margin: 0; font-size: 16px; }
 .dialog-close { background: none; border: none; color: rgba(255,255,255,0.5); font-size: 22px; cursor: pointer; }
-.dialog-body { padding: 16px 20px; }
+.dialog-body { padding: 16px 20px; color: #fff; }
+.dialog-body p { color: rgba(255,255,255,0.85); margin: 0 0 8px; }
+.dialog-body strong { color: #fff; }
 .dialog-footer {
   display: flex; justify-content: flex-end; gap: 10px;
   padding: 12px 20px; border-top: 1px solid rgba(45,212,191,0.1);
