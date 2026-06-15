@@ -2,9 +2,9 @@ import { ref, computed } from 'vue'
 
 // ============ 当前登录用户 ============
 const saved = sessionStorage.getItem('currentUser')
-export const currentUser = ref<{ name: string; role: string; role_id?: number; avatar: string; id: number; team?: string; member_name?: string }>(saved ? JSON.parse(saved) : { name: '张明', role: '运行班长', avatar: '张', id: 0 })
+export const currentUser = ref<{ name: string; role: string; role_id?: number; avatar: string; id: number; team?: string; member_name?: string; token?: string }>(saved ? JSON.parse(saved) : { name: '张明', role: '运行班长', avatar: '张', id: 0 })
 
-export function setCurrentUser(user: { name: string; role: string; role_id?: number; avatar: string; id: number; team?: string; member_name?: string }) {
+export function setCurrentUser(user: { name: string; role: string; role_id?: number; avatar: string; id: number; team?: string; member_name?: string; token?: string }) {
   currentUser.value = user
   sessionStorage.setItem('currentUser', JSON.stringify(user))
 }
@@ -21,6 +21,43 @@ export function setPermissionCodes(codes: string[]) {
 export function clearPermissionCodes() {
   permissionCodes.value = []
   sessionStorage.removeItem('permissionCodes')
+}
+
+// 重新加载当前用户的权限码 (P0-5 SSE 推送使用: 收到 rbac-update 事件后调用)
+export async function reloadPermissionCodes(): Promise<{ ok: boolean; changed: boolean; reason?: string }> {
+  const u = currentUser.value
+  if (!u?.id || !u?.role_id) return { ok: false, changed: false, reason: '未登录或角色未配置' }
+  try {
+    const res = await fetch(`/api/admin/roles/${u.role_id}/permissions`, {
+      headers: authHeader()
+    })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}))
+      return { ok: false, changed: false, reason: err.error || `HTTP ${res.status}` }
+    }
+    const data = await res.json()
+    const newCodes: string[] = data.codes || []
+    // 对比前后差异
+    const oldSet = new Set(permissionCodes.value)
+    const newSet = new Set(newCodes)
+    const changed =
+      oldSet.size !== newSet.size ||
+      [...oldSet].some(c => !newSet.has(c)) ||
+      [...newSet].some(c => !oldSet.has(c))
+    setPermissionCodes(newCodes)
+    return { ok: true, changed }
+  } catch (err: any) {
+    return { ok: false, changed: false, reason: err.message }
+  }
+}
+
+// P0-5: 构造带 Authorization 头的请求头 (JWT 取代 X-User-Id)
+export function authHeader(extra: Record<string, string> = {}): Record<string, string> {
+  const h: Record<string, string> = { ...extra }
+  if (currentUser.value?.token) {
+    h['Authorization'] = `Bearer ${currentUser.value.token}`
+  }
+  return h
 }
 
 // ============ 当前班次全局状态(接班后更新,所有页面可用)============

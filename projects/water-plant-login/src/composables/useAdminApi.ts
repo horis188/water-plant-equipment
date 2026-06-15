@@ -1,14 +1,10 @@
-// 系统管理 API 调用封装 (自动注入当前用户 ID 到 header)
-import { currentUser } from './useDeviceStore'
+// 系统管理 API 调用封装 (P0-5: 注入 JWT Authorization 头, 取代明文 X-User-Id)
+import { currentUser, authHeader } from './useDeviceStore'
 
 const API_BASE = '/api/admin'
 
 function headers(extra: Record<string, string> = {}): Record<string, string> {
-  const h: Record<string, string> = { 'Content-Type': 'application/json', ...extra }
-  if (currentUser.value?.id) {
-    h['X-User-Id'] = String(currentUser.value.id)
-  }
-  return h
+  return { 'Content-Type': 'application/json', ...authHeader(extra) }
 }
 
 async function request<T = any>(path: string, options: RequestInit = {}): Promise<T> {

@@ -138,7 +138,7 @@ onMounted(async () => {
 let shiftEventSource: EventSource | null = null
 function setupShiftSSE() {
   if (shiftEventSource) shiftEventSource.close()
-  shiftEventSource = new EventSource('http://localhost:3000/api/events')
+  shiftEventSource = new EventSource('/api/events')
   shiftEventSource.addEventListener('shift-update', async () => {
     await loadLeaderShift()
     await loadShiftFromAPI()

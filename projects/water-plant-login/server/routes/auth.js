@@ -1,9 +1,14 @@
+// ====================================================================
+// 登录接口
+// ====================================================================
 import express from 'express'
+import jwt from 'jsonwebtoken'
 import pool from '../db/mysql.js'
+import { JWT_SECRET, JWT_EXPIRES_IN } from '../auth_secret.js'
 
 const router = express.Router()
 
-// 登录: 校验用户名+密码, 返回 user 完整信息
+// 登录: 校验用户名+密码, 返回 user 完整信息 + JWT token
 router.post('/login', async (req, res) => {
   try {
     const { username, password } = req.body
@@ -27,7 +32,13 @@ router.post('/login', async (req, res) => {
     }
     // 不返回 password
     const { password: _, ...user } = rows[0]
-    res.json({ ...user, avatar })
+    // 签发 JWT (P0-5 安全修复: 取代明文 X-User-Id header 验证)
+    const token = jwt.sign(
+      { userId: user.id, roleId: user.role_id, role: user.role },
+      JWT_SECRET,
+      { expiresIn: JWT_EXPIRES_IN }
+    )
+    res.json({ ...user, avatar, token })
   } catch (err) {
     res.status(500).json({ error: err.message })
   }

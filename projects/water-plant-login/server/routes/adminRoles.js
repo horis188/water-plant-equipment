@@ -7,6 +7,12 @@ import pool from '../db/mysql.js'
 import { requireRole } from '../middleware/requireRole.js'
 import { requirePermission } from '../middleware/requirePermission.js'
 import { requireLogin } from '../middleware/requireLogin.js'
+import { sseEmit } from '../events.js'
+
+// 发送 RBAC 变更事件, 所有在线用户的前端 SSE 订阅会收到
+function emitRbacChange(action, roleId) {
+  sseEmit('rbac-update', { action, roleId, at: Date.now() })
+}
 
 const router = express.Router()
 
@@ -56,6 +62,7 @@ router.post('/', requirePermission('btn:role_create'), async (req, res) => {
       `INSERT INTO roles (code, name, description, is_system, enabled, sort_order) VALUES (?, ?, ?, 0, ?, ?)`,
       [code, name, description, enabled ? 1 : 0, sort_order]
     )
+    emitRbacChange('role_created', result.insertId)
     res.json({ success: true, id: result.insertId })
   } catch (err) {
     res.status(500).json({ error: err.message })
@@ -79,6 +86,7 @@ router.put('/:id', requirePermission('btn:role_edit'), async (req, res) => {
     if (!fields.length) return res.json({ success: true, noop: true })
     params.push(id)
     await safeQuery(`UPDATE roles SET ${fields.join(', ')} WHERE id = ?`, params)
+    emitRbacChange('role_updated', id)
     res.json({ success: true })
   } catch (err) {
     res.status(500).json({ error: err.message })
@@ -95,6 +103,7 @@ router.patch('/:id/toggle', requirePermission('btn:role_edit'), async (req, res)
       return res.status(400).json({ error: '系统内置角色不可停用' })
     }
     await safeQuery(`UPDATE roles SET enabled = 1 - enabled WHERE id = ?`, [id])
+    emitRbacChange('role_toggled', id)
     res.json({ success: true })
   } catch (err) {
     res.status(500).json({ error: err.message })
@@ -115,6 +124,7 @@ router.delete('/:id', requirePermission('btn:role_delete'), async (req, res) => 
     }
     await safeQuery(`DELETE FROM role_permissions WHERE role_id = ?`, [id])
     await safeQuery(`DELETE FROM roles WHERE id = ?`, [id])
+    emitRbacChange('role_deleted', id)
     res.json({ success: true })
   } catch (err) {
     res.status(500).json({ error: err.message })
@@ -163,6 +173,7 @@ router.put('/:id/permissions', requirePermission('btn:role_edit'), async (req, r
     } finally {
       conn.release()
     }
+    emitRbacChange('permissions_updated', id)
     res.json({ success: true, count: permission_ids.length })
   } catch (err) {
     res.status(500).json({ error: err.message })
