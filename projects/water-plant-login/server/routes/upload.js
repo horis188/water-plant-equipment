@@ -1,4 +1,5 @@
 import express from 'express'
+import { requireAuth } from '../middleware/requireAuth.js'
 import multer from 'multer'
 import path from 'path'
 import fs from 'fs'
@@ -16,6 +17,9 @@ const VID_DIR = path.join(UPLOAD_ROOT, 'videos')
 })
 
 const router = express.Router()
+
+// P0-5 安全修复: 所有业务 API 强制登录
+router.use(requireAuth)
 
 // 文件类型白名单
 const IMG_EXTS = new Set(['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'])

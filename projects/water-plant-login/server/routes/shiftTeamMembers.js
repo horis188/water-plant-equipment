@@ -1,7 +1,11 @@
 import express from 'express'
+import { requireAuth } from '../middleware/requireAuth.js'
 import pool from '../db/mysql.js'
 
 const router = express.Router()
+
+// P0-5 安全修复: 所有业务 API 强制登录
+router.use(requireAuth)
 
 // 按班组获取岗位人员列表（可选按 member_type 过滤：值班/带班）
 router.get('/:teamName', async (req, res) => {

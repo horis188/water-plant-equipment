@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import WaterBackground from '../components/WaterBackground.vue'
 import { deviceStats, deviceListWithStatus, deviceChangeLog, currentUser, currentShiftContext, setCurrentShiftContext, loadDevicesFromDB } from '../composables/useDeviceStore'
 import { usePermission } from '../composables/usePermission'
+import { useSSE } from '../composables/useSSE'
 import { spareparts } from '../composables/useSparepartStore'
 import { maintenanceOrders } from '../composables/useWorkOrderStore'
 
@@ -132,29 +133,26 @@ onMounted(async () => {
   loadDevicesFromDB()
   loadLeaderShift()
   loadShiftFromAPI()
-  setupShiftSSE()
 })
 
-let shiftEventSource: EventSource | null = null
-function setupShiftSSE() {
-  if (shiftEventSource) shiftEventSource.close()
-  shiftEventSource = new EventSource('/api/events')
-  shiftEventSource.addEventListener('shift-update', async () => {
-    await loadLeaderShift()
-    await loadShiftFromAPI()
-  })
-  shiftEventSource.addEventListener('handover-update', async () => {
-    await loadLeaderShift()
-    await loadShiftFromAPI()
-  })
-  shiftEventSource.onerror = () => {}
-}
+// P1: SSE 订阅 (用 useSSE composable, 共享单条连接)
+useSSE('shift-update', async () => {
+  await loadLeaderShift()
+  await loadShiftFromAPI()
+})
+useSSE('handover-update', async () => {
+  await loadLeaderShift()
+  await loadShiftFromAPI()
+})
+// P1 示例: 设备状态变更 (问题工单 → 告警, 转维修 → 维修中, 闭环 → 在用)
+useSSE('device-status-change', async (payload) => {
+  console.info('[SSE] 设备状态变更:', payload)
+  // loadDevicesFromDB 会更新 deviceListWithStatus, deviceStats 是 computed 自动重算
+  await loadDevicesFromDB()
+})
 
 onUnmounted(() => {
-  if (shiftEventSource) {
-    shiftEventSource.close()
-    shiftEventSource = null
-  }
+  // useSSE composable 自己处理清理
 })
 
 // 从API获取当班信息（统一班次：所有人显示同一个带班班组信息）

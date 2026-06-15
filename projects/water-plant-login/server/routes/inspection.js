@@ -1,8 +1,12 @@
 import express from 'express'
+import { requireAuth } from '../middleware/requireAuth.js'
 import pool from '../db/mysql.js'
 import { sseEmit } from '../events.js'
 
 const router = express.Router()
+
+// P0-5 安全修复: 所有业务 API 强制登录
+router.use(requireAuth)
 
 // 获取所有地点
 router.get('/locations', async (req, res) => {
