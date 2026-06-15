@@ -228,30 +228,21 @@ const toggleNotifications = () => {
   showNotifications.value = !showNotifications.value
 }
 
-// 功能导航
+// 功能导航 (P0-5: 按权限码过滤, 取代旧的 hideFor/roles 字符串判断)
 const navItems = ref([
-  { name: '驾驶舱', path: '/main', icon: '🚀' },
-  { name: '设备管理', path: '/device/inuse', icon: '🖥️' },
-  { name: '巡检保养', path: '/inspection', icon: '🔍' },
-  { name: '备件仓库', path: '/spareparts', icon: '📦', hideFor: ['值班岗位', '一期制水', '旧厂制水', '投药间', '新高值班', '泥水车间'] },
-  { name: '班组交接', path: '/handover', icon: '🔄' },
-  { name: '维修工单', path: '/workorder', icon: '🔧' },
-  { name: '统计分析', path: '/asset', icon: '💰' },
-  { name: '系统管理', path: '/admin', icon: '⚙️', roles: ['系统管理人'] }
+  { name: '驾驶舱',   path: '/main',         icon: '🚀', permission: 'menu:dashboard' },
+  { name: '设备管理', path: '/device/inuse', icon: '🖥️', permission: 'menu:device' },
+  { name: '巡检保养', path: '/inspection',   icon: '🔍', permission: 'menu:inspection' },
+  { name: '备件仓库', path: '/spareparts',   icon: '📦', permission: 'menu:spareparts' },
+  { name: '班组交接', path: '/handover',     icon: '🔄', permission: 'menu:handover' },
+  { name: '维修工单', path: '/workorder',    icon: '🔧', permission: 'menu:workorder' },
+  { name: '统计分析', path: '/asset',        icon: '💰' /* 暂未分配权限码, 所有登录用户可见 */ },
+  { name: '系统管理', path: '/admin',        icon: '⚙️', permission: 'menu:admin' }
 ])
 
 const activeNav = ref('驾驶舱')
 
-const visibleNavItems = computed(() => {
-  const role = currentUser.value?.role
-  return navItems.value.filter(item => {
-    // hideFor 黑名单优先
-    if (item.hideFor?.includes(role)) return false
-    // roles 白名单: 设置了就要在列表里
-    if (item.roles && !item.roles.includes(role)) return false
-    return true
-  })
-})
+const visibleNavItems = computed(() => navItems.value.filter(item => !item.permission || has(item.permission)))
 
 const handleNavClick = (item: any) => {
   activeNav.value = item.name

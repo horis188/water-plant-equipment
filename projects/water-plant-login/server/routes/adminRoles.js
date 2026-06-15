@@ -36,7 +36,7 @@ router.get('/', requirePermission('menu:admin_roles'), async (req, res) => {
 router.get('/:id', requirePermission('menu:admin_roles'), async (req, res) => {
   try {
     const id = parseInt(req.params.id)
-    const [rows] = await safeQuery(`SELECT * FROM roles WHERE id = ?`, [id])
+    const rows = await safeQuery(`SELECT * FROM roles WHERE id = ?`, [id])
     if (!rows[0]) return res.status(404).json({ error: '角色不存在' })
     res.json(rows[0])
   } catch (err) {
@@ -67,7 +67,7 @@ router.put('/:id', requirePermission('btn:role_edit'), async (req, res) => {
   try {
     const id = parseInt(req.params.id)
     const { name, description, enabled, sort_order } = req.body
-    const [cur] = await safeQuery(`SELECT * FROM roles WHERE id = ?`, [id])
+    const cur = await safeQuery(`SELECT * FROM roles WHERE id = ?`, [id])
     if (!cur[0]) return res.status(404).json({ error: '角色不存在' })
     // 系统角色: code 不可改; 名字/描述/启用/排序都可改
     const fields = []
@@ -89,7 +89,7 @@ router.put('/:id', requirePermission('btn:role_edit'), async (req, res) => {
 router.patch('/:id/toggle', requirePermission('btn:role_edit'), async (req, res) => {
   try {
     const id = parseInt(req.params.id)
-    const [cur] = await safeQuery(`SELECT * FROM roles WHERE id = ?`, [id])
+    const cur = await safeQuery(`SELECT * FROM roles WHERE id = ?`, [id])
     if (!cur[0]) return res.status(404).json({ error: '角色不存在' })
     if (cur[0].is_system) {
       return res.status(400).json({ error: '系统内置角色不可停用' })
@@ -105,7 +105,7 @@ router.patch('/:id/toggle', requirePermission('btn:role_edit'), async (req, res)
 router.delete('/:id', requirePermission('btn:role_delete'), async (req, res) => {
   try {
     const id = parseInt(req.params.id)
-    const [cur] = await safeQuery(`SELECT * FROM roles WHERE id = ?`, [id])
+    const cur = await safeQuery(`SELECT * FROM roles WHERE id = ?`, [id])
     if (!cur[0]) return res.status(404).json({ error: '角色不存在' })
     if (cur[0].is_system) return res.status(400).json({ error: '系统内置角色不可删除' })
     // 检查是否有用户绑定
@@ -142,7 +142,7 @@ router.put('/:id/permissions', requirePermission('btn:role_edit'), async (req, r
   try {
     const id = parseInt(req.params.id)
     const { permission_ids = [] } = req.body
-    const [cur] = await safeQuery(`SELECT * FROM roles WHERE id = ?`, [id])
+    const cur = await safeQuery(`SELECT * FROM roles WHERE id = ?`, [id])
     if (!cur[0]) return res.status(404).json({ error: '角色不存在' })
     // 事务: 先删后插
     const conn = await pool.getConnection()
