@@ -242,6 +242,7 @@ router.post('/records', async (req, res) => {
         await pool.query('UPDATE inspection_task_records SET problem_order_id = ? WHERE id = ?', [problemOrderId, existing[0].id])
         if (device_id) await pool.query('UPDATE devices SET status = 1 WHERE id = ?', [device_id])
         sseEmit('inspection-update', { plan_id, device_id })
+        sseEmit('device-status-change', { device_id, status: 1, source: 'inspection' })  // P1: P2.2 补全 (之前 P1.2-A TODO)
         sseEmit('problem-update', { id: problemOrderId })
         return res.json({ id: existing[0].id, status, problem_order_id: problemOrderId })
       }
@@ -293,6 +294,7 @@ router.post('/records', async (req, res) => {
       problemOrderId = poResult.insertId
       await pool.query('UPDATE inspection_task_records SET problem_order_id = ? WHERE id = ?', [problemOrderId, recordId])
       if (device_id) await pool.query('UPDATE devices SET status = 1 WHERE id = ?', [device_id])
+      sseEmit('device-status-change', { device_id, status: 1, source: 'inspection' })  // P1: P2.2 补全
     }
     console.log('[DEBUG POST /records] INSERT成功, recordId:', recordId, 'status:', status, 'newResults:', newResults)
     sseEmit('inspection-update', { plan_id, device_id })
@@ -360,6 +362,18 @@ router.get('/pending-tasks', async (req, res) => {
     }
     console.log('[DEBUG pending-tasks] recordMap keys:', Array.from(recordMap.keys()))
 
+    // P1: 超时检测 (P2.2 巡检 P1)
+    // 判定规则: 任务仍 pending 且 check_date < today => 超时
+    //          或 check_date == today 且距离班次起始超过 shift_hours + grace => 超时
+    const SHIFT_HOURS = 8  // 单班次时长
+    const GRACE_MIN = 30   // grace period
+    const nowMs = now.getTime()
+    const shiftStartMs = shiftStart ? shiftStart.getTime() : null
+    const shiftCutoffMs = shiftStartMs ? shiftStartMs + (SHIFT_HOURS * 3600 + GRACE_MIN * 60) * 1000 : null
+    // 内存 Set 记录已告警过的 task_id, 避免重复 emit SSE
+    if (!global.__inspectionOverdueNotified) global.__inspectionOverdueNotified = new Set()
+    const overdueNotified = global.__inspectionOverdueNotified
+
     const [plans] = await pool.query('SELECT * FROM inspection_plans')
     console.log('[DEBUG pending-tasks] plans count:', plans.length)
     const result = []
@@ -374,6 +388,38 @@ router.get('/pending-tasks', async (req, res) => {
           ? `${plan.id}-${item.device_id}-${executor_id}`
           : `${plan.id}-${item.device_id}`
         const rec = recordMap.get(key)
+        // P1: 计算 overdue
+        const taskStatus = rec ? rec.status : 'pending'
+        let isOverdue = false
+        let overdueMinutes = 0
+        if (taskStatus === 'pending' && rec) {
+          const checkDateStr = rec.check_date ? String(rec.check_date).slice(0, 10) : null
+          if (checkDateStr && checkDateStr < today) {
+            // 昨天/更早的任务仍未完成 -> 严重超时
+            isOverdue = true
+            const checkDateMs = new Date(checkDateStr + 'T00:00:00').getTime()
+            overdueMinutes = Math.round((nowMs - checkDateMs) / 60000)
+          } else if (checkDateStr === today && shiftCutoffMs && nowMs > shiftCutoffMs) {
+            // 本班次超时 (超过 8h + 30min grace)
+            isOverdue = true
+            overdueMinutes = Math.round((nowMs - shiftCutoffMs) / 60000)
+          }
+          // emit SSE 事件 (去重)
+          if (isOverdue && !overdueNotified.has(rec.id)) {
+            overdueNotified.add(rec.id)
+            sseEmit('inspection-task-overdue', {
+              record_id: rec.id,
+              plan_id: plan.id,
+              plan_name: plan.name,
+              device_id: item.device_id,
+              device_name: item.device_name,
+              executor_id: rec.executor_id,
+              executor_name: rec.executor_name,
+              check_date: checkDateStr,
+              overdue_minutes: overdueMinutes
+            })
+          }
+        }
         result.push({
           plan_id: plan.id,
           plan_name: plan.name,
@@ -388,7 +434,9 @@ router.get('/pending-tasks', async (req, res) => {
           all_items: (item.check_content || '').split('\n').map((l) => l.trim()).filter(Boolean),
           is_completed: !!(rec && (rec.status === 'completed' || rec.status === 'abnormal')),
           has_abnormal: rec ? rec.has_abnormal : 0,
-          status: rec ? rec.status : 'pending',
+          status: taskStatus,
+          is_overdue: isOverdue,  // P1
+          overdue_minutes: overdueMinutes,  // P1
           abnormal_desc: rec ? (rec.abnormal_desc || '') : '',
           results: rec ? (rec.check_items || '') : '',
           record_id: rec ? rec.id : null,
@@ -397,6 +445,39 @@ router.get('/pending-tasks', async (req, res) => {
       }
     }
     res.json(result)
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// ====================================================================
+// P1: 巡检超时列表 (P2.2 巡检 P1)
+// GET /api/inspection/overdue-list
+// 返回 check_date < today 且 status = pending 的任务
+// (今天超时的也返回, 但单独标记)
+// ====================================================================
+router.get('/overdue-list', async (req, res) => {
+  try {
+    const now = new Date()
+    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+    const [rows] = await pool.query(
+      `SELECT r.id, r.plan_id, r.device_id, r.device_name, r.executor_id, r.executor_name,
+              r.check_date, r.check_time, r.status, r.created_at,
+              p.name AS plan_name, p.location, p.cycle
+       FROM inspection_task_records r
+       LEFT JOIN inspection_plans p ON p.id = r.plan_id
+       WHERE r.status = 'pending'
+         AND r.check_date < ?
+       ORDER BY r.check_date ASC, r.created_at ASC`,
+      [today]
+    )
+    res.json({
+      count: rows.length,
+      items: rows.map(r => ({
+        ...r,
+        days_overdue: Math.floor((now.getTime() - new Date(r.check_date).getTime()) / (24 * 3600 * 1000))
+      }))
+    })
   } catch (err) {
     res.status(500).json({ error: err.message })
   }

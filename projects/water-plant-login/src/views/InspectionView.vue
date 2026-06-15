@@ -37,6 +37,30 @@
           <span class="stat-dot"></span>
           待处理 {{ myPendingCount }}
         </div>
+        <!-- P1: 巡检超时告警 (P2.2 巡检 P1) -->
+        <div class="stat-pill stat-overdue" v-if="overdueCount > 0" :class="{ pulse: overdueCount > 0 }" @click="showOverdueList = !showOverdueList" style="cursor:pointer;">
+          <span class="stat-dot"></span>
+          ⏰ 超时 {{ overdueCount }}
+        </div>
+      </div>
+
+      <!-- P1: 巡检超时列表 (P2.2 巡检 P1) -->
+      <div v-if="showOverdueList && overdueList.length" class="overdue-panel" @click.stop>
+        <div class="overdue-panel-header">
+          <span>⏰ 巡检超时任务 ({{ overdueList.length }})</span>
+          <button class="overdue-close" @click="showOverdueList = false">×</button>
+        </div>
+        <div v-for="item in overdueList" :key="item.id" class="overdue-item">
+          <div class="overdue-item-main">
+            <span class="overdue-device">{{ item.device_name || '#' + item.device_id }}</span>
+            <span class="overdue-plan">{{ item.plan_name }}</span>
+          </div>
+          <div class="overdue-item-meta">
+            <span>检查日期: {{ item.check_date }}</span>
+            <span>已超 {{ item.days_overdue }} 天</span>
+            <span v-if="item.executor_name">执行人: {{ item.executor_name }}</span>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -680,6 +704,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import TopNavBar from '../components/TopNavBar.vue'
 import { currentUser, devices as maintDeviceStore, isOnDuty, updateDeviceStatusByOrder, loadDevicesFromDB } from '../composables/useDeviceStore'
+import { useSSE } from '../composables/useSSE'
 
 const API_BASE = '/api/inspection'
 const isAdmin = computed(() => currentUser.value?.role === '系统管理人')
@@ -1408,12 +1433,33 @@ async function deletePlan(id: number) {
   }
 }
 
+// P1: 巡检超时告警 (P2.2 巡检 P1)
+const overdueList = ref<any[]>([])
+const showOverdueList = ref(false)
+const overdueCount = computed(() => overdueList.value.length)
+async function loadOverdueList() {
+  try {
+    const r = await fetch('/api/inspection/overdue-list')
+    if (!r.ok) return
+    const d = await r.json()
+    overdueList.value = d.items || []
+  } catch {}
+}
+useSSE('inspection-task-overdue', async (payload) => {
+  console.info('[SSE] 巡检任务超时:', payload)
+  // 重新拉取超时列表
+  await loadOverdueList()
+  // 同时刷新任务列表
+  await loadMyTasks()
+})
+
 onMounted(async () => {
   await loadPlans()
   loadLocations()
   await loadDevices()
   loadUsers()
   await loadMyTasks()
+  await loadOverdueList()
   if (isAdmin.value) {
     await loadAdminTasks()
     maintLoadUsers()
@@ -2467,6 +2513,50 @@ function toggleItem(item: any) {
   color: #ef4444;
   border: 1px solid rgba(239, 68, 68, 0.3);
 }
+
+/* P1: 巡检超时告警 (P2.2) */
+.stat-overdue {
+  background: rgba(239, 68, 68, 0.2);
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  font-weight: 700;
+}
+.stat-overdue.pulse {
+  animation: overduePulse 1.5s ease-in-out infinite;
+}
+@keyframes overduePulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+  50% { box-shadow: 0 0 0 6px rgba(239, 68, 68, 0.25); }
+}
+.overdue-panel {
+  position: absolute;
+  top: 100px;
+  right: 32px;
+  width: 360px;
+  max-height: 400px;
+  overflow-y: auto;
+  background: #163a5c;
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  z-index: 100;
+}
+.overdue-panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  font-weight: 600;
+  color: #ef4444;
+}
+.overdue-close { background: none; border: none; color: rgba(255,255,255,0.5); font-size: 20px; cursor: pointer; }
+.overdue-item { padding: 10px 16px; border-bottom: 1px solid rgba(255,255,255,0.05); font-size: 13px; }
+.overdue-item:last-child { border-bottom: none; }
+.overdue-item-main { display: flex; gap: 8px; align-items: baseline; margin-bottom: 4px; }
+.overdue-device { font-weight: 600; color: #fff; }
+.overdue-plan { color: rgba(255,255,255,0.6); font-size: 12px; }
+.overdue-item-meta { display: flex; gap: 10px; flex-wrap: wrap; color: rgba(255,255,255,0.45); font-size: 11px; }
 
 .stat-dot {
   width: 6px;
