@@ -45,7 +45,8 @@ const allMenuItems = [
   { title: '班次时间', path: '/admin/shifts',    icon: '🕐', permission: 'menu:admin_shifts' },
   { title: '班组配置', path: '/admin/teams',     icon: '👥', permission: 'menu:admin_teams' },
   { title: '用户管理', path: '/admin/users',     icon: '👤', permission: 'menu:admin_users' },
-  { title: '角色权限', path: '/admin/roles',     icon: '🔐', permission: 'menu:admin_roles', badge: 'P0-5' }
+  { title: '角色权限', path: '/admin/roles',     icon: '🔐', permission: 'menu:admin_roles', badge: 'P0-5' },
+  { title: '数据驾驶舱', path: '/admin/dashboard', icon: '📊', permission: 'menu:admin_dashboard', badge: 'P3.1' }
 ]
 
 // 根据当前用户权限过滤可见的菜单项

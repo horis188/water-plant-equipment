@@ -1,6 +1,19 @@
 <template>
   <div class="sp-page">
     <TopNavBar />
+
+    <!-- P1: 备件低库存告警 (P2.3) -->
+    <div v-if="lowStockItems.length" class="low-stock-banner" :class="{ pulse: lowStockItems.length > 0 }">
+      <span class="low-stock-icon">⚠️</span>
+      <span class="low-stock-text">
+        <strong>{{ lowStockItems.length }}</strong> 项备件低于最低库存阈值, 建议补货:
+        <span v-for="(sp, idx) in lowStockItems.slice(0, 3)" :key="sp.id" class="low-stock-name">
+          {{ sp.name }}<span v-if="idx < Math.min(lowStockItems.length, 3) - 1">、</span>
+        </span>
+        <span v-if="lowStockItems.length > 3">等</span>
+      </span>
+    </div>
+
     <div class="sp-header">
       <div class="sp-title">
         <h2>备件仓库</h2>
@@ -228,10 +241,11 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import TopNavBar from '../components/TopNavBar.vue'
 import { spareparts, sparepartLogs, sparepartTypes, addSparepart, updateSparepart, addSparepartType, inoutSparepart, Sparepart } from '../composables/useSparepartStore'
 import { currentUser } from '../composables/useDeviceStore'
+import { useSSE } from '../composables/useSSE'
 
 // ============ 搜索 ============
 const searchName = ref('')
@@ -305,6 +319,30 @@ function toggleSelectAll(e: any) {
 }
 
 // ============ 过滤+排序 ============
+// P1: 备件低库存告警 (P2.3)
+const lowStockItems = ref<any[]>([])
+async function loadLowStock() {
+  try {
+    const r = await fetch('/api/spareparts/low-stock-list')
+    if (!r.ok) return
+    const d = await r.json()
+    lowStockItems.value = d.items || []
+  } catch {}
+}
+useSSE('sparepart-low-stock', async (payload) => {
+  console.info('[SSE] 备件低库存告警:', payload)
+  await loadLowStock()
+  // 同时刷新备件主列表
+  // (主列表通过 sparepartStore 加载, 这里只触发一次 reload)
+  if (typeof spareparts.value.length === 'number') {
+    // 触发主列表的 watch/重新加载 (如果 spareparts 有 reload 函数)
+    // 这里简化为只刷新低库存列表
+  }
+})
+onMounted(() => {
+  loadLowStock()
+})
+
 const filteredSpareparts = computed(() => {
   let list = spareparts.value.filter(sp => {
     const matchName = !activeSearchName.value || sp.name.includes(activeSearchName.value)
@@ -542,6 +580,30 @@ function downloadBlob(content: string, filename: string, mime: string) {
   background: #0f2d4a;
   padding: 0 0 20px;
 }
+
+/* P1: 低库存告警横幅 (P2.3) */
+.low-stock-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 24px 16px;
+  padding: 10px 18px;
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  border-radius: 6px;
+  color: #fca5a5;
+  font-size: 13px;
+}
+.low-stock-banner.pulse {
+  animation: lowStockPulse 2s ease-in-out infinite;
+}
+@keyframes lowStockPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+  50% { box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.2); }
+}
+.low-stock-icon { font-size: 18px; }
+.low-stock-text { flex: 1; }
+.low-stock-name { color: #fecaca; margin: 0 2px; }
 
 .sp-header {
   display: flex;
