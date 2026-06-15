@@ -33,10 +33,9 @@
           已解决 {{ problemOrders.filter(o => o.status === 'self_resolved' && isRecentResolved(o)).length }}
         </span>
       </div>
-      <div v-if="wsAmIOnShift || currentUser.role === '维修组' || ['系统管理人', '带班'].includes(currentUser.role)" class="wo-actions">
-        <button class="dm-btn dm-btn-primary" @click="['系统管理人', '带班', '维修组'].includes(currentUser.role) ? openCreateMaintenanceDialog() : openCreateDialog()">
-          {{ ['系统管理人', '带班', '维修组'].includes(currentUser.role) ? '+ 新建维修工单' : '+ 新建问题工单' }}
-        </button>
+      <div v-if="wsAmIOnShift || hasAny(['btn:wo_create_problem', 'btn:wo_create_maintenance'])" class="wo-actions">
+        <button v-if="has('btn:wo_create_maintenance')" class="dm-btn dm-btn-primary" @click="openCreateMaintenanceDialog()">+ 新建维修工单</button>
+        <button v-if="has('btn:wo_create_problem')" class="dm-btn dm-btn-primary" @click="openCreateDialog()">+ 新建问题工单</button>
       </div>
     </div>
 
@@ -88,7 +87,7 @@
         </div>
         <div class="wo-card-actions">
           <button v-if="canHandleProblem(order)" class="action-btn" @click.stop="openProblemHandle(order)">处理</button>
-          <button v-if="currentUser.role === '系统管理人'" class="action-btn action-btn-danger" @click.stop="openProblemDelete(order)">删除</button>
+          <button v-if="has('btn:wo_delete_problem')" class="action-btn action-btn-danger" @click.stop="openProblemDelete(order)">删除</button>
         </div>
       </div>
       <div v-if="filteredProblemOrders.length === 0" class="empty-row">暂无问题工单</div>
@@ -137,10 +136,10 @@
         <div class="wo-card-actions">
           <button v-if="canAcceptOrder(order)" class="action-btn" @click.stop="acceptOrder(order)">接单</button>
           <button v-if="canDelayOrder(order)" class="action-btn" @click.stop="openDelayDialog(order)">延时</button>
-          <button v-if="(currentUser.role === '维修组' || currentUser.role === '系统管理人') && (order.status === 'processing' || order.status === 'delay' || order.status === 'returned')" class="action-btn action-btn-primary" @click.stop="openCompleteDialog(order)">完成</button>
-          <button v-if="(currentUser.role === '维修组' || currentUser.role === '系统管理人') && order.status === 'processing'" class="action-btn action-btn-primary" @click.stop="openProblemCloseDialog(order)">问题工单闭环</button>
-          <button v-if="(currentUser.role === '带班' || currentUser.role === '系统管理人') && order.status === 'completed'" class="action-btn" @click.stop="openReviewDialog(order)">审核</button>
-          <button v-if="currentUser.role === '系统管理人'" class="action-btn action-btn-danger" @click.stop="openMaintenanceDelete(order)">删除</button>
+          <button v-if="has('btn:wo_complete') && (order.status === 'processing' || order.status === 'delay' || order.status === 'returned')" class="action-btn action-btn-primary" @click.stop="openCompleteDialog(order)">完成</button>
+          <button v-if="has('btn:wo_close_problem') && order.status === 'processing'" class="action-btn action-btn-primary" @click.stop="openProblemCloseDialog(order)">问题工单闭环</button>
+          <button v-if="has('btn:wo_review') && order.status === 'completed'" class="action-btn" @click.stop="openReviewDialog(order)">审核</button>
+          <button v-if="has('btn:wo_delete_maintenance')" class="action-btn action-btn-danger" @click.stop="openMaintenanceDelete(order)">删除</button>
         </div>
       </div>
       <div v-if="filteredMaintenanceOrders.length === 0" class="empty-row">暂无维修工单</div>
@@ -405,8 +404,8 @@
           </template>
         </div>
         <div class="dialog-footer">
-          <button v-if="currentUser.role === '系统管理人' && detailOrder && 'status' in detailOrder && !['closed', 'completed'].includes(detailOrder.status)" class="dm-btn" @click="openEditDialog(detailOrder)">编辑</button>
-          <button v-if="currentUser.role === '系统管理人' && detailOrder && 'status' in detailOrder && !['closed', 'completed'].includes(detailOrder.status)" class="dm-btn" @click="returnOrder(detailOrder)">退回</button>
+          <button v-if="has('btn:wo_edit') && detailOrder && 'status' in detailOrder && !['closed', 'completed'].includes(detailOrder.status)" class="dm-btn" @click="openEditDialog(detailOrder)">编辑</button>
+          <button v-if="has('btn:wo_edit') && detailOrder && 'status' in detailOrder && !['closed', 'completed'].includes(detailOrder.status)" class="dm-btn" @click="returnOrder(detailOrder)">退回</button>
           <button class="dm-btn dm-btn-cancel" @click="detailDialogVisible = false">关闭</button>
         </div>
       </div>
@@ -491,6 +490,7 @@ import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useRoute } from 'vue-router'
 import TopNavBar from '../components/TopNavBar.vue'
 import { currentUser, updateDeviceStatusByOrder, isOnDuty, loadDevicesFromDB, devices } from '../composables/useDeviceStore'
+import { usePermission } from '../composables/usePermission'
 import {
   matchDeviceByContent, problemOrders, maintenanceOrders,
   addProblemOrder, updateProblemOrder,
@@ -500,6 +500,9 @@ import {
   statusLabel, statusColor, levelLabel,
   ProblemWorkOrder, MaintenanceWorkOrder
 } from '../composables/useWorkOrderStore'
+
+// P0-5: 权限钩子
+const { has, hasAny } = usePermission()
 
 // 从数据库同步问题工单
 async function syncProblemOrdersFromDB() {

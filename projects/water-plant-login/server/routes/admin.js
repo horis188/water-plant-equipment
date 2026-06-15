@@ -3,6 +3,8 @@
 import express from 'express'
 import pool from '../db/mysql.js'
 import { requireRole } from '../middleware/requireRole.js'
+import adminRolesRouter from './adminRoles.js'
+import adminPermissionsRouter from './adminPermissions.js'
 
 const router = express.Router()
 // 中间件不全局应用, 放在需要鉴权的路由上 (部分 GET 接口如 shifts 需公开可读)
@@ -393,7 +395,13 @@ router.delete('/users/:id', requireRole(['系统管理人']), async (req, res) =
 })
 
 // ============================================================
-// 占位: P0-5 角色与权限
+// P0-5 角色与权限 (子路由挂载)
+// ============================================================
+router.use('/roles', adminRolesRouter)
+router.use('/permissions', adminPermissionsRouter)
+
+// ============================================================
+// 模块状态 (供 P0 总览/调试用)
 // ============================================================
 router.get('/_status', (req, res) => {
   res.json({
@@ -404,7 +412,7 @@ router.get('/_status', (req, res) => {
       shifts: '已实现 (P0-2)',
       teams: '已实现 (P0-3)',
       users: '已实现 (P0-4)',
-      roles: '待实现 (P0-5)'
+      roles: '已实现 (P0-5)'
     }
   })
 })

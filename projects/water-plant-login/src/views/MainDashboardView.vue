@@ -3,11 +3,14 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import WaterBackground from '../components/WaterBackground.vue'
 import { deviceStats, deviceListWithStatus, deviceChangeLog, currentUser, currentShiftContext, setCurrentShiftContext, loadDevicesFromDB } from '../composables/useDeviceStore'
+import { usePermission } from '../composables/usePermission'
 import { spareparts } from '../composables/useSparepartStore'
 import { maintenanceOrders } from '../composables/useWorkOrderStore'
 
 const API_BASE = '/api/inspection'
 const router = useRouter()
+// P0-5: 权限钩子
+const { has } = usePermission()
 
 // 巡检任务（从后端实时加载）
 const inspectionTasks = ref<any[]>([])
@@ -522,7 +525,7 @@ const getLevelClass = (level: string) => {
           </div>
           <div class="shift-buttons">
             <button class="shift-btn" @click="openWorkOrderCreateDialog">生成工单</button>
-            <button v-if="currentUser.role !== '维修组'" class="shift-btn" @click="router.push('/handover')">班组交接</button>
+            <button v-if="has('menu:handover')" class="shift-btn" @click="router.push('/handover')">班组交接</button>
           </div>
         </div>
 

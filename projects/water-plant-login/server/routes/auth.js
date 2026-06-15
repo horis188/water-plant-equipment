@@ -11,7 +11,7 @@ router.post('/login', async (req, res) => {
       return res.status(400).json({ error: '缺少用户名或密码' })
     }
     const [rows] = await pool.query(
-      'SELECT id, username, name, role, team, member_name, avatar, password FROM users WHERE username = ?',
+      'SELECT id, username, name, role, role_id, team, member_name, avatar, password FROM users WHERE username = ?',
       [username]
     )
     if (!rows[0]) {

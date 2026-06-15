@@ -2,11 +2,25 @@ import { ref, computed } from 'vue'
 
 // ============ 当前登录用户 ============
 const saved = sessionStorage.getItem('currentUser')
-export const currentUser = ref<{ name: string; role: string; avatar: string; id: number; team?: string; member_name?: string }>(saved ? JSON.parse(saved) : { name: '张明', role: '运行班长', avatar: '张', id: 0 })
+export const currentUser = ref<{ name: string; role: string; role_id?: number; avatar: string; id: number; team?: string; member_name?: string }>(saved ? JSON.parse(saved) : { name: '张明', role: '运行班长', avatar: '张', id: 0 })
 
-export function setCurrentUser(user: { name: string; role: string; avatar: string; id: number; team?: string; member_name?: string }) {
+export function setCurrentUser(user: { name: string; role: string; role_id?: number; avatar: string; id: number; team?: string; member_name?: string }) {
   currentUser.value = user
   sessionStorage.setItem('currentUser', JSON.stringify(user))
+}
+
+// ============ 当前用户权限码 (P0-5 RBAC) ============
+const savedPerms = sessionStorage.getItem('permissionCodes')
+export const permissionCodes = ref<string[]>(savedPerms ? JSON.parse(savedPerms) : [])
+
+export function setPermissionCodes(codes: string[]) {
+  permissionCodes.value = codes
+  sessionStorage.setItem('permissionCodes', JSON.stringify(codes))
+}
+
+export function clearPermissionCodes() {
+  permissionCodes.value = []
+  sessionStorage.removeItem('permissionCodes')
 }
 
 // ============ 当前班次全局状态(接班后更新,所有页面可用)============

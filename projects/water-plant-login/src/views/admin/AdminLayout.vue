@@ -32,17 +32,24 @@
 
 <script setup lang="ts">
 import { useRoute } from 'vue-router'
+import { computed } from 'vue'
 import TopNavBar from '../../components/TopNavBar.vue'
+import { usePermission } from '../../composables/usePermission'
 
 const route = useRoute()
+const { has } = usePermission()
 
-const menuItems = [
-  { title: '岗位字典', path: '/admin/positions', icon: '👷' },
-  { title: '班次时间', path: '/admin/shifts', icon: '🕐' },
-  { title: '班组配置', path: '/admin/teams', icon: '👥' },
-  { title: '用户管理', path: '/admin/users', icon: '👤' },
-  { title: '角色权限', path: '/admin/roles', icon: '🔐', badge: 'P0-5' }
+// 所有菜单项 (全量) - 根据当前用户权限码动态过滤显示
+const allMenuItems = [
+  { title: '岗位字典', path: '/admin/positions', icon: '👷', permission: 'menu:admin_positions' },
+  { title: '班次时间', path: '/admin/shifts',    icon: '🕐', permission: 'menu:admin_shifts' },
+  { title: '班组配置', path: '/admin/teams',     icon: '👥', permission: 'menu:admin_teams' },
+  { title: '用户管理', path: '/admin/users',     icon: '👤', permission: 'menu:admin_users' },
+  { title: '角色权限', path: '/admin/roles',     icon: '🔐', permission: 'menu:admin_roles', badge: 'P0-5' }
 ]
+
+// 根据当前用户权限过滤可见的菜单项
+const menuItems = computed(() => allMenuItems.filter(m => has(m.permission)))
 
 function isActive(path: string): boolean {
   return route.path === path || route.path.startsWith(path + '/')
