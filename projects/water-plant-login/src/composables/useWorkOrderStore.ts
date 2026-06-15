@@ -130,6 +130,8 @@ export interface ProblemWorkOrder {
   member_name?: string
   closedAt?: string
   lastActionAt?: string
+  sla_due_at?: string  // P1: SLA 截止时间
+  sla_hours?: number   // P1: SLA 时长
 }
 
 export interface MaintenanceWorkOrder {
@@ -151,6 +153,8 @@ export interface MaintenanceWorkOrder {
   completionNote?: string
   returnReason?: string
   returnImages?: string[]
+  sla_due_at?: string  // P1: SLA 截止时间
+  sla_hours?: number   // P1: SLA 时长
   createdAt: string
   completedAt?: string
   closedAt?: string

@@ -1,6 +1,35 @@
 <template>
   <div class="wo-page">
     <TopNavBar />
+
+    <!-- P1: 工单统计面板 (P2.1 工单 P1) -->
+    <div v-if="stats" class="wo-stats-bar">
+      <div class="stat-card">
+        <div class="stat-label">今日新建</div>
+        <div class="stat-value" style="color:#22c55e;">{{ stats.today.new }}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">今日闭环</div>
+        <div class="stat-value" style="color:#3b82f6;">{{ stats.today.closed }}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">未闭环</div>
+        <div class="stat-value" style="color:#fbbf24;">{{ stats.open }}</div>
+      </div>
+      <div class="stat-card" :class="{ alert: stats.sla.breached > 0 }">
+        <div class="stat-label">SLA 超时</div>
+        <div class="stat-value" :style="{ color: stats.sla.breached > 0 ? '#ef4444' : '#94a3b8' }">{{ stats.sla.breached }}</div>
+      </div>
+      <div class="stat-card" :class="{ alert: stats.sla.warning_2h > 0 }">
+        <div class="stat-label">即将超时 (2h)</div>
+        <div class="stat-value" :style="{ color: stats.sla.warning_2h > 0 ? '#fb923c' : '#94a3b8' }">{{ stats.sla.warning_2h }}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">平均处理时长</div>
+        <div class="stat-value-sm">{{ stats.avg_minutes.overall ? formatMinutes(stats.avg_minutes.overall) : '—' }}</div>
+      </div>
+    </div>
+
     <div class="wo-header">
       <div class="wo-title">
         <h2 v-if="currentUser.role === '值班岗位' || currentUser.role === '带班' || currentUser.role === '系统管理人'">{{ activeTab === 'maintenance' ? '维修工单' : '问题工单' }}</h2>
@@ -69,6 +98,10 @@
             <span>创建:{{ order.createdAt }}</span>
             <span v-if="order.lastActionAt && order.lastActionAt !== order.createdAt">最新处理:{{ order.lastActionAt }}</span>
             <span v-if="order.closedAt" style="color:#16a34a;">闭环:{{ order.closedAt }}</span>
+            <!-- P1: SLA 倒计时 -->
+            <span v-if="order.sla_due_at && !['closed','completed','self_resolved'].includes(order.status)" :style="{ color: slaColor(order.sla_due_at, order.status), fontWeight: 600 }">
+              ⏱ {{ slaText(order.sla_due_at, order.status) }}
+            </span>
           </div>
           <div v-if="order.images.length || ('videos' in order && order.videos?.length)" class="wo-attachments">
             <div v-if="order.images.length" class="wo-thumbs">
@@ -110,6 +143,10 @@
             <span>创建:{{ order.createdAt }}</span>
             <span v-if="order.lastActionAt && order.lastActionAt !== order.createdAt">最新处理:{{ order.lastActionAt }}</span>
             <span v-if="order.closedAt" style="color:#16a34a;">闭环:{{ order.closedAt }}</span>
+            <!-- P1: SLA 倒计时 -->
+            <span v-if="order.sla_due_at && !['closed','completed'].includes(order.status)" :style="{ color: slaColor(order.sla_due_at, order.status), fontWeight: 600 }">
+              ⏱ {{ slaText(order.sla_due_at, order.status) }}
+            </span>
           </div>
           <div v-if="order.delayReason" class="wo-delay">
             <strong>延时原因:</strong>{{ order.delayReason }}
@@ -153,6 +190,13 @@
           <button class="dialog-close" @click="createDialogVisible = false">×</button>
         </div>
         <div class="dialog-body">
+          <div class="form-row" v-if="problemTemplates.length">
+            <label>从模板创建</label>
+            <select :value="selectedProblemTplId" @change="e => applyTemplate('problem', (e.target as HTMLSelectElement).value)" class="tpl-select">
+              <option value="">-- 选模板自动填描述 --</option>
+              <option v-for="t in problemTemplates" :key="t.id" :value="t.id">{{ t.name }} {{ t.category ? `(${t.category})` : '' }}</option>
+            </select>
+          </div>
           <div class="form-row">
             <label>问题描述 <span class="required">*</span></label>
             <textarea v-model="createForm.content" placeholder="请描述发现的问题" rows="4"></textarea>
@@ -191,6 +235,13 @@
           <button class="dialog-close" @click="createMaintenanceDialogVisible = false">×</button>
         </div>
         <div class="dialog-body">
+          <div class="form-row" v-if="maintenanceTemplates.length">
+            <label>从模板创建</label>
+            <select :value="selectedMaintenanceTplId" @change="e => applyTemplate('maintenance', (e.target as HTMLSelectElement).value)" class="tpl-select">
+              <option value="">-- 选模板自动填内容+等级 --</option>
+              <option v-for="t in maintenanceTemplates" :key="t.id" :value="t.id">{{ t.name }} {{ t.default_level ? `[${t.default_level}]` : '' }} {{ t.default_sla_hours ? `(${t.default_sla_hours}h)` : '' }}</option>
+            </select>
+          </div>
           <div class="form-row">
             <label>维修内容 <span class="required">*</span></label>
             <textarea v-model="createMaintenanceForm.content" placeholder="请描述维修内容" rows="4"></textarea>
@@ -504,6 +555,54 @@ import {
 // P0-5: 权限钩子
 const { has, hasAny } = usePermission()
 
+// P1: SLA 跟踪 (P2.1 工单 P1)
+// 状态: normal (绿) / warning (黄, 2h 内) / urgent (橙色, 30min 内) / breached (红, 已超时)
+function slaStatus(sla_due_at: string, status: string): 'normal' | 'warning' | 'urgent' | 'breached' | 'none' {
+  if (!sla_due_at) return 'none'
+  if (['closed', 'completed', 'self_resolved'].includes(status)) return 'normal'
+  const ms = new Date(sla_due_at).getTime() - Date.now()
+  if (ms <= 0) return 'breached'
+  if (ms <= 30 * 60 * 1000) return 'urgent'
+  if (ms <= 2 * 3600 * 1000) return 'warning'
+  return 'normal'
+}
+function slaText(sla_due_at: string, status: string): string {
+  const s = slaStatus(sla_due_at, status)
+  if (s === 'none') return ''
+  if (s === 'breached') {
+    const overdueMin = Math.round((Date.now() - new Date(sla_due_at).getTime()) / 60000)
+    if (overdueMin < 60) return `SLA 超时 ${overdueMin} 分钟`
+    if (overdueMin < 60 * 24) return `SLA 超时 ${Math.floor(overdueMin / 60)} 小时 ${overdueMin % 60} 分`
+    return `SLA 超时 ${Math.floor(overdueMin / 60 / 24)} 天`
+  }
+  const remainMin = Math.round((new Date(sla_due_at).getTime() - Date.now()) / 60000)
+  if (remainMin < 60) return `SLA 剩余 ${remainMin} 分钟`
+  if (remainMin < 60 * 24) return `SLA 剩余 ${Math.floor(remainMin / 60)} 小时 ${remainMin % 60} 分`
+  return `SLA 剩余 ${Math.floor(remainMin / 60 / 24)} 天`
+}
+function slaColor(sla_due_at: string, status: string): string {
+  const s = slaStatus(sla_due_at, status)
+  if (s === 'breached') return '#ef4444'  // 红
+  if (s === 'urgent') return '#fb923c'    // 橙
+  if (s === 'warning') return '#facc15'   // 黄
+  return '#22c55e'                        // 绿
+}
+
+// P1: 工单统计面板 (P2.1)
+const stats = ref<any>(null)
+async function loadWorkorderStats() {
+  try {
+    const r = await fetch('/api/workorders/stats?days=7')
+    if (!r.ok) return
+    stats.value = await r.json()
+  } catch {}
+}
+function formatMinutes(min: number): string {
+  if (min < 60) return `${min} 分钟`
+  if (min < 60 * 24) return `${Math.floor(min / 60)} 小时 ${min % 60} 分`
+  return `${Math.floor(min / 60 / 24)} 天 ${Math.floor((min / 60) % 24)} 小时`
+}
+
 // 从数据库同步问题工单
 async function syncProblemOrdersFromDB() {
   try {
@@ -533,7 +632,9 @@ async function syncProblemOrdersFromDB() {
           memberName: o.member_name || '',
           team: o.team || '',
           lastActionAt: o.last_action_at ? new Date(o.last_action_at).toLocaleString('zh-CN') : '',
-          closedAt: o.closed_at ? new Date(o.closed_at).toLocaleString('zh-CN') : ''
+          closedAt: o.closed_at ? new Date(o.closed_at).toLocaleString('zh-CN') : '',
+          sla_due_at: o.sla_due_at,  // P1: SLA 跟踪
+          sla_hours: o.sla_hours
         })
       } else {
         // 更新已有工单的deviceId
@@ -576,7 +677,9 @@ async function syncMaintenanceOrdersFromDB() {
       team: o.team || '',
       createdAt: o.created_at ? new Date(o.created_at).toLocaleString('zh-CN') : '',
       lastActionAt: o.last_action_at ? new Date(o.last_action_at).toLocaleString('zh-CN') : '',
-      closedAt: o.closed_at ? new Date(o.closed_at).toLocaleString('zh-CN') : ''
+      closedAt: o.closed_at ? new Date(o.closed_at).toLocaleString('zh-CN') : '',
+      sla_due_at: o.sla_due_at,  // P1: SLA 跟踪
+      sla_hours: o.sla_hours
     }))
   } catch {}
 }
@@ -591,6 +694,8 @@ async function loadShiftStatus() {
   } catch(e) {}
 }
 onMounted(() => {
+  loadWorkorderTemplates()
+  loadWorkorderStats()
   loadDevicesFromDB().then(() => {
     syncProblemOrdersFromDB().then(() => {
       syncMaintenanceOrdersFromDB().then(() => {
@@ -710,6 +815,41 @@ const wsCurrentShift = ref<any>(null)
 const wsAmIOnShift = computed(() => wsCurrentShift.value && wsCurrentShift.value.user_name === currentUser.value?.name)
 const createForm = ref<{ content: string; images: string; videos: string; deviceId: number | null }>({ content: '', images: '', videos: '', deviceId: null })
 
+// P2.1: 工单模板
+const problemTemplates = ref<any[]>([])
+const maintenanceTemplates = ref<any[]>([])
+const selectedProblemTplId = ref('')
+const selectedMaintenanceTplId = ref('')
+async function loadWorkorderTemplates() {
+  try {
+    const r = await fetch('/api/workorder-templates?type=problem', { headers: { 'X-User-Id': String(currentUser.value?.id || 0) } })
+    const d = await r.json()
+    problemTemplates.value = d.rows || []
+  } catch {}
+  try {
+    const r = await fetch('/api/workorder-templates?type=maintenance', { headers: { 'X-User-Id': String(currentUser.value?.id || 0) } })
+    const d = await r.json()
+    maintenanceTemplates.value = d.rows || []
+  } catch {}
+}
+function applyTemplate(type: 'problem' | 'maintenance', tplId: string) {
+  if (!tplId) return
+  const list = type === 'problem' ? problemTemplates.value : maintenanceTemplates.value
+  const t = list.find(x => String(x.id) === String(tplId))
+  if (!t) return
+  if (type === 'problem') {
+    createForm.value.content = t.default_content
+    selectedProblemTplId.value = tplId
+  } else {
+    createMaintenanceForm.value.content = t.default_content
+    if (t.default_level) {
+      const lv: 'medium' | 'heavy' | 'light' = t.default_level === '重' ? 'heavy' : t.default_level === '中' ? 'medium' : 'light'
+      createMaintenanceForm.value.level = lv
+    }
+    selectedMaintenanceTplId.value = tplId
+  }
+}
+
 function openCreateDialog() { if (!wsAmIOnShift.value && currentUser.value?.role !== '维修组') return; createDialogVisible.value = true; createForm.value = { content: '', images: '', videos: '', deviceId: null } }
 
 async function handleImageUpload(e: Event, form: any) {
@@ -810,7 +950,7 @@ function submitCreateProblem() {
 }
 
 // ============ 新建维修工单(带班直接创建)===========
-const createMaintenanceForm = ref({ content: '', level: 'medium' as const })
+const createMaintenanceForm = ref<{ content: string; level: 'medium' | 'heavy' | 'light' }>({ content: '', level: 'medium' })
 
 function openCreateMaintenanceDialog() { if (!wsAmIOnShift.value && currentUser.value?.role !== '维修组') return;
   createMaintenanceDialogVisible.value = true
@@ -1180,6 +1320,37 @@ function confirmMaintenanceDelete() {
   display: flex; justify-content: space-between; align-items: center;
   padding: 24px 32px;
 }
+
+/* P1: 统计面板 */
+.wo-stats-bar {
+  display: flex;
+  gap: 12px;
+  padding: 14px 32px;
+  background: rgba(45, 212, 191, 0.04);
+  border-bottom: 1px solid rgba(45, 212, 191, 0.1);
+  overflow-x: auto;
+}
+.stat-card {
+  flex: 0 0 auto;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  padding: 8px 16px;
+  min-width: 100px;
+  text-align: center;
+}
+.stat-card.alert {
+  border-color: rgba(239, 68, 68, 0.4);
+  background: rgba(239, 68, 68, 0.08);
+  animation: statAlertPulse 2s ease-in-out infinite;
+}
+@keyframes statAlertPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+  50% { box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.15); }
+}
+.stat-label { font-size: 11px; color: rgba(255, 255, 255, 0.55); margin-bottom: 4px; letter-spacing: 0.5px; }
+.stat-value { font-size: 24px; font-weight: 700; line-height: 1.1; }
+.stat-value-sm { font-size: 14px; font-weight: 600; color: rgba(255, 255, 255, 0.85); line-height: 1.6; }
 
 .wo-title { display: flex; align-items: baseline; gap: 12px; }
 .wo-title h2 { color: #fff; margin: 0; font-size: 22px; font-weight: 600; letter-spacing: 1px; }

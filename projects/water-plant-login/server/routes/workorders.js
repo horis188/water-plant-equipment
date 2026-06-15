@@ -8,6 +8,39 @@ const router = express.Router()
 // P0-5 安全修复: 所有业务 API 强制登录
 router.use(requireAuth)
 
+// ====================================================================
+// P1: SLA 跟踪 (P2.1 工单 P1)
+// SLA 规则 (单位: 小时):
+//   问题工单: 4 (统一, 无等级概念)
+//   维修工单: 轻=72, 中=24, 重=4
+// ====================================================================
+function getSlaHours(type, level) {
+  if (type === 'problem') return 4
+  if (type === 'maintenance') {
+    if (level === '重' || level === 'urgent') return 4
+    if (level === '中' || level === 'medium') return 24
+    return 72  // 轻/普通
+  }
+  return 24
+}
+
+function calcSlaDueAt(hours) {
+  return new Date(Date.now() + hours * 3600 * 1000)
+}
+
+// 判断 SLA 状态: 'normal' / 'warning' (≤2h) / 'urgent' (≤30min) / 'breached'
+function getSlaStatus(sla_due_at, status) {
+  if (!sla_due_at) return 'none'
+  if (['closed', 'completed', 'self_resolved'].includes(status)) return 'done'
+  const now = Date.now()
+  const due = new Date(sla_due_at).getTime()
+  if (now >= due) return 'breached'
+  const remainingMs = due - now
+  if (remainingMs <= 30 * 60 * 1000) return 'urgent'  // 30 分钟内
+  if (remainingMs <= 2 * 3600 * 1000) return 'warning'  // 2 小时内
+  return 'normal'
+}
+
 // 获取问题工单
 router.get('/problem', async (req, res) => {
   try {
@@ -22,11 +55,15 @@ router.get('/problem', async (req, res) => {
 router.post('/problem', async (req, res) => {
   const { content, reporter_name, images, videos, deviceId, team, role, member_name } = req.body
   try {
+    // P1: SLA 计算
+    const slaHours = getSlaHours('problem')
+    const slaDueAt = calcSlaDueAt(slaHours)
     const [result] = await pool.query(
-      'INSERT INTO problem_orders (content, reporter_name, images, videos, device_id, team, role, member_name, last_action_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())',
-      [content, reporter_name, images, videos, deviceId || null, team || null, role || null, member_name || null]
+      'INSERT INTO problem_orders (content, reporter_name, images, videos, device_id, team, role, member_name, last_action_at, sla_due_at, sla_hours) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?, ?)',
+      [content, reporter_name, images, videos, deviceId || null, team || null, role || null, member_name || null, slaDueAt, slaHours]
     )
-    res.json({ id: result.insertId, ...req.body })
+    sseEmit('workorder-update', { type: 'problem', id: result.insertId, action: 'created' })
+    res.json({ id: result.insertId, ...req.body, sla_due_at: slaDueAt, sla_hours: slaHours })
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
@@ -102,9 +139,12 @@ router.post('/maintenance', async (req, res) => {
       const [pos] = await pool.query('SELECT reporter_name FROM problem_orders WHERE id = ?', [problem_order_id])
       if (pos.length > 0) resolvedReporter = pos[0].reporter_name
     }
+    // P1: SLA 计算 (根据等级)
+    const slaHours = getSlaHours('maintenance', level)
+    const slaDueAt = calcSlaDueAt(slaHours)
     const [result] = await pool.query(
-      'INSERT INTO maintenance_orders (content, level, status, assigner_name, handler_name, problem_order_id, device_id, team, role, user_name, reporter_name, member_name, last_action_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())',
-      [content, level || '普通', status || 'pending', assigner_name, handler_name, problem_order_id || null, resolvedDeviceId, team || null, role || null, user_name || null, resolvedReporter, member_name || null]
+      'INSERT INTO maintenance_orders (content, level, status, assigner_name, handler_name, problem_order_id, device_id, team, role, user_name, reporter_name, member_name, last_action_at, sla_due_at, sla_hours) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?, ?)',
+      [content, level || '普通', status || 'pending', assigner_name, handler_name, problem_order_id || null, resolvedDeviceId, team || null, role || null, user_name || null, resolvedReporter, member_name || null, slaDueAt, slaHours]
     )
     // 创建时设备设为维修中
     if (resolvedDeviceId) {
@@ -112,7 +152,8 @@ router.post('/maintenance', async (req, res) => {
       sseEmit('device-status-change', { device_id: resolvedDeviceId, status: 2 })
     }
     sseEmit('maintenance-update', { id: result.insertId })
-    res.json({ id: result.insertId, ...req.body })
+    sseEmit('workorder-update', { type: 'maintenance', id: result.insertId, action: 'created' })
+    res.json({ id: result.insertId, ...req.body, sla_due_at: slaDueAt, sla_hours: slaHours })
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
@@ -212,6 +253,155 @@ router.post('/recreate-problem', async (req, res) => {
       [po.content + ' [退回重开]', po.reporter_name || '系统', 'pending', po.device_id]
     )
     res.json({ id: result.insertId })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// ====================================================================
+// P1: SLA 状态查询 (P2.1 工单 P1)
+// 返回即将超时 (2h 内) + 已超时的未关闭工单
+// 前端用于“工单告警面板”或列表顶部高亮
+// ====================================================================
+router.get('/sla-status', async (req, res) => {
+  try {
+    // 1. 问题工单 SLA 状态
+    const [problemRows] = await pool.query(
+      `SELECT id, content, status, device_id, team, member_name, created_at, sla_due_at, sla_hours
+       FROM problem_orders
+       WHERE sla_due_at IS NOT NULL
+         AND status NOT IN ('closed', 'self_resolved')
+       ORDER BY sla_due_at ASC`
+    )
+    // 2. 维修工单 SLA 状态
+    const [maintRows] = await pool.query(
+      `SELECT id, content, level, status, device_id, team, member_name, created_at, sla_due_at, sla_hours
+       FROM maintenance_orders
+       WHERE sla_due_at IS NOT NULL
+         AND status NOT IN ('completed', 'closed')
+       ORDER BY sla_due_at ASC`
+    )
+    // 3. 计算状态
+    const enrich = (row, type) => ({
+      ...row,
+      type,
+      sla_status: getSlaStatus(row.sla_due_at, row.status),
+      minutes_remaining: row.sla_due_at ? Math.round((new Date(row.sla_due_at).getTime() - Date.now()) / 60000) : null
+    })
+    const all = [...problemRows.map(r => enrich(r, 'problem')), ...maintRows.map(r => enrich(r, 'maintenance'))]
+    const breached = all.filter(r => r.sla_status === 'breached')
+    const urgent = all.filter(r => r.sla_status === 'urgent')
+    const warning = all.filter(r => r.sla_status === 'warning')
+    res.json({
+      total: all.length,
+      breached: { count: breached.length, items: breached },
+      urgent: { count: urgent.length, items: urgent },
+      warning: { count: warning.length, items: warning },
+      normal: { count: all.length - breached.length - urgent.length - warning.length }
+    })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// ====================================================================
+// P1: 工单统计面板 (P2.1 工单 P1)
+// GET /api/workorders/stats?days=7 (默认 7 天窗口)
+// 返回: 今日 / 总计 / SLA / 按状态 / 按类型 / 按班组 / 平均处理时长
+// ====================================================================
+router.get('/stats', async (req, res) => {
+  try {
+    const days = Math.min(parseInt(req.query.days) || 7, 90)
+    const since = new Date(Date.now() - days * 24 * 3600 * 1000)
+    const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0)
+
+    // 今日新建 (两表合并)
+    const [todayNew] = await pool.query(
+      `SELECT
+         (SELECT COUNT(*) FROM problem_orders WHERE created_at >= ?) +
+         (SELECT COUNT(*) FROM maintenance_orders WHERE created_at >= ?) AS cnt`,
+      [todayStart, todayStart]
+    )
+    // 今日闭环
+    const [todayClosed] = await pool.query(
+      `SELECT
+         (SELECT COUNT(*) FROM problem_orders WHERE closed_at >= ?) +
+         (SELECT COUNT(*) FROM maintenance_orders WHERE closed_at >= ?) AS cnt`,
+      [todayStart, todayStart]
+    )
+    // 总未闭环
+    const [openCount] = await pool.query(
+      `SELECT
+         (SELECT COUNT(*) FROM problem_orders WHERE status NOT IN ('closed', 'self_resolved')) +
+         (SELECT COUNT(*) FROM maintenance_orders WHERE status NOT IN ('completed', 'closed')) AS cnt`
+    )
+    // 超 SLA 数 (未关闭且已超时)
+    const [slaBreached] = await pool.query(
+      `SELECT
+         (SELECT COUNT(*) FROM problem_orders WHERE sla_due_at < NOW() AND status NOT IN ('closed', 'self_resolved')) +
+         (SELECT COUNT(*) FROM maintenance_orders WHERE sla_due_at < NOW() AND status NOT IN ('completed', 'closed')) AS cnt`
+    )
+    // 即将超时 (2h 内未关闭)
+    const twoHoursLater = new Date(Date.now() + 2 * 3600 * 1000)
+    const [slaWarning] = await pool.query(
+      `SELECT
+         (SELECT COUNT(*) FROM problem_orders WHERE sla_due_at BETWEEN NOW() AND ? AND status NOT IN ('closed', 'self_resolved')) +
+         (SELECT COUNT(*) FROM maintenance_orders WHERE sla_due_at BETWEEN NOW() AND ? AND status NOT IN ('completed', 'closed')) AS cnt`,
+      [twoHoursLater, twoHoursLater]
+    )
+    // 平均处理时长 (分钟, 仅已闭环)
+    const [avgMinutes] = await pool.query(
+      `SELECT
+         (SELECT AVG(TIMESTAMPDIFF(MINUTE, created_at, COALESCE(closed_at, NOW()))) FROM problem_orders WHERE status IN ('closed', 'self_resolved')) AS p_avg,
+         (SELECT AVG(TIMESTAMPDIFF(MINUTE, created_at, COALESCE(closed_at, NOW()))) FROM maintenance_orders WHERE status IN ('completed', 'closed')) AS m_avg`
+    )
+    const pAvg = avgMinutes[0].p_avg
+    const mAvg = avgMinutes[0].m_avg
+    const overallAvg = (pAvg && mAvg) ? Math.round((pAvg + mAvg) / 2) : (pAvg || mAvg || null)
+
+    // 按状态 (问题工单)
+    const [problemByStatus] = await pool.query(
+      `SELECT status, COUNT(*) AS cnt FROM problem_orders WHERE created_at >= ? GROUP BY status`, [since]
+    )
+    // 按状态 (维修工单)
+    const [maintByStatus] = await pool.query(
+      `SELECT status, COUNT(*) AS cnt FROM maintenance_orders WHERE created_at >= ? GROUP BY status`, [since]
+    )
+    // 按班组 (问题工单)
+    const [problemByTeam] = await pool.query(
+      `SELECT team, COUNT(*) AS cnt FROM problem_orders WHERE created_at >= ? AND team IS NOT NULL GROUP BY team ORDER BY cnt DESC`, [since]
+    )
+    // 按班组 (维修工单)
+    const [maintByTeam] = await pool.query(
+      `SELECT team, COUNT(*) AS cnt FROM maintenance_orders WHERE created_at >= ? AND team IS NOT NULL GROUP BY team ORDER BY cnt DESC`, [since]
+    )
+
+    res.json({
+      window_days: days,
+      today: {
+        new: todayNew[0].cnt,
+        closed: todayClosed[0].cnt,
+        new_minus_closed: todayNew[0].cnt - todayClosed[0].cnt
+      },
+      open: openCount[0].cnt,
+      sla: {
+        breached: slaBreached[0].cnt,
+        warning_2h: slaWarning[0].cnt
+      },
+      avg_minutes: {
+        problem: pAvg ? Math.round(pAvg) : null,
+        maintenance: mAvg ? Math.round(mAvg) : null,
+        overall: overallAvg
+      },
+      by_status: {
+        problem: problemByStatus,
+        maintenance: maintByStatus
+      },
+      by_team: {
+        problem: problemByTeam,
+        maintenance: maintByTeam
+      }
+    })
   } catch (err) {
     res.status(500).json({ error: err.message })
   }

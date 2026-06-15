@@ -15,6 +15,7 @@ import shiftTeamsRouter from './routes/shiftTeams.js'
 import shiftTeamMembersRouter from './routes/shiftTeamMembers.js'
 import uploadRouter from './routes/upload.js'
 import adminRouter from './routes/admin.js'
+import workorderTemplatesRouter from './routes/workorderTemplates.js'
 
 const app = express()
 const PORT = 3000
@@ -60,6 +61,7 @@ app.use('/api/shift-teams', shiftTeamsRouter)
 app.use('/api/shift-team-members', shiftTeamMembersRouter)
 app.use('/api/upload', uploadRouter)
 app.use('/api/admin', adminRouter)
+app.use('/api/workorder-templates', workorderTemplatesRouter)
 
 // 健康检查
 app.get('/api/health', (req, res) => {
