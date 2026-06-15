@@ -9,7 +9,7 @@
           未接单 {{ maintenanceOrders.filter(o => o.status === 'pending').length }}
         </span>
         <span v-if="currentUser.role === '维修组'" class="wo-stat">
-          进行中 {{ maintenanceOrders.filter(o => o.status === 'processing' || o.status === 'delay').length }}
+          进行中 {{ maintenanceOrders.filter(o => o.status === 'processing' || o.status === 'delay' || o.status === 'returned').length }}
         </span>
         <span v-if="currentUser.role === '维修组'" class="wo-stat">
           已完成 {{ maintenanceOrders.filter(o => o.status === 'completed' || o.status === 'closed').length }}
@@ -18,7 +18,7 @@
           未接单 {{ maintenanceOrders.filter(o => o.status === 'pending').length }}
         </span>
         <span v-if="(currentUser.role === '值班岗位' || currentUser.role === '带班' || currentUser.role === '系统管理人') && activeTab === 'maintenance'" class="wo-stat">
-          进行中 {{ maintenanceOrders.filter(o => o.status === 'processing' || o.status === 'delay').length }}
+          进行中 {{ maintenanceOrders.filter(o => o.status === 'processing' || o.status === 'delay' || o.status === 'returned').length }}
         </span>
         <span v-if="(currentUser.role === '值班岗位' || currentUser.role === '带班' || currentUser.role === '系统管理人') && activeTab === 'maintenance'" class="wo-stat">
           已完成 {{ maintenanceOrders.filter(o => o.status === 'completed' || o.status === 'closed').length }}
@@ -33,9 +33,9 @@
           已解决 {{ problemOrders.filter(o => o.status === 'self_resolved' && isRecentResolved(o)).length }}
         </span>
       </div>
-      <div v-if="wsAmIOnShift || currentUser.role === '维修组'" class="wo-actions">
-        <button class="dm-btn dm-btn-primary" @click="currentUser.role === '带班' ? openCreateMaintenanceDialog() : openCreateDialog()">
-          {{ currentUser.role === '带班' ? '+ 新建维修工单' : '+ 新建问题工单' }}
+      <div v-if="wsAmIOnShift || currentUser.role === '维修组' || ['系统管理人', '带班'].includes(currentUser.role)" class="wo-actions">
+        <button class="dm-btn dm-btn-primary" @click="['系统管理人', '带班', '维修组'].includes(currentUser.role) ? openCreateMaintenanceDialog() : openCreateDialog()">
+          {{ ['系统管理人', '带班', '维修组'].includes(currentUser.role) ? '+ 新建维修工单' : '+ 新建问题工单' }}
         </button>
       </div>
     </div>
@@ -66,15 +66,24 @@
         <div class="wo-card-body">
           <p class="wo-content">{{ order.content }}</p>
           <div class="wo-meta">
-            <span>报告人：{{ order.reporterName }}</span>
-            <span>时间：{{ order.createdAt }}</span>
+            <span>{{ order.team || '' }} {{ order.role || '值班岗位' }} · {{ order.memberName || order.reporterName }}</span>
+            <span>创建:{{ order.createdAt }}</span>
+            <span v-if="order.lastActionAt && order.lastActionAt !== order.createdAt">最新处理:{{ order.lastActionAt }}</span>
+            <span v-if="order.closedAt" style="color:#16a34a;">闭环:{{ order.closedAt }}</span>
           </div>
           <div v-if="order.images.length || ('videos' in order && order.videos?.length)" class="wo-attachments">
-            <span v-if="order.images.length">📷 {{ order.images.length }}</span>
-            <span v-if="'videos' in order && order.videos?.length">🎬 {{ order.videos.length }}</span>
+            <div v-if="order.images.length" class="wo-thumbs">
+              <img v-for="(img, idx) in order.images.slice(0, 4)" :key="'img-'+idx" :src="img" class="wo-thumb" @click.stop="openImagePreview(order.images, idx)" />
+              <span v-if="order.images.length > 4" class="wo-thumb-more">+{{ order.images.length - 4 }}</span>
+            </div>
+            <span v-if="'videos' in order && order.videos.length" class="wo-video-badge">🎬 {{ order.videos.length }}</span>
           </div>
           <div v-if="order.resolution" class="wo-resolution">
-            <strong>处理结果：</strong>{{ order.resolution }}
+            <strong>处理结果:</strong>{{ order.resolution }}
+            <div v-if="order.resolutionImages && order.resolutionImages.length" class="wo-thumbs" style="margin-top:6px;">
+              <img v-for="(img, idx) in order.resolutionImages.slice(0, 4)" :key="'ri-'+idx" :src="img" class="wo-thumb" @click.stop="openImagePreview(order.resolutionImages, idx)" />
+              <span v-if="order.resolutionImages.length > 4" class="wo-thumb-more">+{{ order.resolutionImages.length - 4 }}</span>
+            </div>
           </div>
         </div>
         <div class="wo-card-actions">
@@ -96,15 +105,33 @@
         <div class="wo-card-body">
           <p class="wo-content">{{ order.content || '维修任务' }}</p>
           <div class="wo-meta">
-            <span>分派：{{ order.assignerName }}</span>
-            <span v-if="order.handlerName">接单：{{ order.handlerName }}</span>
-            <span>时间：{{ order.createdAt }}</span>
+            <span v-if="order.reporterName">{{ order.team || '' }} {{ order.role || '值班岗位' }} · {{ order.memberName || order.reporterName }}</span>
+            <span>分派:{{ order.assignerName }}</span>
+            <span v-if="order.handlerName">接单:{{ order.handlerName }}</span>
+            <span>创建:{{ order.createdAt }}</span>
+            <span v-if="order.lastActionAt && order.lastActionAt !== order.createdAt">最新处理:{{ order.lastActionAt }}</span>
+            <span v-if="order.closedAt" style="color:#16a34a;">闭环:{{ order.closedAt }}</span>
           </div>
           <div v-if="order.delayReason" class="wo-delay">
-            <strong>延时原因：</strong>{{ order.delayReason }}
+            <strong>延时原因:</strong>{{ order.delayReason }}
+            <div v-if="order.delayImages && order.delayImages.length" class="wo-thumbs" style="margin-top:6px;">
+              <img v-for="(img, idx) in order.delayImages.slice(0, 4)" :key="'di-'+idx" :src="img" class="wo-thumb" @click.stop="openImagePreview(order.delayImages, idx)" />
+              <span v-if="order.delayImages.length > 4" class="wo-thumb-more">+{{ order.delayImages.length - 4 }}</span>
+            </div>
           </div>
           <div v-if="order.returnReason" class="wo-return">
-            <strong>退回原因：</strong>{{ order.returnReason }}
+            <strong>退回原因:</strong>{{ order.returnReason }}
+            <div v-if="order.returnImages && order.returnImages.length" class="wo-thumbs" style="margin-top:6px;">
+              <img v-for="(img, idx) in order.returnImages.slice(0, 4)" :key="'ri-'+idx" :src="img" class="wo-thumb" @click.stop="openImagePreview(order.returnImages, idx)" />
+              <span v-if="order.returnImages.length > 4" class="wo-thumb-more">+{{ order.returnImages.length - 4 }}</span>
+            </div>
+          </div>
+          <div v-if="order.completionNote" class="wo-resolution">
+            <strong>完成说明:</strong>{{ order.completionNote }}
+            <div v-if="order.completionImages && order.completionImages.length" class="wo-thumbs" style="margin-top:6px;">
+              <img v-for="(img, idx) in order.completionImages.slice(0, 4)" :key="'ci-'+idx" :src="img" class="wo-thumb" @click.stop="openImagePreview(order.completionImages, idx)" />
+              <span v-if="order.completionImages.length > 4" class="wo-thumb-more">+{{ order.completionImages.length - 4 }}</span>
+            </div>
           </div>
         </div>
         <div class="wo-card-actions">
@@ -157,7 +184,7 @@
       </div>
     </div>
 
-    <!-- 新建维修工单弹窗（带班直接创建）-->
+    <!-- 新建维修工单弹窗(带班直接创建)-->
     <div v-if="createMaintenanceDialogVisible" class="dm-dialog-overlay" @click.self="createMaintenanceDialogVisible = false">
       <div class="dm-dialog">
         <div class="dialog-header">
@@ -185,7 +212,7 @@
       </div>
     </div>
 
-    <!-- 处理问题工单弹窗（自行解决） -->
+    <!-- 处理问题工单弹窗(自行解决) -->
     <div v-if="handleDialogVisible" class="dm-dialog-overlay" @click.self="handleDialogVisible = false">
       <div class="dm-dialog">
         <div class="dialog-header">
@@ -206,7 +233,10 @@
           </div>
           <div v-if="handleType === 'self'" class="form-row">
             <label>解决图片</label>
-            <input type="text" v-model="handleForm.resolutionImages" placeholder="图片URL，多个用逗号分隔" />
+            <input type="file" accept="image/*" multiple @change="e => handleImageUpload(e, handleForm)" />
+            <div v-if="handleForm.images" class="upload-preview">
+              <span v-for="(img, idx) in handleForm.images.split(',')" :key="idx" class="preview-item">{{ img.split('/').pop() }}</span>
+            </div>
           </div>
           <div v-if="handleType === 'maintenance'" class="form-row">
             <label>维修级别 <span class="required">*</span></label>
@@ -266,7 +296,7 @@
           </div>
           <div class="form-row">
             <label>参与人员</label>
-            <input type="text" v-model="completeForm.participants" placeholder="参与人员，多个用逗号分隔" />
+            <input type="text" v-model="completeForm.participants" placeholder="参与人员,多个用逗号分隔" />
           </div>
           <div class="form-row">
             <label>备件使用</label>
@@ -295,12 +325,15 @@
         </div>
         <div class="dialog-body">
           <div class="form-row">
-            <label>闭环原因（图文）<span class="required">*</span></label>
+            <label>闭环原因(图文)<span class="required">*</span></label>
             <textarea v-model="problemCloseForm.reason" placeholder="请说明发现的问题原因和解决方案" rows="4"></textarea>
           </div>
           <div class="form-row">
             <label>图片</label>
-            <input type="text" v-model="problemCloseForm.images" placeholder="图片URL，多个用逗号分隔" />
+            <input type="file" accept="image/*" multiple @change="e => handleImageUpload(e, problemCloseForm)" />
+            <div v-if="problemCloseForm.images" class="upload-preview">
+              <span v-for="(img, idx) in problemCloseForm.images.split(',')" :key="idx" class="preview-item">{{ img.split('/').pop() }}</span>
+            </div>
           </div>
         </div>
         <div class="dialog-footer">
@@ -331,7 +364,10 @@
           </div>
           <div v-if="reviewResult === 'reject'" class="form-row">
             <label>退回图片</label>
-            <input type="text" v-model="reviewForm.images" placeholder="图片URL，多个用逗号分隔" />
+            <input type="file" accept="image/*" multiple @change="e => handleImageUpload(e, reviewForm)" />
+            <div v-if="reviewForm.images" class="upload-preview">
+              <span v-for="(img, idx) in reviewForm.images.split(',')" :key="idx" class="preview-item">{{ img.split('/').pop() }}</span>
+            </div>
           </div>
         </div>
         <div class="dialog-footer">
@@ -350,12 +386,20 @@
         </div>
         <div class="dialog-body">
           <template v-if="detailOrder">
-            <div class="detail-row"><label>工单编号：</label><span>{{ detailOrder.id }}</span></div>
-            <div class="detail-row"><label>状态：</label><span :style="{ color: statusColor(detailOrder.status) }">{{ statusLabel(detailOrder.status) }}</span></div>
-            <div class="detail-row"><label>内容：</label><span>{{ detailOrder.content || '无' }}</span></div>
-            <div v-if="'handlerName' in detailOrder && detailOrder.handlerName" class="detail-row"><label>接单人：</label><span>{{ detailOrder.handlerName }}</span></div>
+            <div class="detail-row"><label>工单编号:</label><span>{{ detailOrder.id }}</span></div>
+            <div class="detail-row"><label>状态:</label><span :style="{ color: statusColor(detailOrder.status) }">{{ statusLabel(detailOrder.status) }}</span></div>
+            <div class="detail-row"><label>内容:</label><span>{{ detailOrder.content || '无' }}</span></div>
+            <div v-if="'handlerName' in detailOrder && detailOrder.handlerName" class="detail-row"><label>接单人:</label><span>{{ detailOrder.handlerName }}</span></div>
+            <div v-if="'reporterName' in detailOrder && detailOrder.reporterName" class="detail-row">
+              <label>报告人:</label>
+              <span>
+                {{ detailOrder.reporterName }}
+                <span v-if="detailOrder.memberName" style="color:rgba(255,255,255,0.5);">(岗位人员:{{ detailOrder.memberName }})</span>
+                <span v-if="detailOrder.role" style="color:rgba(255,255,255,0.5);"> · {{ detailOrder.role }}</span>
+              </span>
+            </div>
             <div v-if="'sparepartUsage' in detailOrder && detailOrder.sparepartUsage.length" class="detail-row">
-              <label>备件使用：</label>
+              <label>备件使用:</label>
               <div v-for="sp in detailOrder.sparepartUsage" :key="sp.name" class="sp-item">{{ sp.name }} × {{ sp.quantity }}</div>
             </div>
           </template>
@@ -404,7 +448,7 @@
           <button class="dialog-close" @click="problemDeleteVisible = false">×</button>
         </div>
         <div class="dialog-body">
-          <p>确定要删除问题工单 <strong>{{ deletingProblemOrder?.id }}</strong> 吗？此操作不可恢复。</p>
+          <p>确定要删除问题工单 <strong>{{ deletingProblemOrder?.id }}</strong> 吗?此操作不可恢复。</p>
         </div>
         <div class="dialog-footer">
           <button class="dm-btn dm-btn-cancel" @click="problemDeleteVisible = false">取消</button>
@@ -421,7 +465,7 @@
           <button class="dialog-close" @click="maintenanceDeleteVisible = false">×</button>
         </div>
         <div class="dialog-body">
-          <p>确定要删除维修工单 <strong>{{ deletingMaintenanceOrder?.id }}</strong> 吗？此操作不可恢复。</p>
+          <p>确定要删除维修工单 <strong>{{ deletingMaintenanceOrder?.id }}</strong> 吗?此操作不可恢复。</p>
         </div>
         <div class="dialog-footer">
           <button class="dm-btn dm-btn-cancel" @click="maintenanceDeleteVisible = false">取消</button>
@@ -429,18 +473,29 @@
         </div>
       </div>
     </div>
+
+    <!-- 图片预览弹窗 -->
+    <div v-if="previewImages.length > 0" class="image-preview-mask" @click.self="closeImagePreview">
+      <button class="image-preview-close" @click="closeImagePreview">×</button>
+      <button v-if="previewImages.length > 1" class="image-preview-nav left" :disabled="previewIndex === 0" @click="previewIndex = (previewIndex - 1 + previewImages.length) % previewImages.length">‹</button>
+      <div class="image-preview-content">
+        <img :src="previewImages[previewIndex]" />
+      </div>
+      <button v-if="previewImages.length > 1" class="image-preview-nav right" :disabled="previewIndex === previewImages.length - 1" @click="previewIndex = (previewIndex + 1) % previewImages.length">›</button>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
+import { useRoute } from 'vue-router'
 import TopNavBar from '../components/TopNavBar.vue'
 import { currentUser, updateDeviceStatusByOrder, isOnDuty, loadDevicesFromDB, devices } from '../composables/useDeviceStore'
 import {
   matchDeviceByContent, problemOrders, maintenanceOrders,
   addProblemOrder, updateProblemOrder,
   addMaintenanceOrder, updateMaintenanceOrder,
-  deleteProblemOrder, deleteMaintenanceOrder,
+  deleteProblemOrder, deleteMaintenanceOrder, recreateProblemFromMaintenance,
   initDeviceStatusFromWorkOrders,
   statusLabel, statusColor, levelLabel,
   ProblemWorkOrder, MaintenanceWorkOrder
@@ -451,10 +506,10 @@ async function syncProblemOrdersFromDB() {
   try {
     const res = await fetch('/api/workorders/problem')
     const dbOrders = await res.json()
-    // 合并到本地（去重），优先用数据库中的device_id，fallback到关键词匹配
+    // 合并到本地(去重),优先用数据库中的device_id,fallback到关键词匹配
     for (const o of dbOrders) {
       const exists = problemOrders.value.find(p => p.id === o.id)
-      // 优先用数据库中已有的device_id，否则用关键词匹配
+      // 优先用数据库中已有的device_id,否则用关键词匹配
       const dbDeviceId = o.device_id ? String(o.device_id) : null
       const orderDeviceId = dbDeviceId || matchDeviceByContent(o.content || '') || undefined
       if (!exists) {
@@ -466,10 +521,16 @@ async function syncProblemOrdersFromDB() {
           status: o.status,
           shiftId: '',
           deviceId: orderDeviceId,
-          images: o.images ? JSON.parse(o.images) : [],
-          videos: o.videos ? JSON.parse(o.videos) : [],
+          images: typeof o.images === 'string' ? (o.images || '').split(',').map((s: string) => s.trim()).filter(Boolean) : (o.images || []),
+          videos: typeof o.videos === 'string' ? (o.videos || '').split(',').map((s: string) => s.trim()).filter(Boolean) : (o.videos || []),
+          resolutionImages: typeof o.resolution_images === 'string' ? (o.resolution_images || '').split(',').map((s: string) => s.trim()).filter(Boolean) : (o.resolution_images || []),
           createdAt: new Date(o.created_at).toLocaleString('zh-CN'),
-          resolution: o.resolution
+          resolution: o.resolution,
+          role: o.role || '',
+          memberName: o.member_name || '',
+          team: o.team || '',
+          lastActionAt: o.last_action_at ? new Date(o.last_action_at).toLocaleString('zh-CN') : '',
+          closedAt: o.closed_at ? new Date(o.closed_at).toLocaleString('zh-CN') : ''
         })
       } else {
         // 更新已有工单的deviceId
@@ -486,7 +547,7 @@ async function syncMaintenanceOrdersFromDB() {
   try {
     const res = await fetch('/api/workorders/maintenance')
     const dbOrders = await res.json()
-    // 完全替换内存数据，保证与数据库同步
+    // 完全替换内存数据,保证与数据库同步
     maintenanceOrders.value = dbOrders.map((o: any) => ({
       id: String(o.id),
       content: o.content,
@@ -497,11 +558,22 @@ async function syncMaintenanceOrdersFromDB() {
       handlerId: o.handler_name || '',
       handlerName: o.handler_name || '',
       problemOrderId: o.problem_order_id || null,
-      participants: [],
-      delayDays: 0,
-      sparepartUsage: [],
+      participants: typeof o.participants === 'string' ? JSON.parse(o.participants || '[]') : (o.participants || []),
+      delayDays: o.delay_days || 0,
+      delayReason: o.delay_reason || '',
+      delayImages: typeof o.delay_images === 'string' ? JSON.parse(o.delay_images || '[]') : (o.delay_images || []),
+      sparepartUsage: typeof o.sparepart_usage === 'string' ? JSON.parse(o.sparepart_usage || '[]') : (o.sparepart_usage || []),
       returnReason: o.return_reason || '',
-      createdAt: o.created_at ? new Date(o.created_at).toLocaleString('zh-CN') : ''
+      returnImages: typeof o.return_images === 'string' ? (o.return_images || '').split(',').map((s: string) => s.trim()).filter(Boolean) : (o.return_images || []),
+      completionNote: o.completion_note || '',
+      completionImages: typeof o.completion_images === 'string' ? JSON.parse(o.completion_images || '[]') : (o.completion_images || []),
+      reporterName: o.reporter_name || '',
+      memberName: o.member_name || '',
+      role: o.role || '',
+      team: o.team || '',
+      createdAt: o.created_at ? new Date(o.created_at).toLocaleString('zh-CN') : '',
+      lastActionAt: o.last_action_at ? new Date(o.last_action_at).toLocaleString('zh-CN') : '',
+      closedAt: o.closed_at ? new Date(o.closed_at).toLocaleString('zh-CN') : ''
     }))
   } catch {}
 }
@@ -520,6 +592,17 @@ onMounted(() => {
     syncProblemOrdersFromDB().then(() => {
       syncMaintenanceOrdersFromDB().then(() => {
         initDeviceStatusFromWorkOrders()
+        // 处理URL参数触发的弹窗
+        const action = route.query.action as string | undefined
+        if (action === 'createMaintenance') {
+          activeTab.value = 'maintenance'
+          createMaintenanceDialogVisible.value = true
+          createMaintenanceForm.value = { content: '', level: 'medium' }
+        } else if (action === 'createProblem') {
+          activeTab.value = 'problem'
+          createDialogVisible.value = true
+          createForm.value = { content: '', images: '', videos: '', deviceId: null }
+        }
       })
     })
   })
@@ -538,6 +621,7 @@ const activeTab = ref<'problem' | 'maintenance'>(currentUser.value.role === '维
 const searchStatus = ref('')
 
 // ============ 状态选项 ============
+const route = useRoute()
 const allStatusOptions = [
   { value: 'pending', label: '待确认' },
   { value: 'self_resolved', label: '已自行解决' },
@@ -598,7 +682,7 @@ const filteredMaintenanceOrders = computed(() => {
   return filtered.sort((a, b) => {
     const statusDiff = (statusOrder[a.status] || 99) - (statusOrder[b.status] || 99)
     if (statusDiff !== 0) return statusDiff
-    // 同状态按等级排序：重 > 中 > 轻
+    // 同状态按等级排序:重 > 中 > 轻
     return (levelOrder[a.level] || 99) - (levelOrder[b.level] || 99)
   })
 })
@@ -618,28 +702,94 @@ function canDelayOrder(order: MaintenanceWorkOrder) {
 
 // ============ 新建问题工单 ============
 const createDialogVisible = ref(false)
+const createMaintenanceDialogVisible = ref(false)
 const wsCurrentShift = ref<any>(null)
 const wsAmIOnShift = computed(() => wsCurrentShift.value && wsCurrentShift.value.user_name === currentUser.value?.name)
 const createForm = ref<{ content: string; images: string; videos: string; deviceId: number | null }>({ content: '', images: '', videos: '', deviceId: null })
 
 function openCreateDialog() { if (!wsAmIOnShift.value && currentUser.value?.role !== '维修组') return; createDialogVisible.value = true; createForm.value = { content: '', images: '', videos: '', deviceId: null } }
 
-function handleImageUpload(e: Event, form: { images?: string }) {
+async function handleImageUpload(e: Event, form: any) {
   const files = (e.target as HTMLInputElement).files
-  if (!files) return
-  const urls = Array.from(files).map(f => URL.createObjectURL(f))
-  form.images = urls.join(',')
+  if (!files || files.length === 0) {
+    form._uploadFailed = false
+    return
+  }
+  form._uploadFailed = false
+  const urls = await uploadFiles(Array.from(files))
+  if (urls.length === 0) {
+    // 上传失败:标记并在提交时拦截
+    form._uploadFailed = true
+    form.images = ''
+    alert(`图片上传失败(${files.length} 个文件),请检查网络后重试`)
+    return
+  }
+  form.images = (form.images ? form.images + ',' : '') + urls.join(',')
+  form._uploadFailed = false
 }
 
-function handleVideoUpload(e: Event, form: { videos?: string }) {
+async function handleVideoUpload(e: Event, form: any) {
   const files = (e.target as HTMLInputElement).files
-  if (!files) return
-  const urls = Array.from(files).map(f => URL.createObjectURL(f))
-  form.videos = urls.join(',')
+  if (!files || files.length === 0) {
+    form._uploadFailed = false
+    return
+  }
+  form._uploadFailed = false
+  const urls = await uploadFiles(Array.from(files))
+  if (urls.length === 0) {
+    form._uploadFailed = true
+    form.videos = ''
+    alert(`视频上传失败(${files.length} 个文件),请检查网络后重试`)
+    return
+  }
+  form.videos = (form.videos ? form.videos + ',' : '') + urls.join(',')
+  form._uploadFailed = false
+}
+
+// 提交前检查:有文件被选中但上传失败则阻止提交
+function ensureUploadsOk(...forms: any[]): boolean {
+  for (const f of forms) {
+    if (f?._uploadFailed) {
+      alert('附件上传失败,请重新选择文件后提交')
+      return false
+    }
+  }
+  return true
+}
+
+async function uploadFiles(files: File[]): Promise<string[]> {
+  const fd = new FormData()
+  for (const f of files) fd.append('files', f)
+  try {
+    const res = await fetch('/api/upload', { method: 'POST', body: fd })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}))
+      alert('上传失败: ' + (err.error || res.status))
+      return []
+    }
+    const data = await res.json()
+    return data.urls || []
+  } catch (err: any) {
+    alert('上传失败: ' + err.message)
+    return []
+  }
+}
+
+// 图片预览
+const previewImages = ref<string[]>([])
+const previewIndex = ref(0)
+function openImagePreview(images: string[], idx: number) {
+  previewImages.value = images
+  previewIndex.value = idx
+}
+function closeImagePreview() {
+  previewImages.value = []
+  previewIndex.value = 0
 }
 
 function submitCreateProblem() {
   if (!createForm.value.content) return
+  if (!ensureUploadsOk(createForm.value)) return
   addProblemOrder({
     reporterId: currentUser.value.name,
     reporterName: currentUser.value.name,
@@ -648,13 +798,15 @@ function submitCreateProblem() {
     images: createForm.value.images ? createForm.value.images.split(',').map(s => s.trim()) : [],
     videos: createForm.value.videos ? createForm.value.videos.split(',').map(s => s.trim()) : [],
     status: 'pending',
-    deviceId: createForm.value.deviceId ? String(createForm.value.deviceId) : undefined
+    deviceId: createForm.value.deviceId ? String(createForm.value.deviceId) : undefined,
+    team: currentUser.value.team || 'A班',
+    role: wsCurrentShift.value?.role || currentUser.value.name || '值班岗位',
+    member_name: wsCurrentShift.value?.member_name || currentUser.value.member_name || ''
   })
   createDialogVisible.value = false
 }
 
-// ============ 新建维修工单（带班直接创建）===========
-const createMaintenanceDialogVisible = ref(false)
+// ============ 新建维修工单(带班直接创建)===========
 const createMaintenanceForm = ref({ content: '', level: 'medium' as const })
 
 function openCreateMaintenanceDialog() { if (!wsAmIOnShift.value && currentUser.value?.role !== '维修组') return;
@@ -672,7 +824,11 @@ function submitCreateMaintenance() {
     participants: [],
     status: 'pending',
     delayDays: 0,
-    sparepartUsage: []
+    sparepartUsage: [],
+    team: currentUser.value.team || 'A班',
+    role: wsCurrentShift.value?.role || currentUser.value.name || '值班岗位',
+    user_name: currentUser.value.name,
+    reporterName: currentUser.value.name
   })
   createMaintenanceDialogVisible.value = false
 }
@@ -680,28 +836,29 @@ function submitCreateMaintenance() {
 // ============ 处理问题工单 ============
 const handleDialogVisible = ref(false)
 const handleType = ref<'self' | 'maintenance'>('self')
-const handleForm = ref({ resolution: '', resolutionImages: '', level: 'medium' as const })
+const handleForm = ref({ resolution: '', images: '', level: 'medium' as const })
 const handlingOrder = ref<ProblemWorkOrder | null>(null)
 
 function openProblemHandle(order: ProblemWorkOrder) {
   handlingOrder.value = order
   handleType.value = 'self'
-  handleForm.value = { resolution: '', resolutionImages: '', level: 'medium' }
+  handleForm.value = { resolution: '', images: '', level: 'medium' }
   handleDialogVisible.value = true
 }
 
 async function submitHandleProblem() {
   if (!handlingOrder.value) return
-  
+  if (!ensureUploadsOk(handleForm.value)) return
+
   // 获取关联的设备ID
   const getDeviceId = () => handlingOrder.value?.deviceId
-  
+
   if (handleType.value === 'self') {
     if (!handleForm.value.resolution) return
     updateProblemOrder(handlingOrder.value.id, {
       status: 'self_resolved',
       resolution: handleForm.value.resolution,
-      resolutionImages: handleForm.value.resolutionImages ? handleForm.value.resolutionImages.split(',').map(s => s.trim()) : [],
+      resolutionImages: handleForm.value.images ? handleForm.value.images.split(',').map(s => s.trim()) : [],
       closedAt: new Date().toLocaleString('zh-CN')
     })
     // 自行解决后设备恢复在用
@@ -720,9 +877,14 @@ async function submitHandleProblem() {
       participants: [],
       status: 'pending',
       delayDays: 0,
-      sparepartUsage: []
+      sparepartUsage: [],
+      team: handlingOrder.value.team || currentUser.value.team || 'A班',
+      role: handlingOrder.value.role || currentUser.value.role || '值班岗位',
+      user_name: currentUser.value.name,
+      reporterName: handlingOrder.value.reporterName,
+      memberName: handlingOrder.value.memberName || ''
     })
-    // 问题工单转维修，设备状态变为维修中
+    // 问题工单转维修,设备状态变为维修中
     const deviceId = getDeviceId()
     if (deviceId) {
       await updateDeviceStatusByOrder(deviceId, '维修中', currentUser.value.name)
@@ -744,10 +906,12 @@ function openDelayDialog(order: MaintenanceWorkOrder) {
 
 function submitDelay() {
   if (!delayingOrder.value || !delayForm.value.reason) return
+  if (!ensureUploadsOk(delayForm.value)) return
   updateMaintenanceOrder(delayingOrder.value.id, {
     status: 'delay',
     delayReason: delayForm.value.reason,
-    delayDays: 1
+    delayDays: 1,
+    delayImages: delayForm.value.images ? delayForm.value.images.split(',').map(s => s.trim()).filter(Boolean) : []
   })
   delayDialogVisible.value = false
 }
@@ -765,6 +929,7 @@ function openCompleteDialog(order: MaintenanceWorkOrder) {
 
 async function submitComplete() {
   if (!completingOrder.value) return
+  if (!ensureUploadsOk(completeForm.value)) return
   await updateMaintenanceOrder(completingOrder.value.id, {
     status: 'completed',
     completionNote: completeForm.value.note,
@@ -773,7 +938,7 @@ async function submitComplete() {
     sparepartUsage: completeForm.value.spareparts.filter(sp => sp.name),
     completedAt: new Date().toLocaleString('zh-CN')
   })
-  // 完成维修后设备状态变为在用（等待审核）
+  // 完成维修后设备状态变为在用(等待审核),问题工单不动,等审核通过再删
   const order = completingOrder.value
   if (order.problemOrderId) {
     const problemOrder = problemOrders.value.find(p => p.id === order.problemOrderId)
@@ -802,8 +967,9 @@ function openProblemCloseDialog(order: MaintenanceWorkOrder) {
 
 async function submitProblemClose() {
   if (!closingOrder.value || !problemCloseForm.value.reason) return
+  if (!ensureUploadsOk(problemCloseForm.value)) return
   const order = closingOrder.value
-  
+
   // 获取关联的设备ID
   const getDeviceId = () => {
     if (order.problemOrderId) {
@@ -812,7 +978,7 @@ async function submitProblemClose() {
     }
     return matchDeviceByContent(order.content || '')
   }
-  
+
   // 关闭维修工单
   await updateMaintenanceOrder(order.id, {
     status: 'closed',
@@ -820,8 +986,8 @@ async function submitProblemClose() {
     completionImages: problemCloseForm.value.images ? problemCloseForm.value.images.split(',').map(s => s.trim()) : [],
     closedAt: new Date().toLocaleString('zh-CN')
   })
-  
-  // 如果有来源问题工单，关闭它并记录原因
+
+  // 如果有来源问题工单,关闭它并记录原因
   if (order.problemOrderId) {
     await updateProblemOrder(order.problemOrderId, {
       status: 'closed',
@@ -830,13 +996,13 @@ async function submitProblemClose() {
       closedAt: new Date().toLocaleString('zh-CN')
     })
   }
-  
+
   // 工单闭环后设备恢复在用
   const deviceId = getDeviceId()
   if (deviceId) {
     await updateDeviceStatusByOrder(deviceId, '在用', currentUser.value.name)
   }
-  
+
   problemCloseDialogVisible.value = false
 }
 
@@ -856,8 +1022,9 @@ function openReviewDialog(order: MaintenanceWorkOrder) {
 async function submitReview() {
   if (!reviewingOrder.value) return
   if (reviewResult.value === 'reject' && !reviewForm.value.reason) return
+  if (reviewResult.value === 'reject' && !ensureUploadsOk(reviewForm.value)) return
   const order = reviewingOrder.value
-  
+
   // 获取关联的设备ID
   const getDeviceId = (o: typeof order) => {
     if (o.problemOrderId) {
@@ -866,19 +1033,17 @@ async function submitReview() {
     }
     return matchDeviceByContent(o.content || '')
   }
-  
+
   if (reviewResult.value === 'pass') {
+    // 审核通过后删除关联的问题工单前,先清除维修工单的 problem_order_id 引用,避免孤儿工单丢失
+    if (order.problemOrderId) {
+      await updateMaintenanceOrder(order.id, { problemOrderId: null })
+      await deleteProblemOrder(order.problemOrderId)
+    }
     await updateMaintenanceOrder(order.id, {
       status: 'closed',
       closedAt: new Date().toLocaleString('zh-CN')
     })
-    // 审核通过后同时闭环关联的问题工单
-    if (order.problemOrderId) {
-      await updateProblemOrder(order.problemOrderId, {
-        status: 'closed',
-        closedAt: new Date().toLocaleString('zh-CN')
-      })
-    }
     // 设备恢复在用
     const deviceId = getDeviceId(order)
     if (deviceId) {
@@ -890,7 +1055,7 @@ async function submitReview() {
       returnReason: reviewForm.value.reason,
       returnImages: reviewForm.value.images ? reviewForm.value.images.split(',').map(s => s.trim()) : []
     })
-    // 退回后设备状态不变（维修中），因为维修工单还在、问题未解决
+    // 退回后设备状态变为告警(问题未解决,维修工单还在)
     const deviceId = getDeviceId(order)
     if (deviceId) {
       await updateDeviceStatusByOrder(deviceId, '维修中', currentUser.value.name)
@@ -924,13 +1089,16 @@ async function returnOrder(order: ProblemWorkOrder | MaintenanceWorkOrder) {
   }
   const deviceId = getDeviceId()
   if ('reporterId' in order) {
-    // Problem order - return to pending，设备变为告警
+    // Problem order - return to pending,设备变为告警
     await updateProblemOrder(order.id, { status: 'pending' })
     if (deviceId) await updateDeviceStatusByOrder(deviceId, '告警', currentUser.value.name)
   } else {
-    // Maintenance order - return to pending，设备变为维修中
-    await updateMaintenanceOrder(order.id, { status: 'pending', handlerId: undefined, handlerName: undefined })
-    if (deviceId) await updateDeviceStatusByOrder(deviceId, '维修中', currentUser.value.name)
+    // Maintenance order - return to pending → 恢复问题工单为pending(复用),删除维修工单,设备变为告警
+    if (order.problemOrderId) {
+      await updateProblemOrder(order.problemOrderId, { status: 'pending' })
+    }
+    await deleteMaintenanceOrder(order.id)
+    if (deviceId) await updateDeviceStatusByOrder(deviceId, '告警', currentUser.value.name)
   }
   detailDialogVisible.value = false
 }
@@ -940,8 +1108,8 @@ const editDialogVisible = ref(false)
 const editForm = ref<{ content: string; level: 'light' | 'medium' | 'heavy' }>({ content: '', level: 'medium' })
 
 function openEditDialog(order: ProblemWorkOrder | MaintenanceWorkOrder) {
-  editForm.value = { 
-    content: order.content || '', 
+  editForm.value = {
+    content: order.content || '',
     level: ('level' in order ? order.level : 'medium') as 'light' | 'medium' | 'heavy'
   }
   editDialogVisible.value = true
@@ -952,8 +1120,8 @@ function submitEdit() {
   if ('reporterId' in detailOrder.value) {
     updateProblemOrder(detailOrder.value.id, { content: editForm.value.content })
   } else {
-    updateMaintenanceOrder(detailOrder.value.id, { 
-      content: editForm.value.content, 
+    updateMaintenanceOrder(detailOrder.value.id, {
+      content: editForm.value.content,
       level: editForm.value.level as 'light' | 'medium' | 'heavy'
     })
   }
@@ -968,7 +1136,7 @@ function acceptOrder(order: MaintenanceWorkOrder) {
     handlerName: currentUser.value.name,
     status: 'processing'
   })
-  // 接单后设备状态保持维修中（由转维修时已设置）
+  // 接单后设备状态保持维修中(由转维修时已设置)
 }
 
 // ============ 删除工单 ============
@@ -1049,7 +1217,20 @@ function confirmMaintenanceDelete() {
 
 .wo-card-body .wo-content { color: rgba(255,255,255,0.9); margin: 0 0 8px; font-size: 14px; }
 .wo-meta { display: flex; gap: 16px; font-size: 12px; color: rgba(255,255,255,0.45); }
-.wo-attachments { display: flex; gap: 10px; font-size: 12px; color: rgba(255,255,255,0.4); margin-top: 6px; }
+.wo-attachments { display: flex; gap: 10px; font-size: 12px; color: rgba(255,255,255,0.4); margin-top: 6px; align-items: center; }
+.wo-thumbs { display: flex; gap: 4px; }
+.wo-thumb { width: 44px; height: 44px; object-fit: cover; border-radius: 4px; cursor: pointer; border: 1px solid rgba(255,255,255,0.1); }
+.wo-thumb:hover { border-color: #2DD4BF; }
+.wo-thumb-more { width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,0.08); border-radius: 4px; font-size: 12px; color: rgba(255,255,255,0.6); }
+.wo-video-badge { color: #fb923c; }
+.image-preview-mask { position: fixed; inset: 0; background: rgba(0,0,0,0.85); z-index: 9999; display: flex; align-items: center; justify-content: center; }
+.image-preview-content { max-width: 90vw; max-height: 90vh; }
+.image-preview-content img { max-width: 100%; max-height: 90vh; object-fit: contain; }
+.image-preview-close { position: absolute; top: 20px; right: 20px; width: 36px; height: 36px; border-radius: 50%; background: rgba(255,255,255,0.15); color: #fff; border: none; font-size: 18px; cursor: pointer; }
+.image-preview-nav { position: absolute; top: 50%; transform: translateY(-50%); width: 48px; height: 48px; border-radius: 50%; background: rgba(255,255,255,0.15); color: #fff; border: none; font-size: 24px; cursor: pointer; }
+.image-preview-nav.left { left: 20px; }
+.image-preview-nav.right { right: 20px; }
+.image-preview-nav:disabled { opacity: 0.3; cursor: not-allowed; }
 .wo-resolution, .wo-delay, .wo-return {
   margin-top: 6px; font-size: 12px; color: rgba(255,255,255,0.6);
 }

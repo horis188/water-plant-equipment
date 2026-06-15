@@ -33,10 +33,12 @@
     <div class="nav-right">
       <!-- 用户信息 -->
       <div class="user-info">
-        <div class="user-avatar" :title="'班组: ' + (currentUser.team || '未知')">{{ currentUser.team || currentUser.avatar }}</div>
+        <div class="user-avatar" :title="'当前班次岗位: ' + (currentShiftContext?.member_name || currentUser.member_name || '未知') + (currentShiftContext?.team ? ' · ' + currentShiftContext.team : '')">
+          {{ currentShiftContext?.member_name || currentUser.member_name || currentUser.avatar }}
+        </div>
         <div class="user-detail">
           <span class="user-name">{{ currentUser.name }}</span>
-          <span class="user-role">{{ currentUser.role }}</span>
+          <span class="user-role">{{ currentShiftContext?.team ? currentShiftContext.team + ' · ' + currentShiftContext.shift_type : currentUser.role }}</span>
         </div>
       </div>
 
@@ -49,9 +51,26 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { currentUser } from '../composables/useDeviceStore'
+import { currentUser, currentShiftContext } from '../composables/useDeviceStore'
+
+// 班组人员配置（从数据库加载）
+const teamMembers = ref<Record<string, { member_name: string; leader_name: string }>>({})
+
+async function loadTeamMembers() {
+  try {
+    const res = await fetch('/api/shift-teams')
+    const data = await res.json()
+    const map: Record<string, { member_name: string; leader_name: string }> = {}
+    for (const t of data) {
+      map[t.team_name] = { member_name: t.member_name, leader_name: t.leader_name }
+    }
+    teamMembers.value = map
+  } catch (err) {
+    console.error('加载班组信息失败', err)
+  }
+}
 
 const router = useRouter()
 const route = useRoute()
@@ -62,16 +81,19 @@ const navItems = ref([
   { name: '驾驶舱', path: '/main', icon: '🚀' },
   { name: '设备管理', path: '/device/inuse', icon: '🖥️' },
   { name: '巡检保养', path: '/inspection', icon: '🔍' },
-  { name: '备件仓库', path: '/spareparts', icon: '📦' },
+  { name: '备件仓库', path: '/spareparts', icon: '📦', hideFor: ['值班岗位', '一期制水', '旧厂制水', '投药间', '新高值班', '泥水车间'] },
   { name: '班组交接', path: '/handover', icon: '🔄', roles: ['值班岗位', '带班', '系统管理人', '旧厂制水', '一期制水', '投药间值班', '新低值班', '新高值班'] },
   { name: '维修工单', path: '/workorder', icon: '🔧' },
   { name: '设备价值', path: '/asset', icon: '💰' },
-  { name: '系统管理', path: '/admin', icon: '⚙️' }
+  { name: '系统管理', path: '/admin', icon: '⚙️', roles: ['系统管理人'] }
 ])
 
 const visibleNavItems = computed(() => {
   const role = currentUser.value?.role
-  return navItems.value.filter(item => !item.roles || item.roles.includes(role))
+  return navItems.value.filter(item => {
+    if (item.hideFor?.includes(role)) return false
+    return !item.roles || item.roles.includes(role)
+  })
 })
 
 const activeNav = ref('')
@@ -84,6 +106,7 @@ const pathToName: Record<string, string> = {
   '/inspection': '巡检保养',
   '/main': '驾驶舱',
   '/dashboard': '驾驶舱',
+  '/handover': '班组交接',
   '/workorder': '维修工单'
 }
 activeNav.value = pathToName[route.path] || '设备管理'
@@ -96,6 +119,10 @@ function handleNavClick(item: any) {
 function handleLogout() {
   router.push('/')
 }
+
+onMounted(() => {
+  loadTeamMembers()
+})
 </script>
 
 <style scoped>
@@ -220,8 +247,8 @@ function handleLogout() {
 }
 
 .user-avatar {
-  width: 32px;
-  height: 32px;
+  width: 44px;
+  height: 44px;
   border-radius: 50%;
   background: rgba(45, 212, 191, 0.25);
   color: #2DD4BF;
@@ -230,6 +257,9 @@ function handleLogout() {
   justify-content: center;
   font-size: 13px;
   font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .user-detail {

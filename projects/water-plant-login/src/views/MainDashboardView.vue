@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import WaterBackground from '../components/WaterBackground.vue'
-import { deviceStats, deviceListWithStatus, deviceChangeLog, currentUser, loadDevicesFromDB } from '../composables/useDeviceStore'
+import { deviceStats, deviceListWithStatus, deviceChangeLog, currentUser, currentShiftContext, setCurrentShiftContext, loadDevicesFromDB } from '../composables/useDeviceStore'
 import { spareparts } from '../composables/useSparepartStore'
 import { maintenanceOrders } from '../composables/useWorkOrderStore'
 
@@ -123,10 +123,83 @@ function formatRemaining(ms: number): string {
   return `${m}分钟`
 }
 
-onMounted(() => {
+onMounted(async () => {
+  await loadTeamMembers()
   loadInspectionTasks()
   loadDevicesFromDB()
+  loadLeaderShift()
+  loadShiftFromAPI()
+  setupShiftSSE()
 })
+
+let shiftEventSource: EventSource | null = null
+function setupShiftSSE() {
+  if (shiftEventSource) shiftEventSource.close()
+  shiftEventSource = new EventSource('http://localhost:3000/api/events')
+  shiftEventSource.addEventListener('shift-update', async () => {
+    await loadLeaderShift()
+    await loadShiftFromAPI()
+  })
+  shiftEventSource.addEventListener('handover-update', async () => {
+    await loadLeaderShift()
+    await loadShiftFromAPI()
+  })
+  shiftEventSource.onerror = () => {}
+}
+
+onUnmounted(() => {
+  if (shiftEventSource) {
+    shiftEventSource.close()
+    shiftEventSource = null
+  }
+})
+
+// 从API获取当班信息（统一班次：所有人显示同一个带班班组信息）
+async function loadLeaderShift() {
+  try {
+    const r = await fetch('/api/handover/all-shifts?role=%E7%B3%BB%E7%BB%9F%E7%AE%A1%E7%90%86%E4%BA%BA&team=B%E7%8F%AD')
+    const j = await r.json()
+    const leaderEntry = (j.shifts || []).find((s: any) => s.role === '带班')
+    const s = leaderEntry?.currentShift || null
+    if (s) {
+      leaderShift.value = {
+        shiftPerson: s.leader_name || s.user_name || '',
+        shiftDate: new Date().toLocaleDateString('zh-CN'),
+        shiftTime: new Date().toLocaleTimeString('zh-CN', { hour12: false }),
+        shiftTeam: s.team || '',
+        shiftLeader: s.leader_name || '',
+        shiftMember: s.member_name || ''
+      }
+    }
+  } catch {}
+}
+
+async function loadShiftFromAPI() {
+  if (!currentUser.value?.role) return
+  try {
+    const r = await fetch(`/api/handover/status?role=${encodeURIComponent(currentUser.value.role)}&userId=${currentUser.value.id}`)
+    const data = await r.json()
+    if (data.currentShift) {
+      currentShift.value = {
+        shiftPerson: data.currentShift.leader_name || data.currentShift.user_name || currentUser.value.name,
+        shiftDate: new Date().toLocaleDateString('zh-CN'),
+        shiftTime: new Date().toLocaleTimeString('zh-CN', { hour12: false }),
+        shiftTeam: data.currentShift.team || '',
+        shiftLeader: data.currentShift.leader_name || '',
+        shiftMember: data.currentShift.member_name || ''
+      }
+      setCurrentShiftContext({
+        team: data.currentShift.team || '',
+        member_name: data.currentShift.member_name || '',
+        shift_type: data.currentShift.shift_type || '',
+        role: data.currentShift.role || '',
+        leader_name: data.currentShift.leader_name || ''
+      })
+    } else {
+      setCurrentShiftContext(null)
+    }
+  } catch {}
+}
 
 const workOrderNotifications = ref([
   { id: 1, title: '3号取水泵温度异常', level: '紧急', time: '09:23' },
@@ -136,6 +209,14 @@ const workOrderNotifications = ref([
 
 const handleLogout = () => {
   router.push('/')
+}
+
+const openWorkOrderCreateDialog = () => {
+  if (['系统管理人', '带班', '维修组'].includes(currentUser.value?.role)) {
+    router.push('/workorder?action=createMaintenance')
+  } else {
+    router.push('/workorder?action=createProblem')
+  }
 }
 
 const showNotifications = ref(false)
@@ -149,25 +230,66 @@ const navItems = ref([
   { name: '驾驶舱', path: '/main', icon: '🚀' },
   { name: '设备管理', path: '/device/inuse', icon: '🖥️' },
   { name: '巡检保养', path: '/inspection', icon: '🔍' },
-  { name: '备件仓库', path: '/spareparts', icon: '📦' },
+  { name: '备件仓库', path: '/spareparts', icon: '📦', hideFor: ['值班岗位', '一期制水', '旧厂制水', '投药间', '新高值班', '泥水车间'] },
   { name: '班组交接', path: '/handover', icon: '🔄' },
   { name: '维修工单', path: '/workorder', icon: '🔧' },
   { name: '统计分析', path: '/asset', icon: '💰' },
-  { name: '系统管理', path: '/admin', icon: '⚙️' }
+  { name: '系统管理', path: '/admin', icon: '⚙️', roles: ['系统管理人'] }
 ])
 
 const activeNav = ref('驾驶舱')
+
+const visibleNavItems = computed(() => {
+  const role = currentUser.value?.role
+  return navItems.value.filter(item => {
+    // hideFor 黑名单优先
+    if (item.hideFor?.includes(role)) return false
+    // roles 白名单: 设置了就要在列表里
+    if (item.roles && !item.roles.includes(role)) return false
+    return true
+  })
+})
 
 const handleNavClick = (item: any) => {
   activeNav.value = item.name
   router.push(item.path)
 }
 
+// 班组人员配置（从数据库加载）
+const teamMembers = ref<Record<string, { member_name: string; leader_name: string }>>({})
+
+async function loadTeamMembers() {
+  try {
+    const res = await fetch('/api/shift-teams')
+    const data = await res.json()
+    const map: Record<string, { member_name: string; leader_name: string }> = {}
+    for (const t of data) {
+      map[t.team_name] = { member_name: t.member_name, leader_name: t.leader_name }
+    }
+    teamMembers.value = map
+  } catch (err) {
+    console.error('加载班组信息失败', err)
+  }
+}
+
 // 当值带班人
 const currentShift = ref({
-  shiftPerson: '张远',
+  shiftPerson: '',
   shiftDate: '2026-04-19',
-  shiftTime: '08:00 - 20:00'
+  shiftTime: '08:00 - 20:00',
+  shiftTeam: '',
+  shiftLeader: '',
+  shiftMember: ''
+})
+
+// 当前实际带班人（跨角色统一显示）
+const leaderShift = ref({
+  shiftPerson: '',
+  shiftDate: '2026-04-19',
+  shiftTime: '08:00 - 20:00',
+  shiftTeam: '',
+  shiftLeader: '',
+  shiftMember: ''
 })
 
 // 设备概况统计（来自共享store）
@@ -288,7 +410,7 @@ const getLevelClass = (level: string) => {
         <!-- 功能导航菜单 -->
         <nav class="menu-nav">
           <div
-            v-for="item in navItems"
+            v-for="item in visibleNavItems"
             :key="item.name"
             class="menu-item"
             :class="{ active: activeNav === item.name }"
@@ -327,10 +449,10 @@ const getLevelClass = (level: string) => {
 
         <!-- 用户信息 -->
         <div class="user-info">
-          <div class="user-avatar">{{ currentUser.team || currentUser.avatar }}</div>
+          <div class="user-avatar">{{ currentShiftContext?.team || currentUser.team || currentUser.avatar }}</div>
           <div class="user-detail">
-            <span class="user-name">{{ currentUser.name }}</span>
-            <span class="user-role">{{ currentUser.role }}</span>
+            <span class="user-name">{{ currentShiftContext?.member_name || currentUser.name }}</span>
+            <span class="user-role">{{ currentShiftContext ? currentShiftContext.team + ' · ' + currentShiftContext.shift_type : currentUser.role }}</span>
           </div>
         </div>
 
@@ -390,14 +512,17 @@ const getLevelClass = (level: string) => {
               </div>
               <div class="shift-row shift-row-small">
                 <span class="shift-info-label">当值带班</span>
-                <span class="shift-person-name">{{ currentShift.shiftPerson }}</span>
+                <span class="shift-person-name">{{ leaderShift.shiftMember || leaderShift.shiftLeader || leaderShift.shiftPerson }}</span>
+                <span class="shift-sep-inline">|</span>
+                <span class="shift-info-label">班组</span>
+                <span class="shift-person-name">{{ leaderShift.shiftTeam }}</span>
               </div>
-              <span class="shift-time">{{ currentShift.shiftDate }}&nbsp;{{ currentShift.shiftTime }}</span>
+              <span class="shift-time">{{ leaderShift.shiftDate }}&nbsp;{{ leaderShift.shiftTime }}</span>
             </div>
           </div>
           <div class="shift-buttons">
-            <button class="shift-btn">生成工单</button>
-            <button class="shift-btn" @click="router.push('/handover')">班组交接</button>
+            <button class="shift-btn" @click="openWorkOrderCreateDialog">生成工单</button>
+            <button v-if="currentUser.role !== '维修组'" class="shift-btn" @click="router.push('/handover')">班组交接</button>
           </div>
         </div>
 
@@ -527,7 +652,7 @@ const getLevelClass = (level: string) => {
         <div class="panel order-panel">
           <div class="panel-header">
             <h3>维修工单</h3>
-            <a href="#" class="more-link">查看全部 →</a>
+            <a href="#" class="more-link" @click.prevent="router.push('/workorder')">查看全部 →</a>
           </div>
           <div class="order-list">
             <div
@@ -909,16 +1034,27 @@ const getLevelClass = (level: string) => {
 
 .shift-row {
   display: flex;
-  align-items: baseline;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.shift-role-row {
+  display: flex;
+  align-items: center;
   gap: 10px;
-  flex-wrap: wrap;
 }
 
 .shift-row-small {
+  flex-direction: row;
   gap: 8px;
   align-items: center;
 }
 
+.shift-sep-inline {
+  color: rgba(255,255,255,0.3);
+  font-size: 11px;
+}
 .shift-info-label {
   font-size: 11px;
   color: rgba(255, 255, 255, 0.4);

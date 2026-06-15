@@ -1,0 +1,15 @@
+[Unit]
+Description=Water Plant Frontend (Vite Dev Server)
+After=network.target
+
+[Service]
+Type=simple
+User=hzh
+WorkingDirectory=/home/hzh/文档/project/projects/water-plant-login
+ExecStart=/usr/bin/npm run dev
+Restart=always
+RestartSec=5
+Environment=NODE_ENV=development
+
+[Install]
+WantedBy=multi-user.target

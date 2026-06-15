@@ -7,7 +7,7 @@
         <span class="dm-count">共 {{ filteredDevices.length }} 台设备</span>
       </div>
       <div class="dm-actions">
-        <button class="dm-btn dm-btn-primary" @click="openAddDialog">
+        <button v-if="canEditDevice" class="dm-btn dm-btn-primary" @click="openAddDialog">
           <span>+</span> 新增设备
         </button>
         <div class="export-dropdown">
@@ -78,8 +78,8 @@
             <td>{{ device.params || '-' }}</td>
             <td><span class="status-badge" :class="`status-${device.status}`">{{ device.status }}</span></td>
             <td class="col-actions">
-              <button class="action-btn" @click="openEditDialog(device)">✏️ 编辑</button>
-              <button class="action-btn action-btn-danger" @click="confirmDelete(device)">🗑️ 删除</button>
+              <button v-if="canEditDevice" class="action-btn" @click="openEditDialog(device)">✏️ 编辑</button>
+              <button v-if="canDeleteDevice" class="action-btn action-btn-danger" @click="confirmDelete(device)">🗑️ 删除</button>
             </td>
           </tr>
           <tr v-if="paginatedDevices.length === 0">
@@ -239,7 +239,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import TopNavBar from '../components/TopNavBar.vue'
 import { deviceListWithStatus, addDevice, updateDevice, deleteDevice, currentUser, deviceChangeLog, loadDevicesFromDB } from '../composables/useDeviceStore'
@@ -247,8 +247,35 @@ import { deviceListWithStatus, addDevice, updateDevice, deleteDevice, currentUse
 const route = useRoute()
 const router = useRouter()
 
+let syncTimer: ReturnType<typeof setInterval> | null = null
+
 onMounted(() => {
   loadDevicesFromDB()
+  syncTimer = setInterval(() => {
+    loadDevicesFromDB()
+  }, 5000)
+
+  // 监听设备状态变化事件，实时刷新
+  const deviceES = new EventSource('http://localhost:3000/api/events')
+  deviceES.addEventListener('device-status-change', () => {
+    loadDevicesFromDB()
+  })
+  deviceES.addEventListener('workorder-update', () => {
+    loadDevicesFromDB()
+  })
+  deviceES.onerror = () => { deviceES.close() }
+
+  // @ts-ignore
+  window.__deviceES = deviceES
+})
+onUnmounted(() => {
+  if (syncTimer) clearInterval(syncTimer)
+  // @ts-ignore
+  if (window.__deviceES) { // @ts-ignore
+    window.__deviceES.close()
+    // @ts-ignore
+    window.__deviceES = null
+  }
 })
 
 // 页面标题
@@ -264,6 +291,18 @@ const pageTitle = computed(() => {
 
 // 设备数据
 const allDevices = deviceListWithStatus
+
+// 是否有设备编辑权限（维修组或系统管理人）
+const canEditDevice = computed(() => {
+  const role = currentUser.value?.role
+  return role === '维修组' || role === '系统管理人'
+})
+
+// 是否有设备删除权限（仅系统管理人）
+const canDeleteDevice = computed(() => {
+  return currentUser.value?.role === '系统管理人'
+})
+
 const searchName = ref('')
 const searchType = ref('')
 const searchModel = ref('')
@@ -901,10 +940,10 @@ function downloadBlob(content: string, filename: string, mime: string) {
 }
 
 .dm-table td {
-  padding: 5px 14px;
+  padding: 8px 14px;
   color: rgba(255, 255, 255, 0.8);
   font-size: 15px;
-  line-height: 1.2;
+  line-height: 1.4;
   border-bottom: 1px solid rgba(255, 255, 255, 0.04);
 }
 
@@ -913,7 +952,7 @@ function downloadBlob(content: string, filename: string, mime: string) {
 }
 
 .col-check { width: 36px; text-align: center; }
-.col-actions { width: 120px; }
+.col-actions { width: 160px; white-space: nowrap; }
 
 .device-name-link {
   color: #2DD4BF;

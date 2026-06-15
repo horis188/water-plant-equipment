@@ -2,42 +2,41 @@ import { ref, computed } from 'vue'
 
 // ============ 当前登录用户 ============
 const saved = sessionStorage.getItem('currentUser')
-export const currentUser = ref<{ name: string; role: string; avatar: string; id: number; team?: string }>(saved ? JSON.parse(saved) : { name: '张明', role: '运行班长', avatar: '张', id: 0 })
+export const currentUser = ref<{ name: string; role: string; avatar: string; id: number; team?: string; member_name?: string }>(saved ? JSON.parse(saved) : { name: '张明', role: '运行班长', avatar: '张', id: 0 })
 
-export function setCurrentUser(user: { name: string; role: string; avatar: string; id: number; team?: string }) {
+export function setCurrentUser(user: { name: string; role: string; avatar: string; id: number; team?: string; member_name?: string }) {
   currentUser.value = user
   sessionStorage.setItem('currentUser', JSON.stringify(user))
+}
+
+// ============ 当前班次全局状态(接班后更新,所有页面可用)============
+export interface ShiftContext {
+  team: string
+  member_name: string
+  shift_type: string
+  role: string
+  leader_name: string
+}
+const savedShift = sessionStorage.getItem('currentShiftContext')
+export const currentShiftContext = ref<ShiftContext | null>(savedShift ? JSON.parse(savedShift) : null)
+
+export function setCurrentShiftContext(shift: ShiftContext | null) {
+  currentShiftContext.value = shift
+  if (shift) sessionStorage.setItem('currentShiftContext', JSON.stringify(shift))
+  else sessionStorage.removeItem('currentShiftContext')
 }
 
 // ============ 值班状态判断 ============
 export const isOnDuty = computed(() => {
   const role = currentUser.value?.role
-  if (!['值班岗位', '带班', '旧厂制水', '一期制水', '投药间值班', '新低值班', '新高值班'].includes(role)) return false
-  const now = new Date()
-  const hour = now.getHours()
-  const min = now.getMinutes()
-  const currentMinOfDay = hour * 60 + min
-  // 交接窗口：8:00±10、16:00±10、23:00±10
-  const windows = [
-    { name: '早班', startMin: 23 * 60, endMin: 8 * 60 + 10 },
-    { name: '日班', startMin: 8 * 60 - 10, endMin: 16 * 60 },
-    { name: '夜班', startMin: 16 * 60, endMin: 23 * 60 }
-  ]
-  for (const w of windows) {
-    if (w.name === '早班') {
-      // 23:00-次日08:10
-      if (currentMinOfDay >= w.startMin || currentMinOfDay <= w.endMin) return true
-    } else {
-      if (currentMinOfDay >= w.startMin && currentMinOfDay <= w.endMin) return true
-    }
-  }
-  return false
+  if (!['值班岗位', '带班', '旧厂制水', '一期制水', '投药间值班', '新低值班', '新高值班'].includes(role)) return true  // 测试模式：非值班角色也允许
+  return true  // 临时解除时间限制，方便测试
 })
 
 // ============ 设备基础数据（不含状态）============
 // statusValue: 0=在用, 1=告警, 2=维修中
 // DB里status存的是数字0/1/2，所以映射也用数字
-const statusValueMap: Record<number, number> = { 0: 0, 1: 1, 2: 2 }
+const statusValueMap: Record<string, number> = { '0': 0, '1': 1, '2': 2 }
 const statusLabelMap: Record<number, string> = { 0: '在用', 1: '告警', 2: '维修中' }
 
 export const devices = ref<any[]>([])
@@ -93,14 +92,27 @@ export interface DeviceChange {
 
 export const deviceChangeLog = ref<DeviceChange[]>([])
 
-// 添加设备变动记录
+// 添加设备变动记录（同时写入数据库）
+export async function addDeviceChangeLogToDB(deviceId: string, deviceName: string, changeType: string, content: string, operator: string) {
+  try {
+    await fetch('/api/devices/changes', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ device_name: deviceName, change_type: changeType, operator, content })
+    })
+  } catch (err) {
+    console.error('写入设备变动记录失败', err)
+  }
+}
+
+// 添加设备变动记录（仅前端内存）
 export function addDeviceChangeLog(deviceId: string, change: { field: string; fieldLabel: string; oldValue: string; newValue: string }, operator: string) {
   const device = devices.value.find(d => d.id === deviceId)
   if (!device) return
   
   const now = new Date()
   const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
-  const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+  const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate().toString().padStart(2, '0'))}`
   
   deviceChangeLog.value = deviceChangeLog.value.filter(c => c.id !== deviceId)
   deviceChangeLog.value.unshift({
@@ -172,11 +184,16 @@ export async function addDevice(data: Omit<typeof devices.value[0], 'id'>) {
   const record = { ...data, id: frontendId, statusValue: statusValueMap[data.status] ?? 0 }
   devices.value.push(record)
   try {
-    await fetch('/api/devices', {
+    const res = await fetch('/api/devices', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data)
     })
+    const dbDevice = await res.json()
+    const op = currentUser.value.name
+    // 写入数据库变动记录
+    const content = `设备名称:${data.name}|类型:${data.type}|型号:${data.model}|安装地点:${data.location}|厂家:${data.vendor}|价值:${data.value}`
+    await addDeviceChangeLogToDB(String(dbDevice.id || frontendId), data.name, '新增', content, op)
   } catch (err) {
     console.error('新增设备失败', err)
   }
@@ -237,6 +254,10 @@ export async function updateDevice(id: string, data: Partial<typeof devices.valu
         operator: op,
         changes
       })
+
+      // 写入数据库变动记录
+      const changeDetail = changes.map(c => `${c.fieldLabel}:${c.oldValue}→${c.newValue}`).join(' | ')
+      await addDeviceChangeLogToDB(d.id, d.name, '修改', changeDetail, op)
     } else {
       devices.value[idx] = { ...oldDevice, ...data }
     }

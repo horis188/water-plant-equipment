@@ -38,7 +38,12 @@ router.put('/:id', async (req, res) => {
     if (model !== undefined) { updates.push('model=?'); values.push(model) }
     if (location !== undefined) { updates.push('location=?'); values.push(location) }
     if (params !== undefined) { updates.push('params=?'); values.push(params) }
-    if (status !== undefined) { updates.push('status=?'); values.push(status) }
+    if (status !== undefined) {
+      // 数字 0/1/2 转成字符串 在用/告警/维修中
+      const statusMap = { 0: '在用', 1: '告警', 2: '维修中' }
+      const strVal = typeof status === 'number' ? (statusMap[status] ?? status) : String(status)
+      updates.push('status=?'); values.push(strVal)
+    }
     if (value !== undefined) { updates.push('value=?'); values.push(value) }
     if (vendor !== undefined) { updates.push('vendor=?'); values.push(vendor) }
     if (remark !== undefined) { updates.push('remark=?'); values.push(remark) }
@@ -47,6 +52,7 @@ router.put('/:id', async (req, res) => {
     await pool.query(`UPDATE devices SET ${updates.join(', ')} WHERE id=?`, values)
     res.json({ id: req.params.id, ...req.body })
   } catch (err) {
+    console.error('[devices PUT error]', err.message)
     res.status(500).json({ error: err.message })
   }
 })

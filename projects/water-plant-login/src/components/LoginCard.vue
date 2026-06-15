@@ -5,7 +5,7 @@ import WaterButton from './WaterButton.vue'
 import VerifyCode from './VerifyCode.vue'
 
 const emit = defineEmits<{
-  login: [data: { username: string; password: string; verifyCode: string }]
+  login: [user: { id: number; username: string; name: string; role: string; team?: string; member_name?: string; avatar?: string; verifyCode: string }]
 }>()
 
 // Form data
@@ -61,28 +61,23 @@ const handleSubmit = async () => {
 
   await new Promise(resolve => setTimeout(resolve, 1500))
 
-  const validUsers = ['admin', 'zy', 'wxz', 'yqzs', 'wy', 'ce', 'zs', 'ls', 'lm']
-  const validPasswords: Record<string, string> = {
-    admin: 'admin123',
-    zy: '123',
-    wxz: '123',
-    yqzs: '123',
-    wy: '1234',
-    ce: '1234',
-    zs: '1234',
-    ls: '1234',
-    lm: '123'
-  }
-  const mockSuccess = validUsers.includes(username.value) && validPasswords[username.value] === password.value
-
-  if (mockSuccess) {
-    emit('login', {
-      username: username.value,
-      password: password.value,
-      verifyCode: verifyCode.value
+  // 调后端 /api/auth/login 验证
+  try {
+    const res = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: username.value, password: password.value })
     })
-  } else {
-    verifyCodeError.value = '验证码错误'
+    if (res.ok) {
+      const user = await res.json()
+      emit('login', { ...user, verifyCode: verifyCode.value })
+    } else {
+      const err = await res.json().catch(() => ({}))
+      verifyCodeError.value = err.error || '登录失败'
+      verifyCode.value = ''
+    }
+  } catch (e) {
+    verifyCodeError.value = '网络错误, 请重试'
     verifyCode.value = ''
   }
 

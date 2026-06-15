@@ -6,14 +6,14 @@
         <h2 class="page-title">班组交接</h2>
         <span class="page-desc">{{ currentShiftLabel }}</span>
       </div>
-      <div class="header-actions">
+      <div v-if="false" class="header-actions">
         <span class="shift-badge">{{ currentShiftType }}</span>
         <span class="team-badge">{{ currentUser.team || 'A班' }}</span>
       </div>
     </div>
 
-    <!-- 状态卡片行 -->
-    <div class="status-cards-row" style="padding: 0 32px;">
+    <!-- 状态卡片行 (仅单岗位值班使用, 带班/系统管理人隐藏) -->
+    <div v-if="!['系统管理人', '带班'].includes(currentUser?.role || '')" class="status-cards-row" style="padding: 0 32px;">
       <div class="stat-card">
         <span class="stat-num" :class="tasksDone >= tasksTotal && tasksTotal > 0 ? 'stat-green' : 'stat-orange'">{{ tasksDone }}</span>
         <span class="stat-lbl">巡检完成</span>
@@ -32,6 +32,89 @@
       <div class="stat-card">
         <span class="stat-num stat-gray">{{ workordersTotal }}</span>
         <span class="stat-lbl">工单总数</span>
+      </div>
+    </div>
+
+    <!-- 系统管理员/带班专属概览 (顶部 stats) -->
+    <div v-if="(currentUser?.role === '系统管理人' || currentUser?.role === '带班') && adminOverview" class="admin-overview" style="padding: 0 32px; margin-top: 16px;">
+      <div class="admin-stats" style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-bottom:16px;">
+        <div class="admin-stat-card" style="background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:16px;">
+          <div style="font-size:13px;color:rgba(255,255,255,0.6);margin-bottom:10px;">📋 今日工单情况</div>
+          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;">
+            <div style="text-align:center;"><div style="font-size:24px;font-weight:600;color:#2dd4bf;">{{ adminOverview.workorderStats.newTotal }}</div><div style="font-size:11px;color:rgba(255,255,255,0.5);">新建总数</div></div>
+            <div style="text-align:center;"><div style="font-size:24px;font-weight:600;color:#fa8c16;">{{ adminOverview.workorderStats.problemOrders }}</div><div style="font-size:11px;color:rgba(255,255,255,0.5);">问题工单</div></div>
+            <div style="text-align:center;"><div style="font-size:24px;font-weight:600;color:#fa8c16;">{{ adminOverview.workorderStats.maintenanceOrders }}</div><div style="font-size:11px;color:rgba(255,255,255,0.5);">维修工单</div></div>
+            <div style="text-align:center;"><div style="font-size:24px;font-weight:600;color:#16a34a;">{{ adminOverview.workorderStats.completed }}</div><div style="font-size:11px;color:rgba(255,255,255,0.5);">已完成</div></div>
+          </div>
+        </div>
+        <div class="admin-stat-card" style="background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:16px;">
+          <div style="font-size:13px;color:rgba(255,255,255,0.6);margin-bottom:10px;">🔍 今日巡检任务情况</div>
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;">
+            <div style="text-align:center;"><div style="font-size:24px;font-weight:600;color:#2dd4bf;">{{ adminOverview.taskStats.total }}</div><div style="font-size:11px;color:rgba(255,255,255,0.5);">任务总数</div></div>
+            <div style="text-align:center;"><div style="font-size:24px;font-weight:600;color:#16a34a;">{{ adminOverview.taskStats.done }}</div><div style="font-size:11px;color:rgba(255,255,255,0.5);">已完成</div></div>
+            <div style="text-align:center;"><div style="font-size:24px;font-weight:600;color:#e53935;">{{ adminOverview.taskStats.abnormal }}</div><div style="font-size:11px;color:rgba(255,255,255,0.5);">异常</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 各岗位事务卡片 (带班账号过滤掉"带班"自己) -->
+    <div v-if="(currentUser?.role === '系统管理人' || currentUser?.role === '带班') && displayPositions.length > 0" style="padding: 0 32px; margin-top: 16px;">
+      <div class="section-title" style="font-size:16px;font-weight:600;color:rgba(255,255,255,0.85);margin-bottom:12px;">
+        👥 当前值班班组岗位事务
+      </div>
+      <div class="admin-positions-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(380px,1fr));gap:12px;align-items:start;">
+        <div v-for="p in displayPositions" :key="p.role+p.team" class="admin-position-card" :class="expandedAdminPositions.has(p.role+p.team) ? 'expanded' : ''" style="background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:16px;cursor:pointer;transition:all 0.2s;" @click="toggleAdminPosition(p.role+p.team)">
+          <div class="admin-position-header" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+            <div>
+              <div style="font-size:21px;font-weight:700;color:#2dd4bf;letter-spacing:1px;">{{ p.role || '未知岗位' }}</div>
+              <div style="font-size:14px;color:rgba(255,255,255,0.75);margin-top:6px;font-weight:500;">
+                {{ p.memberName || p.userName || '未接班' }}
+                <span v-if="p.team"> · {{ p.team }}</span>
+                <span v-if="p.shiftType"> · {{ p.shiftType }}</span>
+              </div>
+            </div>
+            <span style="font-size:14px;color:rgba(255,255,255,0.5);">{{ expandedAdminPositions.has(p.role+p.team) ? '▼' : '▶' }}</span>
+          </div>
+          <div class="admin-position-summary" style="display:flex;gap:12px;font-size:14px;margin-bottom:6px;font-weight:500;">
+            <span :class="p.tasks.total === 0 ? 'text-gray' : (p.tasks.done >= p.tasks.total ? 'text-green' : 'text-orange')">巡检 {{ p.tasks.done }}/{{ p.tasks.total }}</span>
+            <span v-if="p.tasks.abnormal > 0" style="color:#e53935;">异常 {{ p.tasks.abnormal }}</span>
+            <span :class="p.workorders.created.length === 0 ? 'text-gray' : (p.workorders.inProgress.length > 0 ? 'text-orange' : 'text-green')">工单 {{ p.workorders.completed.length }}/{{ p.workorders.created.length }}</span>
+          </div>
+          <!-- 展开详情 -->
+          <div v-if="expandedAdminPositions.has(p.role+p.team)" class="admin-position-body" style="margin-top:12px;padding-top:12px;border-top:1px solid rgba(255,255,255,0.1);font-size:14px;color:rgba(255,255,255,0.85);" @click.stop>
+            <div style="margin-bottom:10px;background:rgba(255,255,255,0.04);padding:10px 12px;border-radius:4px;">
+              <div style="font-size:13px;color:rgba(255,255,255,0.6);margin-bottom:6px;font-weight:600;">📝 值班纪事</div>
+              <div v-if="p.notes && p.notes.notes" style="color:rgba(255,255,255,0.95);white-space:pre-wrap;line-height:1.6;">{{ p.notes.notes }}</div>
+              <div v-else style="color:rgba(255,255,255,0.4);font-style:italic;">暂无值班纪事</div>
+            </div>
+            <div style="margin-bottom:10px;">
+              <div style="font-size:13px;color:rgba(255,255,255,0.6);margin-bottom:6px;font-weight:600;">🔍 巡检任务({{ p.tasks.done }}/{{ p.tasks.total }})</div>
+              <div v-if="p.tasks.allList && p.tasks.allList.length > 0" class="task-list-mini">
+                <div class="task-item-mini" v-for="(t, idx) in p.tasks.allList" :key="idx">
+                  <span class="task-check-icon">{{ t.has_abnormal ? '🚨' : (t.status === 'completed' || t.status === 'abnormal' ? '✅' : '⬜') }}</span>
+                  <span class="task-name-mini" :style="t.has_abnormal ? 'color:#e53935;font-weight:600' : ''">{{ t.device_name }}</span>
+                  <span class="task-location-mini" :style="t.has_abnormal ? 'color:#e53935' : ''">{{ t.plan_name }}<span v-if="t.abnormal_desc"> · {{ t.abnormal_desc }}</span></span>
+                </div>
+              </div>
+              <div v-else style="color:rgba(255,255,255,0.4);font-style:italic;font-size:13px;">暂无巡检任务</div>
+            </div>
+            <div>
+              <div style="font-size:13px;color:rgba(255,255,255,0.6);margin-bottom:6px;font-weight:600;">📋 工单({{ p.workorders.created.length }})</div>
+              <div v-if="p.workorders.created && p.workorders.created.length > 0" class="task-list-mini">
+                <div class="task-item-mini" v-for="(w, idx) in p.workorders.created.slice(0, 10)" :key="idx" :style="['completed','closed','self_resolved'].includes(w.status) ? 'opacity:0.6' : ''">
+                  <span class="task-check-icon">{{ statusIcon(w.status) }}</span>
+                  <span class="task-name-mini" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" :style="['completed','closed','self_resolved'].includes(w.status) ? 'text-decoration:line-through;color:rgba(255,255,255,0.5)' : ['pending','to_maintenance','processing','delay','returned'].includes(w.status) ? 'color:#e53935;font-weight:600' : ''">{{ w.content }}</span>
+                  <div class="wo-meta-mini">
+                    <span class="wo-type-mini" :class="w.type && w.type.includes('问题') ? 'type-problem' : 'type-maintenance'">{{ w.type && w.type.includes('问题') ? '问题' : '维修' }}</span>
+                    <span class="wo-status-mini" :class="'status-'+w.status">{{ statusLabel(w.status, w.type) }}</span>
+                  </div>
+                </div>
+              </div>
+              <div v-else style="color:rgba(255,255,255,0.4);font-style:italic;font-size:13px;">暂无工单</div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -54,7 +137,7 @@
     <!-- 主内容区 -->
     <div style="padding: 0 32px;">
       <!-- 上一班交接信息 -->
-      <div v-if="lastHandover && handoverStatus !== 'pending'" class="info-card" style="margin-top: 20px;">
+      <div v-if="lastHandover && handoverStatus !== 'pending' && !['系统管理人', '带班'].includes(currentUser?.role || '')" class="info-card" style="margin-top: 20px;">
         <div class="card-header">
           <h3 class="card-title">上一班交接信息</h3>
           <span class="card-tag" :class="lastHandover.status === 'completed' ? 'tag-done' : 'tag-wait'">
@@ -98,51 +181,125 @@
         <div v-if="lastHandover.workorders && lastHandover.workorders.length > 0" class="info-workorders">
           <span class="info-label">上时段工单：</span>
           <div class="wo-list">
-            <div v-for="wo in lastHandover.workorders" :key="wo.id" class="wo-item">
-              <span class="wo-type-tag">{{ wo.type }}</span>
-              <span class="wo-content">{{ wo.content || wo.id }}</span>
-              <span class="wo-status" :class="'status-' + wo.status">{{ wo.status }}</span>
+            <div v-for="wo in lastHandover.workorders" :key="wo.id" class="wo-item" style="display:flex;align-items:center;gap:10px;padding:8px 12px;background:rgba(255,255,255,0.05);border-radius:4px;margin-bottom:6px;font-size:14px;">
+              <span class="wo-type-tag" style="padding:3px 10px;border-radius:3px;font-size:12px;font-weight:600;background:rgba(45,212,191,0.2);color:#2dd4bf;">{{ wo.type }}</span>
+              <span class="wo-content" style="flex:1;color:rgba(255,255,255,0.95);">{{ wo.content || wo.id }}</span>
+              <span class="wo-status" :class="'status-' + wo.status" style="padding:3px 10px;border-radius:3px;font-size:12px;font-weight:500;background:rgba(96,165,250,0.2);color:#60a5fa;">{{ wo.status }}</span>
             </div>
           </div>
         </div>
       </div>
 
-      <!-- 交班操作区 -->
-      <div class="handover-form-card" style="margin-top: 20px;">
+      <!-- 当前班组事务 (完整版: 班组信息 + 值班纪事 + 巡检任务 + 工单情况) -->
+      <div v-if="currentUser?.role !== '系统管理人'" class="handover-form-card" style="margin-top: 20px;">
         <div class="card-header">
-          <h3 class="card-title">交班信息</h3>
+          <h3 class="card-title">当前班组事务</h3>
         </div>
         <div class="form-section">
-          <div class="form-row-inline">
-            <label class="form-label">选择班组</label>
-            <div class="team-selector">
-              <button v-for="t in teams" :key="t" class="team-btn" :class="{ active: selectedTeam === t }" @click="selectedTeam = t">{{ t }}</button>
+          <!-- 当前班组信息摘要 (5列) -->
+          <div class="duty-info-row" style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;padding:14px 16px;background:rgba(45,212,191,0.08);border:1px solid rgba(45,212,191,0.25);border-radius:6px;margin-bottom:18px;">
+            <div class="duty-info-item">
+              <div class="duty-label" style="font-size:13px;color:rgba(255,255,255,0.65);margin-bottom:6px;">班组</div>
+              <div class="duty-value" style="font-size:17px;color:#2dd4bf;font-weight:600;">{{ currentShift?.team || currentUser.team || 'A班' }}</div>
+            </div>
+            <div class="duty-info-item">
+              <div class="duty-label" style="font-size:13px;color:rgba(255,255,255,0.65);margin-bottom:6px;">岗位</div>
+              <div class="duty-value" style="font-size:17px;color:#2dd4bf;font-weight:600;">{{ currentShift?.role || currentUser.role }}</div>
+            </div>
+            <div class="duty-info-item">
+              <div class="duty-label" style="font-size:13px;color:rgba(255,255,255,0.65);margin-bottom:6px;">岗位人员</div>
+              <div class="duty-value" style="font-size:17px;color:#2dd4bf;font-weight:600;">{{ currentShift?.member_name || currentUser.member_name || currentUser.name }}</div>
+            </div>
+            <div class="duty-info-item">
+              <div class="duty-label" style="font-size:13px;color:rgba(255,255,255,0.65);margin-bottom:6px;">班次</div>
+              <div class="duty-value" style="font-size:17px;color:#2dd4bf;font-weight:600;">{{ currentShift?.shift_type || currentShiftType }}</div>
+            </div>
+            <div class="duty-info-item">
+              <div class="duty-label" style="font-size:13px;color:rgba(255,255,255,0.65);margin-bottom:6px;">接班状态</div>
+              <div class="duty-value" :class="currentShift ? 'text-green' : 'text-orange'" style="font-size:17px;font-weight:600;">{{ currentShift ? '已接班' : '未接班' }}</div>
             </div>
           </div>
-          <div class="form-row">
-            <label class="form-label">值班纪事</label>
-            <div class="notes-editor">
-              <div v-for="(note, idx) in handoverNoteLines" :key="idx" class="note-line-row">
-                <input v-model="handoverNoteLines[idx]" class="note-line-input" :disabled="!amIOnShift" :placeholder="'第' + (idx+1) + '条记录...'" @keydown.enter.prevent="addNoteLine(idx)" />
-                <button v-if="amIOnShift" class="note-del-btn" @click="removeNoteLine(idx)" title="删除此行">×</button>
+
+          <!-- 值班纪事 -->
+          <div class="form-row" style="margin-bottom:16px;">
+            <label class="form-label" style="font-size:16px;font-weight:600;color:rgba(255,255,255,0.95);">📝 值班纪事</label>
+            <div class="notes-editor" style="margin-top:8px;">
+              <div v-for="(note, idx) in handoverNoteLines" :key="idx" class="note-line-row" style="display:flex;gap:6px;margin-bottom:6px;">
+                <input v-model="handoverNoteLines[idx]" class="note-line-input" :disabled="!amIOnShift" :placeholder="'第' + (idx+1) + '条记录...'" @keydown.enter.prevent="addNoteLine(idx)" style="flex:1;padding:10px 14px;background:rgba(255,255,255,0.06);color:#fff;border:1px solid rgba(255,255,255,0.2);border-radius:4px;font-size:15px;" />
+                <button v-if="amIOnShift" class="note-del-btn" @click="removeNoteLine(idx)" title="删除此行" style="padding:0 10px;background:rgba(239,68,68,0.2);color:#ef4444;border:none;border-radius:4px;cursor:pointer;font-size:16px;">×</button>
               </div>
-              <button v-if="amIOnShift" class="note-add-btn" @click="addNoteLine(-1)">+ 添加行</button>
+              <button v-if="amIOnShift" class="note-add-btn" @click="addNoteLine(-1)" style="padding:6px 14px;background:rgba(45,212,191,0.15);color:#2dd4bf;border:1px dashed rgba(45,212,191,0.4);border-radius:4px;cursor:pointer;font-size:14px;">+ 添加行</button>
             </div>
           </div>
-          <div class="check-list">
-            <div class="check-item" :class="{ done: tasksCompleted }">
-              <span class="check-icon">{{ tasksCompleted ? '✅' : '⬜' }}</span>
-              <span class="check-text">本班巡检任务 {{ tasksDone }}/{{ tasksTotal }} 完成</span>
+
+          <!-- 巡检任务 (带统计 + 点击展开) -->
+          <div style="margin-bottom:16px;">
+            <div class="collapse-header" @click="lastTasksExpanded = !lastTasksExpanded" style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;background:rgba(255,255,255,0.05);border-radius:6px;cursor:pointer;">
+              <span style="font-size:15px;font-weight:600;color:rgba(255,255,255,0.95);">🔍 巡检任务</span>
+              <span :class="lastShiftTasks.done >= lastShiftTasks.total && lastShiftTasks.total > 0 ? 'text-green' : 'text-orange'" style="font-size:14px;font-weight:600;">
+                {{ lastShiftTasks.done }}/{{ lastShiftTasks.total }} 完成
+                <span v-if="lastShiftTasks.abnormal > 0" style="color:#e53935;"> · {{ lastShiftTasks.abnormal }}异常</span>
+                <span style="margin-left:6px;color:rgba(255,255,255,0.5);">{{ lastTasksExpanded ? '▼' : '▶' }}</span>
+              </span>
             </div>
-            <div class="check-item" :class="{ done: workordersCompleted }">
-              <span class="check-icon">{{ workordersCompleted ? '✅' : '⬜' }}</span>
-              <span class="check-text">本班工单 {{ workordersDone }}/{{ workordersTotal }} 处理</span>
+            <div v-if="lastTasksExpanded" class="collapse-body" style="margin-top:8px;padding:10px 14px;background:rgba(255,255,255,0.03);border-radius:6px;max-height:300px;overflow-y:auto;">
+              <div v-if="lastShiftTasks.allList.length === 0" style="color:rgba(255,255,255,0.45);font-style:italic;font-size:14px;padding:8px 0;">暂无巡检任务</div>
+              <div v-else>
+                <div v-for="(item, idx) in lastShiftTasks.allList" :key="idx" class="task-item-mini" style="display:flex;align-items:center;gap:8px;padding:6px 0;font-size:14px;">
+                  <span class="task-check-icon">{{ item.has_abnormal ? '🚨' : (item.status === 'completed' || item.status === 'abnormal' ? '✅' : '⬜') }}</span>
+                  <span :style="item.has_abnormal ? 'color:#e53935;font-weight:600' : ''">{{ item.device_name }}</span>
+                  <span style="color:rgba(255,255,255,0.5);font-size:13px;">{{ item.plan_name }}<span v-if="item.abnormal_desc"> · {{ item.abnormal_desc }}</span></span>
+                </div>
+              </div>
             </div>
           </div>
-          <div class="form-actions">
-            <button class="dm-btn dm-btn-primary" @click="submitHandover" :disabled="!canHandover">
-              交班处理
-            </button>
+
+          <!-- 工单情况 (带统计 + 点击展开) -->
+          <div style="margin-bottom:16px;">
+            <div class="collapse-header" @click="lastWorkordersExpanded = !lastWorkordersExpanded" style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;background:rgba(255,255,255,0.05);border-radius:6px;cursor:pointer;">
+              <span style="font-size:15px;font-weight:600;color:rgba(255,255,255,0.95);">📋 工单情况</span>
+              <span style="font-size:14px;font-weight:600;">
+                <span style="color:#60a5fa;">新建{{ lastShiftWorkorders.created.length }}</span>
+                <span style="color:rgba(255,255,255,0.4);"> / </span>
+                <span style="color:#4ade80;">完成{{ lastShiftWorkorders.completed.length }}</span>
+                <span style="color:rgba(255,255,255,0.4);"> / </span>
+                <span :class="lastShiftWorkorders.inProgress.length > 0 ? 'text-orange' : 'text-gray'">进行中{{ lastShiftWorkorders.inProgress.length }}</span>
+                <span style="margin-left:6px;color:rgba(255,255,255,0.5);">{{ lastWorkordersExpanded ? '▼' : '▶' }}</span>
+              </span>
+            </div>
+            <div v-if="lastWorkordersExpanded" class="collapse-body" style="margin-top:8px;padding:10px 14px;background:rgba(255,255,255,0.03);border-radius:6px;max-height:300px;overflow-y:auto;">
+              <div v-if="lastShiftWorkorders.completed.length === 0 && lastShiftWorkorders.inProgress.length === 0 && lastShiftWorkorders.created.length === 0" style="color:rgba(255,255,255,0.45);font-style:italic;font-size:14px;padding:8px 0;">暂无工单</div>
+              <div v-if="lastShiftWorkorders.completed.length > 0" style="margin-bottom:10px;">
+                <div style="font-size:13px;color:rgba(255,255,255,0.65);margin-bottom:6px;font-weight:600;">✓ 已完成</div>
+                <div v-for="wo in lastShiftWorkorders.completed" :key="'d-'+wo.id" class="task-item-mini" style="display:flex;align-items:center;gap:8px;padding:5px 0;font-size:14px;opacity:0.7;">
+                  <span class="task-check-icon">{{ statusIcon(wo.status) }}</span>
+                  <span class="wo-type-mini" :class="wo.type && wo.type.includes('问题') ? 'type-problem' : 'type-maintenance'">{{ wo.type && wo.type.includes('问题') ? '问题' : '维修' }}</span>
+                  <span style="flex:1;min-width:0;text-decoration:line-through;color:rgba(255,255,255,0.5);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ wo.content }}</span>
+                  <span class="wo-status" :class="'status-'+wo.status" style="padding:2px 8px;border-radius:2px;font-size:12px;font-weight:500;flex-shrink:0;">{{ statusLabel(wo.status, wo.type) }}</span>
+                </div>
+              </div>
+              <div v-if="lastShiftWorkorders.inProgress.length > 0">
+                <div style="font-size:13px;color:rgba(255,255,255,0.65);margin-bottom:6px;font-weight:600;">⏳ 进行中</div>
+                <div v-for="wo in lastShiftWorkorders.inProgress" :key="'p-'+wo.id" class="task-item-mini" style="display:flex;align-items:center;gap:8px;padding:5px 0;font-size:14px;">
+                  <span class="task-check-icon">{{ statusIcon(wo.status) }}</span>
+                  <span class="wo-type-mini" :class="wo.type && wo.type.includes('问题') ? 'type-problem' : 'type-maintenance'">{{ wo.type && wo.type.includes('问题') ? '问题' : '维修' }}</span>
+                  <span style="flex:1;min-width:0;color:#e53935;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ wo.content }}</span>
+                  <span class="wo-status" :class="'status-'+wo.status" style="padding:2px 8px;border-radius:2px;font-size:12px;font-weight:500;flex-shrink:0;">{{ statusLabel(wo.status, wo.type) }}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 选择班组 + 提交按钮 -->
+          <div class="form-row-inline" style="margin-bottom:12px;">
+            <label class="form-label" style="font-size:16px;font-weight:600;color:rgba(255,255,255,0.95);">选择交班班组</label>
+            <div class="team-selector" style="margin-top:6px;">
+              <button v-for="t in teams" :key="t" class="team-btn" :class="{ active: selectedTeam === t }" @click="selectedTeam = t" style="padding:4px 12px;margin-right:6px;background:rgba(255,255,255,0.06);color:#fff;border:1px solid rgba(255,255,255,0.2);border-radius:4px;cursor:pointer;font-size:12px;">{{ t }}</button>
+            </div>
+          </div>
+          <div class="form-actions" style="display:flex;gap:8px;">
+            <button class="dm-btn" @click="saveNotes" :disabled="!amIOnShift" style="padding:8px 20px;background:rgba(45,212,191,0.15);color:#2dd4bf;border:1px solid rgba(45,212,191,0.4);border-radius:4px;cursor:pointer;">💾 保存</button>
+            <button class="dm-btn dm-btn-primary" @click="submitHandover" :disabled="!canHandover" style="padding:8px 20px;background:#2dd4bf;color:#0f2d4a;border:none;border-radius:4px;cursor:pointer;font-weight:600;">✅ 交班处理</button>
           </div>
         </div>
       </div>
@@ -152,21 +309,104 @@
         <div class="card-header">
           <h3 class="card-title">交接历史</h3>
         </div>
-        <div v-if="history.length === 0" class="empty-state">
-          <span class="empty-icon">📋</span>
-          <p>暂无交接记录</p>
+        <!-- 筛选条 -->
+        <div class="history-filters" style="padding:10px 16px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;background:rgba(255,255,255,0.04);border-radius:6px;margin:0 16px 10px;font-size:12px;">
+          <template v-if="isAdminViewer">
+            <label style="color:rgba(255,255,255,0.6);">岗位</label>
+            <select v-model="filterRole" class="filter-select" style="width:90px;padding:2px 6px;background:rgba(255,255,255,0.08);color:#fff;border:1px solid rgba(255,255,255,0.2);border-radius:3px;">
+              <option value="">全部岗位</option>
+              <option value="一期制水">一期制水</option>
+              <option value="旧厂制水">旧厂制水</option>
+              <option value="投药间值班">投药间值班</option>
+              <option value="新低值班">新低值班</option>
+              <option value="新高值班">新高值班</option>
+              <option value="泥水车间">泥水车间</option>
+              <option value="带班">带班</option>
+            </select>
+          </template>
+          <label style="color:rgba(255,255,255,0.6);">交班班组</label>
+          <select v-model="filterTeam" class="filter-select" style="width:70px;padding:2px 6px;background:rgba(255,255,255,0.08);color:#fff;border:1px solid rgba(255,255,255,0.2);border-radius:3px;">
+            <option value="">全部</option>
+            <option v-for="t in teams" :key="t" :value="t">{{ t }}</option>
+          </select>
+          <label style="color:rgba(255,255,255,0.6);">交班人</label>
+          <input type="text" v-model="filterHandingOverUser" class="filter-input" placeholder="姓名" style="width:80px;padding:2px 6px;background:rgba(255,255,255,0.08);color:#fff;border:1px solid rgba(255,255,255,0.2);border-radius:3px;" />
+          <label style="color:rgba(255,255,255,0.6);">接班班组</label>
+          <select v-model="filterTakingOverTeam" class="filter-select" style="width:70px;padding:2px 6px;background:rgba(255,255,255,0.08);color:#fff;border:1px solid rgba(255,255,255,0.2);border-radius:3px;">
+            <option value="">全部</option>
+            <option v-for="t in teams" :key="t" :value="t">{{ t }}</option>
+          </select>
+          <label style="color:rgba(255,255,255,0.6);">接班人</label>
+          <input type="text" v-model="filterTakingOverUser" class="filter-input" placeholder="姓名" style="width:80px;padding:2px 6px;background:rgba(255,255,255,0.08);color:#fff;border:1px solid rgba(255,255,255,0.2);border-radius:3px;" />
+          <label style="color:rgba(255,255,255,0.6);">班型</label>
+          <select v-model="filterShift" class="filter-select" style="width:60px;padding:2px 6px;background:rgba(255,255,255,0.08);color:#fff;border:1px solid rgba(255,255,255,0.2);border-radius:3px;">
+            <option value="">全部</option>
+            <option value="日班">日班</option>
+            <option value="夜班">夜班</option>
+            <option value="早班">早班</option>
+          </select>
+          <label style="color:rgba(255,255,255,0.6);">起始</label>
+          <input type="date" v-model="filterStart" class="filter-input" style="width:130px;padding:2px 6px;background:rgba(255,255,255,0.08);color:#fff;border:1px solid rgba(255,255,255,0.2);border-radius:3px;color-scheme:dark;" />
+          <label style="color:rgba(255,255,255,0.6);">结束</label>
+          <input type="date" v-model="filterEnd" class="filter-input" style="width:130px;padding:2px 6px;background:rgba(255,255,255,0.08);color:#fff;border:1px solid rgba(255,255,255,0.2);border-radius:3px;color-scheme:dark;" />
+          <button class="dm-btn dm-btn-sm dm-btn-primary" @click="() => loadHistory()" style="padding:4px 10px;">🔍 查询</button>
+          <button class="dm-btn dm-btn-sm" @click="resetFilters" style="padding:4px 10px;">重置</button>
         </div>
-        <div v-else class="history-list">
-          <div v-for="record in history" :key="record.id" class="history-item">
-            <div class="history-time">{{ formatTime(record.handover_time) }}</div>
-            <div class="history-info">
-              <span class="history-arrow">{{ record.handing_over_user }} → {{ record.taking_over_user || '待接班' }}</span>
-              <span class="history-meta">{{ record.shift_type }} {{ record.team }} · {{ record.handing_over_role }}</span>
+        <div v-if="!hasSearched" class="empty-state">
+          <span class="empty-icon">🔍</span>
+          <p>请选择筛选条件后点击 [🔍 查询] 加载交接历史</p>
+        </div>
+        <div v-else-if="history.length === 0" class="empty-state">
+          <span class="empty-icon">📋</span>
+          <p>该筛选条件下暂无交接记录</p>
+        </div>
+
+        <!-- 顶部信息条 (无按钮, 只显示范围) -->
+        <div v-if="hasSearched && historyTotal > 0" class="history-info-bar">
+          <span class="pager-info">显示{{ currentPageCount }}条，共{{ historyTotal }}条</span>
+        </div>
+
+        <!-- 历史记录列表 (B 单卡布局) -->
+        <div v-if="hasSearched && history.length > 0" class="history-list history-list-b" style="padding:0 16px;">
+          <div v-for="record in history" :key="'B-'+record.id" class="history-block-b" :class="{ 'expanded': expandedHistoryIds.includes(record.id) }" @click="toggleHistoryItem(record.id)">
+            <div class="history-summary-b">
+              <div class="hsb-row">
+                <div class="hsb-time">{{ formatTime(record.handover_time) }} · {{ record.handing_over_role || '未知岗位' }}</div>
+                <span class="card-tag" :class="record.status === 'completed' ? 'tag-done' : 'tag-wait'">{{ record.status === 'completed' ? '已完成' : '待接班' }}</span>
+                <span class="hsb-toggle">{{ expandedHistoryIds.includes(record.id) ? '▼' : '▶' }}</span>
+              </div>
+              <div class="hsb-names">
+                <span class="hsb-party">
+                  <span class="hsb-team">{{ record.team || '?' }}</span>
+                  <span class="hsb-sep">·</span>
+                  <span class="hsb-member">{{ record.handing_over_member || record.handing_over_user }}</span>
+                  <span class="hsb-action">交班</span>
+                </span>
+                <span class="hsb-arrow">→</span>
+                <span v-if="record.status === 'completed' && record.taking_over_user" class="hsb-party">
+                  <span class="hsb-team">{{ record.taking_over_team || '?' }}</span>
+                  <span class="hsb-sep">·</span>
+                  <span class="hsb-member">{{ record.taking_over_shift_member || record.taking_over_member || record.taking_over_user_name || '?' }}</span>
+                  <span class="hsb-action">接班</span>
+                </span>
+                <span v-else class="hsb-pending">待接班</span>
+              </div>
             </div>
-            <span class="card-tag" :class="record.status === 'completed' ? 'tag-done' : 'tag-wait'">
-              {{ record.status === 'completed' ? '已完成' : '待接班' }}
-            </span>
+            <transition name="slide-down">
+              <div v-if="expandedHistoryIds.includes(record.id)" class="history-detail-b-wrap" @click.stop>
+                <HistoryDetail :detail="historyDetails[record.id]" :loading="loadingDetails[record.id]" />
+              </div>
+            </transition>
           </div>
+        </div>
+
+        <!-- 底部翻页器 (带按钮) -->
+        <div v-if="hasSearched && historyTotal > 0" class="history-pager history-pager-bottom">
+          <button class="dm-btn dm-btn-sm" :disabled="historyPage <= 1" @click="() => goPage(1)" style="padding:4px 10px;">⏮ 首页</button>
+          <button class="dm-btn dm-btn-sm" :disabled="historyPage <= 1" @click="() => goPage(historyPage - 1)" style="padding:4px 10px;">‹ 上一页</button>
+          <span class="pager-current">第 {{ historyPage }} / {{ totalPages }} 页</span>
+          <button class="dm-btn dm-btn-sm" :disabled="historyPage >= totalPages" @click="() => goPage(historyPage + 1)" style="padding:4px 10px;">下一页 ›</button>
+          <button class="dm-btn dm-btn-sm" :disabled="historyPage >= totalPages" @click="() => goPage(totalPages)" style="padding:4px 10px;">末页 ⏭</button>
         </div>
       </div>
     </div>
@@ -176,12 +416,44 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import TopNavBar from '../components/TopNavBar.vue'
+import HistoryDetail from '../components/HistoryDetail.vue'
 import { currentUser, isOnDuty } from '../composables/useDeviceStore'
 
 const API_BASE = '/api/handover'
 
 // 班组和班次
 const teams = ['A班', 'B班', 'C班', 'D班']
+
+// ========== 系统管理员/带班专属概览 ==========
+const adminOverview = ref<any>(null)
+const expandedAdminPositions = ref<Set<string>>(new Set())
+const allShifts = ref<any[]>([])
+
+const displayPositions = computed(() => {
+  const all = adminOverview.value?.positions || []
+  if (currentUser.value?.role === '带班') {
+    return all.filter((p: any) => p.role !== '带班')
+  }
+  return all
+})
+
+const isAdminViewer = computed(() => ['系统管理人', '带班'].includes(currentUser.value?.role || ''))
+
+function toggleAdminPosition(role: string) {
+  if (expandedAdminPositions.value.has(role)) expandedAdminPositions.value.delete(role)
+  else expandedAdminPositions.value.add(role)
+  expandedAdminPositions.value = new Set(expandedAdminPositions.value)
+}
+
+async function loadAdminOverview() {
+  if (!currentUser.value || !['系统管理人', '带班'].includes(currentUser.value.role)) return
+  try {
+    const now = new Date()
+    const today = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`
+    const res = await fetch(`${API_BASE}/admin-overview?role=${encodeURIComponent(currentUser.value.role)}&date=${today}`)
+    if (res.ok) adminOverview.value = await res.json()
+  } catch (err) { console.error('加载管理员概览失败', err) }
+}
 
 // 状态
 const currentShiftType = ref('日班')
@@ -208,12 +480,57 @@ function parseNotesToLines(notes: string): void {
   handoverNoteLines.value = notes ? notes.split('\n').filter((l: string) => l.trim()) : ['']
 }
 const lastHandover = ref<any>(null)
+const lastShiftTasks = ref<{ total: number; done: number; abnormal: number; abnormalList: any[]; allList: any[] }>({ total: 0, done: 0, abnormal: 0, abnormalList: [], allList: [] })
+const lastShiftWorkorders = ref<{ created: any[]; completed: any[]; inProgress: any[] }>({ created: [], completed: [], inProgress: [] })
+const lastDutyNotes = ref<any>(null)
+const lastTasksExpanded = ref(false)
+const lastWorkordersExpanded = ref(false)
+
+// 工单状态文本映射
+function statusLabel(status: string, woType?: string): string {
+  const map: Record<string, string> = {
+    'pending': '未接单',
+    'processing': '处理中',
+    'completed': '已完成',
+    'closed': '已关闭',
+    'delay': '延期中',
+    'returned': '已退回',
+    'to_maintenance': '转维修',
+    'self_resolved': '已自行解决'
+  }
+  return map[status] || status
+}
+
+function statusIcon(status: string): string {
+  const iconMap: Record<string, string> = {
+    'pending': '⏳',
+    'processing': '🔧',
+    'completed': '✅',
+    'closed': '✅',
+    'delay': '⏰',
+    'returned': '🔙',
+    'to_maintenance': '🔁',
+    'self_resolved': '✅'
+  }
+  return iconMap[status] || '⬜'
+}
 const history = ref<any[]>([])
+const historyTotal = ref(0)
+const historyPage = ref(1)
+const historyPageSize = 10
+const hasSearched = ref(false)
 const filterShift = ref('')
 const filterTeam = ref('')
 const filterUser = ref('')
+const filterRole = ref('')
+const filterHandingOverUser = ref('')
+const filterTakingOverTeam = ref('')
+const filterTakingOverUser = ref('')
 const filterStart = ref('')
 const filterEnd = ref('')
+const expandedHistoryIds = ref<number[]>([])
+const historyDetails = ref<Record<number, any>>({})
+const loadingDetails = ref<Record<number, boolean>>({})
 const shiftTypes = [
   { type: '早班', start: '08:00', end: '16:00' },
   { type: '日班', start: '16:00', end: '23:00' },
@@ -246,14 +563,28 @@ const canTakeover = computed(() => {
      !lastHandover.value.taking_over_user)
 })
 
-// 判断当前应该哪个班在岗
+// 班次配置 (从后端读取, loadData 时加载)
+const shiftsConfig = ref<Array<{ name: string; start_time: string; end_time: string; cross_day: number; enabled: number }>>([])
+
+// 判断当前应该哪个班在岗 (按 shift_config 表动态判断)
 function getCurrentShiftAndTeam(): { shift: string; team: string } {
   const now = new Date()
-  const hour = now.getHours()
-  let shift = '早班'
-  if (hour >= 8 && hour < 16) shift = '日班'
-  else if (hour >= 16 && hour < 23) shift = '夜班'
-  else shift = '早班'
+  const curMin = now.getHours() * 60 + now.getMinutes() // 当前分钟数
+
+  let shift = '早班' // fallback
+  for (const s of shiftsConfig.value) {
+    if (!s.enabled) continue
+    const [sh, sm] = s.start_time.split(':').map(Number)
+    const [eh, em] = s.end_time.split(':').map(Number)
+    const startMin = sh * 60 + sm
+    const endMin = eh * 60 + em
+    if (s.cross_day) {
+      // 跨天班: start <= now < 24h OR 0 <= now < end
+      if (curMin >= startMin || curMin < endMin) { shift = s.name; break }
+    } else {
+      if (curMin >= startMin && curMin < endMin) { shift = s.name; break }
+    }
+  }
 
   // 简单轮转：按日期分配班组
   const dayOfYear = Math.floor((now.getTime() - new Date(now.getFullYear(), 0, 0).getTime()) / 86400000)
@@ -269,14 +600,28 @@ async function loadData() {
   if (!currentUser.value) return
   const role = currentUser.value.role
 
+  // 并行加载: shift_config + status
   try {
-    const res = await fetch(`${API_BASE}/status?role=${encodeURIComponent(role)}&userId=${currentUser.value.id}`)
-    const data = await res.json()
+    const [shiftRes, statusRes] = await Promise.all([
+      fetch('/api/admin/shifts'),
+      fetch(`${API_BASE}/status?role=${encodeURIComponent(role)}&userId=${currentUser.value.id}`)
+    ])
+    if (shiftRes.ok) {
+      const sd = await shiftRes.json()
+      shiftsConfig.value = (sd.rows || []).filter((r: any) => r.enabled).sort((a: any, b: any) => a.sort - b.sort)
+    }
+    const data = await statusRes.json()
 
     if (data.lastHandover) {
       lastHandover.value = data.lastHandover
       handoverStatus.value = data.lastHandover.status === 'pending' ? 'pending' : 'idle'
-      parseNotesToLines(data.lastHandover.notes || '')
+    }
+
+    // 当前班次纪事编辑器: 优先用今天已保存的 duty_notes, 不要用上一班的
+    if (data.currentDutyNotes && data.currentDutyNotes.notes) {
+      parseNotesToLines(data.currentDutyNotes.notes)
+    } else {
+      handoverNoteLines.value = ['']
     }
 
     tasksTotal.value = data.tasksTotal || 0
@@ -289,8 +634,17 @@ async function loadData() {
     currentTeam.value = team
     currentShift.value = data.currentShift
 
-    // 加载历史
-    await loadHistory()
+    // 上一班事务详情 (巡检任务 + 工单 + 纪事) - 仅值班岗位/带班需要
+    if (data.lastShiftTasks) lastShiftTasks.value = data.lastShiftTasks
+    if (data.lastShiftWorkorders) lastShiftWorkorders.value = data.lastShiftWorkorders
+    if (data.lastDutyNotes) lastDutyNotes.value = data.lastDutyNotes
+
+    // 系统管理员/带班: 加载专属概览
+    if (['系统管理人', '带班'].includes(currentUser.value?.role || '')) {
+      await loadAdminOverview()
+    }
+
+    // 注意: 不再自动加载历史, 需要点查询才查
   } catch (err) {
     console.error('加载交接数据失败', err)
   }
@@ -329,6 +683,31 @@ async function submitHandover() {
   }
 }
 
+// 保存值班纪事 (不交班, 仅保存)
+async function saveNotes() {
+  if (!amIOnShift.value) { alert('非值班时间,无法保存'); return }
+  if (!currentShift.value) { alert('未接班,无法保存'); return }
+  try {
+    const res = await fetch(`${API_BASE}/notes`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        team: currentShift.value.team,
+        role: currentShift.value.role,
+        shift_type: currentShift.value.shift_type,
+        member_name: currentShift.value.member_name,
+        date: new Date().toISOString().slice(0, 10),
+        notes: buildNotesFromLines()
+      })
+    })
+    if (!res.ok) throw new Error('保存失败')
+    alert('保存成功')
+  } catch (err) {
+    console.error('保存失败', err)
+    alert('保存失败, 请重试')
+  }
+}
+
 // 接班
 async function confirmTakeover() {
   if (!lastHandover.value) return
@@ -360,30 +739,103 @@ function formatTime(timeStr: string): string {
   return `${d.getFullYear()}-${(d.getMonth()+1).toString().padStart(2,'0')}-${d.getDate().toString().padStart(2,'0')} ${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}`
 }
 
-async function loadHistory() {
+async function loadHistory(page = 1) {
   if (!currentUser.value) return
   const role = currentUser.value.role
-  let url = `${API_BASE}/history?role=${encodeURIComponent(role)}&limit=50`
+  // 系统管理员/带班: 查全部 (不默认加 user 过滤)
+  // 其他角色: 默认按本岗位名 (currentUser.name) 过滤
+  const isBroadViewer = ['系统管理人', '带班'].includes(currentUser.value.role)
+  const defaultUser = isBroadViewer ? '' : (currentUser.value.name || '')
+  const offset = (page - 1) * historyPageSize
+  let url = `${API_BASE}/history?role=${encodeURIComponent(role)}&limit=${historyPageSize}&offset=${offset}&viewerRole=${encodeURIComponent(currentUser.value.role)}`
+  if (isBroadViewer && filterRole.value) url += `&role=${encodeURIComponent(filterRole.value)}`
   if (filterShift.value) url += `&shift_type=${encodeURIComponent(filterShift.value)}`
   if (filterTeam.value) url += `&team=${encodeURIComponent(filterTeam.value)}`
+  if (filterTakingOverTeam.value) url += `&taking_over_team=${encodeURIComponent(filterTakingOverTeam.value)}`
   if (filterUser.value) url += `&user=${encodeURIComponent(filterUser.value)}`
+  if (filterHandingOverUser.value) url += `&handing_over_user=${encodeURIComponent(filterHandingOverUser.value)}`
+  if (filterTakingOverUser.value) url += `&taking_over_user=${encodeURIComponent(filterTakingOverUser.value)}`
   if (filterStart.value) url += `&start_date=${encodeURIComponent(filterStart.value)}`
   if (filterEnd.value) url += `&end_date=${encodeURIComponent(filterEnd.value)}`
-  const res = await fetch(url)
-  history.value = await res.json()
+  if (!isBroadViewer && defaultUser && !filterUser.value) {
+    url += `&user=${encodeURIComponent(defaultUser)}`
+  }
+  try {
+    const res = await fetch(url)
+    const data = await res.json()
+    history.value = data.rows || []
+    historyTotal.value = data.total || 0
+    historyPage.value = page
+    hasSearched.value = true
+  } catch (err) {
+    console.error('加载历史失败', err)
+  }
+}
+
+const totalPages = computed(() => Math.max(1, Math.ceil(historyTotal.value / historyPageSize)))
+const pageRange = computed(() => {
+  const total = historyTotal.value
+  if (total === 0) return '0 / 0'
+  const start = (historyPage.value - 1) * historyPageSize + 1
+  const end = Math.min(start + historyPageSize - 1, total)
+  return `${start}-${end} / ${total}`
+})
+const currentPageCount = computed(() => {
+  if (historyTotal.value === 0) return 0
+  return Math.min(historyPageSize, historyTotal.value - (historyPage.value - 1) * historyPageSize)
+})
+
+function goPage(p: number) {
+  if (p < 1 || p > totalPages.value) return
+  if (p === historyPage.value) return
+  loadHistory(p)
 }
 
 function resetFilters() {
   filterShift.value = ''
   filterTeam.value = ''
   filterUser.value = ''
+  filterRole.value = ''
+  filterHandingOverUser.value = ''
+  filterTakingOverTeam.value = ''
+  filterTakingOverUser.value = ''
   filterStart.value = ''
   filterEnd.value = ''
-  loadHistory()
+  // 重置后不自动查, 让用户重新点查询
+}
+
+async function toggleHistoryItem(id: number) {
+  const idx = expandedHistoryIds.value.indexOf(id)
+  if (idx >= 0) {
+    expandedHistoryIds.value.splice(idx, 1)
+  } else {
+    expandedHistoryIds.value.push(id)
+    // 按需加载详情
+    if (!historyDetails.value[id] && !loadingDetails.value[id]) {
+      loadingDetails.value[id] = true
+      try {
+        const res = await fetch(`${API_BASE}/history/${id}/detail`)
+        if (res.ok) {
+          const data = await res.json()
+          historyDetails.value[id] = {
+            // 后端 detail 接口把值班纪事放在 record.notes
+            notes: (data.record && data.record.notes) || data.notes || data.duty_notes || '',
+            tasks: data.tasks || { total: 0, done: 0, abnormal: 0, allList: [] },
+            workorders: data.workorders || { created: [], completed: [], inProgress: [] }
+          }
+        }
+      } catch (err) {
+        console.error('加载历史详情失败', err)
+      } finally {
+        loadingDetails.value[id] = false
+      }
+    }
+  }
 }
 
 onMounted(() => {
   loadData()
+  // 注意: 历史列表不自动加载, 需要点查询
 })
 </script>
 
@@ -454,7 +906,7 @@ onMounted(() => {
   padding: 20px 24px;
 }
 .card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
-.card-title { font-size: 16px; font-weight: 600; color: #fff; margin: 0; }
+.card-title { font-size: 18px; font-weight: 600; color: #fff; margin: 0; }
 .card-tag {
   padding: 2px 10px;
   border-radius: 4px;
@@ -464,38 +916,39 @@ onMounted(() => {
 .tag-done { background: rgba(82,196,26,0.15); color: #52c41a; }
 .tag-wait { background: rgba(250,173,20,0.15); color: #faad14; }
 
-.info-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
-.info-item { display: flex; flex-direction: column; gap: 3px; }
-.info-label { font-size: 12px; color: rgba(255,255,255,0.45); }
-.info-value { font-size: 15px; font-weight: 500; color: rgba(255,255,255,0.9); }
-.text-green { color: #52c41a; }
+.info-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px 16px; }
+.info-item { display: flex; flex-direction: column; gap: 4px; }
+.info-label { font-size: 14px; color: rgba(255,255,255,0.7); font-weight: 500; }
+.info-value { font-size: 17px; font-weight: 600; color: rgba(255,255,255,1); }
+.text-green { color: #4ade80; }
 .text-orange { color: #fa8c16; }
+.text-gray { color: rgba(255, 255, 255, 0.5); }
 
-.info-notes { margin-top: 14px; }
+.info-notes { margin-top: 16px; }
 .notes-box {
-  background: rgba(255,255,255,0.05);
+  background: rgba(255,255,255,0.06);
   border-radius: 6px;
-  padding: 10px 14px;
-  font-size: 14px;
-  color: rgba(255,255,255,0.7);
-  margin-top: 4px;
-  line-height: 1.6;
+  padding: 12px 16px;
+  font-size: 15px;
+  color: rgba(255,255,255,0.9);
+  margin-top: 6px;
+  line-height: 1.7;
 }
 
 .form-section {}
 .form-row-inline { display: flex; align-items: center; gap: 16px; margin-bottom: 16px; }
 .form-row { margin-bottom: 16px; }
-.form-label { font-size: 14px; color: rgba(255,255,255,0.6); font-weight: 500; min-width: 70px; }
+.form-label { font-size: 16px; color: rgba(255,255,255,0.9); font-weight: 600; min-width: 70px; }
 .notes-editor { display: flex; flex-direction: column; gap: 6px; }
 .note-line-row { display: flex; align-items: center; gap: 6px; }
 .note-line-input {
   flex: 1;
-  padding: 8px 12px;
-  border: 1px solid rgba(255,255,255,0.15);
+  padding: 10px 14px;
+  border: 1px solid rgba(255,255,255,0.2);
   border-radius: 6px;
-  font-size: 14px;
-  background: rgba(255,255,255,0.05);
-  color: rgba(255,255,255,0.85);
+  font-size: 15px;
+  background: rgba(255,255,255,0.06);
+  color: rgba(255,255,255,0.95);
   box-sizing: border-box;
 }
 .note-line-input:focus { border-color: #40a9ff; outline: none; }
@@ -575,6 +1028,288 @@ onMounted(() => {
 .empty-state { text-align: center; padding: 40px 0; color: rgba(255,255,255,0.4); }
 .empty-icon { font-size: 48px; display: block; margin-bottom: 12px; }
 
+/* ============================================
+   布局 B: 单卡 (加大间距, summary + 详情同卡)
+   ============================================ */
+.history-list-b {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.history-block-b {
+  background: rgba(15, 45, 74, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 8px;
+  padding: 16px 20px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  user-select: none;
+}
+.history-block-b:hover {
+  background: rgba(20, 60, 100, 0.7);
+  border-color: rgba(45, 212, 191, 0.35);
+}
+.history-block-b.expanded {
+  background: rgba(20, 60, 100, 0.75);
+  border-color: rgba(45, 212, 191, 0.5);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.35);
+}
+.hsb-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.hsb-time {
+  flex: 1;
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.75);
+  font-weight: 500;
+}
+.hsb-toggle {
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 14px;
+  width: 18px;
+  text-align: center;
+  flex-shrink: 0;
+  font-weight: 600;
+}
+.hsb-names {
+  font-size: 16px;
+  color: rgba(255, 255, 255, 1);
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.hsb-arrow {
+  margin: 0 8px;
+  color: rgba(45, 212, 191, 0.8);
+  font-weight: 600;
+}
+.hsb-party {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  white-space: nowrap;
+}
+.hsb-team {
+  color: #2dd4bf;
+  font-weight: 600;
+  font-size: 15px;
+}
+.hsb-sep {
+  color: rgba(255, 255, 255, 0.4);
+  margin: 0 2px;
+}
+.hsb-member {
+  color: rgba(255, 255, 255, 1);
+  font-weight: 500;
+  font-size: 15px;
+}
+.hsb-action {
+  margin-left: 4px;
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 13px;
+  font-weight: 400;
+}
+.hsb-pending {
+  color: #fa8c16;
+  font-weight: 600;
+  font-size: 15px;
+}
+.history-detail-b-wrap {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px dashed rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+}
+
+/* ============================================
+   展开/收起动画
+   ============================================ */
+.slide-down-enter-active,
+.slide-down-leave-active {
+  transition: max-height 0.3s ease, opacity 0.25s ease;
+  overflow: hidden;
+}
+.slide-down-enter-from,
+.slide-down-leave-to {
+  max-height: 0;
+  opacity: 0;
+}
+.slide-down-enter-to,
+.slide-down-leave-from {
+  max-height: 1200px;
+  opacity: 1;
+}
+
+/* ============================================
+   翻页器
+   ============================================ */
+.history-info-bar {
+  padding: 10px 16px;
+  margin: 4px 16px 0;
+  background: rgba(45, 212, 191, 0.06);
+  border: 1px solid rgba(45, 212, 191, 0.2);
+  border-radius: 6px;
+  text-align: right;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.7);
+}
+.history-info-bar .pager-info {
+  color: rgba(255, 255, 255, 0.75);
+}
+.history-pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 14px 16px;
+  margin: 12px 16px 0;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.85);
+}
+.pager-info {
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 13px;
+}
+.pager-current {
+  color: #2dd4bf;
+  font-weight: 600;
+  font-size: 14px;
+  padding: 0 8px;
+  min-width: 100px;
+  text-align: center;
+}
+.history-pager .dm-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+/* ============================================
+   工单类型标签颜色 (维修=蓝, 问题=橙)
+   ============================================ */
+.wo-type-mini {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 3px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+.wo-type-mini.type-maintenance {
+  background: rgba(96, 165, 250, 0.35);
+  color: #93c5fd;
+}
+.wo-type-mini.type-problem {
+  background: rgba(251, 146, 60, 0.35);
+  color: #fdba74;
+}
+
+/* ============================================
+   岗位卡 mini 列表 (巡检项/工单项) 统一字号
+   ============================================ */
+.task-item-mini {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 0;
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.9);
+}
+.task-name-mini {
+  font-size: 14px;
+  font-weight: 500;
+}
+.task-location-mini {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.55);
+}
+.wo-meta-mini {
+  display: flex;
+  gap: 6px;
+  margin-left: 4px;
+  font-size: 12px;
+}
+.wo-type-mini,
+.wo-status-mini {
+  padding: 2px 8px;
+  border-radius: 2px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+/* 工单状态标签颜色 (状态与颜色一一对应, 适用 .wo-status 和 .wo-status-mini) */
+.wo-status,
+.wo-status-mini {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 3px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+.wo-status.status-completed,
+.wo-status.status-closed,
+.wo-status.status-self_resolved,
+.wo-status-mini.status-completed,
+.wo-status-mini.status-closed,
+.wo-status-mini.status-self_resolved {
+  background: rgba(74, 222, 128, 0.18);
+  color: #4ade80;
+}
+.wo-status.status-processing,
+.wo-status-mini.status-processing {
+  background: rgba(45, 212, 191, 0.18);
+  color: #2dd4bf;
+}
+.wo-status.status-delay,
+.wo-status-mini.status-delay {
+  background: rgba(250, 173, 20, 0.2);
+  color: #faad14;
+}
+.wo-status.status-returned,
+.wo-status-mini.status-returned {
+  background: rgba(229, 57, 53, 0.2);
+  color: #ff6b6b;
+}
+.wo-status.status-pending,
+.wo-status-mini.status-pending {
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.6);
+}
+.wo-status.status-to_maintenance,
+.wo-status-mini.status-to_maintenance {
+  background: rgba(96, 165, 250, 0.2);
+  color: #60a5fa;
+}
+
+/* ============================================
+   下拉框深色修复 (修复白底不可见问题)
+   ============================================ */
+.history-filters select {
+  color-scheme: dark;
+}
+.history-filters select option {
+  background-color: #0f2d4a;
+  color: #ffffff;
+}
+.history-filters select option:checked {
+  background: linear-gradient(0deg, #2dd4bf 0%, #2dd4bf 100%);
+  background-color: #14b8a6;
+  color: #ffffff;
+}
+
+/* ============================================
+   兼容旧类名 (防其它地方仍引用)
+   ============================================ */
 .history-list {}
 .history-item {
   display: flex;

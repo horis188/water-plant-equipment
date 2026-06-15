@@ -2,27 +2,26 @@
 import { useRouter } from 'vue-router'
 import WaterBackground from '../components/WaterBackground.vue'
 import LoginCard from '../components/LoginCard.vue'
-import { setCurrentUser } from '../composables/useDeviceStore'
+import { setCurrentUser, setCurrentShiftContext } from '../composables/useDeviceStore'
 
 const router = useRouter()
 
-const handleLogin = (data: { username: string; password: string; verifyCode: string }) => {
-  const userMap: Record<string, { name: string; role: string; avatar: string; id: number; team?: string }> = {
-    'admin': { name: '管理员', role: '系统管理人', avatar: '管', id: 1 },
-    'zy': { name: '张远', role: '带班', avatar: '远', id: 2 },
-    'yqzs': { name: '一期制水', role: '值班岗位', avatar: '制', id: 3 },
-    'wxz': { name: '维修组', role: '维修组', avatar: '维', id: 4 },
-    'wy': { name: '王一', role: '带班', avatar: '王', id: 5 },
-    'ce': { name: '陈二', role: '带班', avatar: '陈', id: 6 },
-    'zs': { name: '张三', role: '旧厂制水', avatar: '张', id: 7, team: 'A班' },
-    'ls': { name: '李四', role: '投药间值班', avatar: '李', id: 8, team: '' },
-    'lm': { name: '李明', role: '旧厂制水', avatar: '李', id: 9, team: 'B班' }
-  }
-  const user = userMap[data.username]
-  if (user) {
-    setCurrentUser(user)
-    router.push('/dashboard')
-  }
+const handleLogin = (user: { id: number; username: string; name: string; role: string; team?: string; member_name?: string; avatar?: string }) => {
+  // 头像优先级: member_name 第一个汉字 > name 第一个汉字 > 账号 username 首字
+  const memberFirst = user.member_name ? user.member_name.replace(/\s/g, '').charAt(0) : ''
+  const nameFirst = user.name ? user.name.replace(/\s/g, '').charAt(0) : ''
+  const avatar = memberFirst || nameFirst || user.username?.charAt(0) || '?'
+  setCurrentUser({
+    id: user.id,
+    name: user.name,
+    role: user.role,
+    avatar,
+    team: user.team,
+    member_name: user.member_name
+  })
+  // 清空旧班次上下文, 让 MainDashboardView 重新加载
+  setCurrentShiftContext(null)
+  router.push('/dashboard')
 }
 </script>
 

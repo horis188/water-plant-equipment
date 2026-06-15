@@ -124,12 +124,17 @@ export interface ProblemWorkOrder {
   resolution?: string
   resolutionImages?: string[]
   createdAt: string
+  team?: string
+  role?: string
+  memberName?: string
+  member_name?: string
   closedAt?: string
+  lastActionAt?: string
 }
 
 export interface MaintenanceWorkOrder {
   id: string
-  problemOrderId?: string
+  problemOrderId?: string | null
   content?: string
   level: OrderLevel
   assignerId: string
@@ -140,6 +145,7 @@ export interface MaintenanceWorkOrder {
   status: MaintenanceStatus
   delayReason?: string
   delayDays: number
+  delayImages?: string[]
   sparepartUsage: SparepartUsage[]
   completionImages?: string[]
   completionNote?: string
@@ -148,6 +154,12 @@ export interface MaintenanceWorkOrder {
   createdAt: string
   completedAt?: string
   closedAt?: string
+  team?: string
+  role?: string
+  user_name?: string
+  reporterName?: string
+  memberName?: string
+  lastActionAt?: string
 }
 
 export interface WorkOrderLog {
@@ -210,11 +222,45 @@ export function addProblemOrder(order: Omit<ProblemWorkOrder, 'id' | 'createdAt'
       reporter_name: order.reporterName,
       images: order.images,
       videos: order.videos,
-      deviceId: order.deviceId || null
+      deviceId: order.deviceId || null,
+      team: order.team || null,
+      role: order.role || null,
+      member_name: order.member_name || null
     })
   }).catch(err => console.error('同步问题工单失败', err))
   
   return id
+}
+
+export async function recreateProblemFromMaintenance(problemOrderId: string) {
+  try {
+    const res = await fetch('/api/workorders/recreate-problem', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ problem_order_id: problemOrderId })
+    })
+    if (!res.ok) throw new Error('重建问题工单失败')
+    const data = await res.json()
+    // 从原问题工单复制内容新建本地记录
+    const orig = problemOrders.value.find(p => String(p.id) === String(problemOrderId))
+    if (orig) {
+      problemOrders.value.push({
+        id: String(data.id),
+        reporterId: orig.reporterId,
+        reporterName: orig.reporterName,
+        content: orig.content + ' [退回重开]',
+        status: 'pending',
+        shiftId: '',
+        deviceId: orig.deviceId,
+        images: [],
+        videos: [],
+        createdAt: new Date().toLocaleString('zh-CN'),
+        resolution: ''
+      })
+    }
+  } catch (err) {
+    console.error('重建问题工单失败', err)
+  }
 }
 
 export async function updateProblemOrder(id: string, data: Partial<ProblemWorkOrder>) {
@@ -222,6 +268,8 @@ export async function updateProblemOrder(id: string, data: Partial<ProblemWorkOr
   if (data.content !== undefined) updateData.content = data.content
   if (data.status !== undefined) updateData.status = data.status
   if (data.resolution !== undefined) updateData.resolution = data.resolution
+  if (data.resolutionImages !== undefined) updateData.resolutionImages = data.resolutionImages
+  if (data.closedAt !== undefined) updateData.closedAt = data.closedAt
   if (data.deviceId !== undefined) updateData.deviceId = data.deviceId
   if (Object.keys(updateData).length === 0) return
   try {
@@ -258,7 +306,12 @@ export async function addMaintenanceOrder(order: Omit<MaintenanceWorkOrder, 'id'
         status: order.status,
         assigner_name: order.assignerName,
         handler_name: order.handlerName || null,
-        problem_order_id: order.problemOrderId || null
+        problem_order_id: order.problemOrderId || null,
+        team: order.team || null,
+        role: order.role || null,
+        user_name: order.user_name || order.assignerName,
+        reporter_name: (order as any).reporterName || null,
+        member_name: (order as any).memberName || null
       })
     })
     if (!res.ok) throw new Error('API失败')
@@ -286,6 +339,16 @@ export async function updateMaintenanceOrder(id: string, data: Partial<Maintenan
   if (data.status !== undefined) updateData.status = data.status
   if (data.handlerName !== undefined) updateData.handler_name = data.handlerName
   if (data.returnReason !== undefined) updateData.return_reason = data.returnReason
+  if (data.returnImages !== undefined) updateData.return_images = data.returnImages
+  if (data.participants !== undefined) updateData.participants = data.participants
+  if (data.completionNote !== undefined) updateData.completion_note = data.completionNote
+  if (data.completionImages !== undefined) updateData.completion_images = data.completionImages
+  if (data.sparepartUsage !== undefined) updateData.sparepart_usage = data.sparepartUsage
+  if (data.delayImages !== undefined) updateData.delay_images = data.delayImages
+  if (data.delayReason !== undefined) updateData.delay_reason = data.delayReason
+  if (data.delayDays !== undefined) updateData.delay_days = data.delayDays
+  if (data.completedAt !== undefined) updateData.completed_at = data.completedAt
+  if (data.problemOrderId !== undefined) updateData.problem_order_id = data.problemOrderId
   if (Object.keys(updateData).length === 0) return
   try {
     const res = await fetch(`/api/workorders/maintenance/${id}`, {

@@ -1,5 +1,6 @@
 import express from 'express'
 import pool from '../db/mysql.js'
+import { sseEmit } from '../events.js'
 
 const router = express.Router()
 
@@ -70,6 +71,7 @@ router.post('/plans', async (req, res) => {
       }
     }
     await conn.commit()
+    sseEmit('inspection-update', { plan_id: planId })
     res.json({ id: planId, name, location, cycle, executor_role, executor_ids, custom_times, items })
   } catch (err) {
     await conn.rollback()
@@ -100,6 +102,7 @@ router.put('/plans/:id', async (req, res) => {
       }
     }
     await conn.commit()
+    sseEmit('inspection-update', { plan_id: Number(req.params.id) })
     res.json({ id: req.params.id, name, location, cycle, executor_role })
   } catch (err) {
     await conn.rollback()
@@ -114,6 +117,7 @@ router.delete('/plans/:id', async (req, res) => {
   try {
     await pool.query('DELETE FROM inspection_items WHERE plan_id = ?', [req.params.id])
     await pool.query('DELETE FROM inspection_plans WHERE id = ?', [req.params.id])
+    sseEmit('inspection-update', { plan_id: Number(req.params.id) })
     res.json({ success: true })
   } catch (err) {
     res.status(500).json({ error: err.message })
@@ -131,15 +135,32 @@ router.get('/records', async (req, res) => {
 })
 
 // 提交巡检结果 → 写入 inspection_task_records
+// 以 (plan_id, device_id, executor_id, shift_id) 为唯一键, 不同班次/不同人可独立保留
 router.post('/records', async (req, res) => {
-  const { plan_id, device_id, device_name, executor, executor_id, executor_name, results, has_abnormal, abnormal_desc, all_items } = req.body
+  const { plan_id, device_id, device_name, executor, executor_id, executor_name, results, has_abnormal, abnormal_desc, all_items, executor_role, shift_id: shiftIdFromBody } = req.body
+  // 如果前端没传 shift_id, 兑底查当前 active shift
+  let shift_id = shiftIdFromBody
+  if (!shift_id && executor_name) {
+    try {
+      const [activeShifts] = await pool.query(
+        `SELECT id FROM handover_shifts WHERE shift_end IS NULL AND user_name = ? ORDER BY shift_start DESC LIMIT 1`,
+        [executor_name]
+      )
+      shift_id = activeShifts[0]?.id || null
+    } catch {}
+  }
+  console.log('[DEBUG POST /records] plan_id:', plan_id, 'device_id:', device_id, 'executor_id:', executor_id, 'shift_id:', shift_id, 'has_abnormal:', has_abnormal)
   const check_date = new Date().toISOString().split('T')[0]
   const check_time = new Date().toTimeString().split(' ')[0]
   try {
-    // 检查是否已有记录（同计划+设备+执行人）
+    // 检查是否已有记录（同计划+设备+执行人+班次）
+    // shift_id 为空时兑底按原逻辑 (兼容旧前端)
     const [existing] = await pool.query(
-      `SELECT * FROM inspection_task_records WHERE plan_id = ? AND device_id = ? AND executor_id = ? ORDER BY created_at DESC LIMIT 1`,
-      [plan_id, device_id, executor_id]
+      `SELECT * FROM inspection_task_records 
+       WHERE plan_id = ? AND device_id = ? AND executor_id = ?
+         AND (shift_id = ? OR (shift_id IS NULL AND ? IS NULL))
+       ORDER BY created_at DESC LIMIT 1`,
+      [plan_id, device_id, executor_id, shift_id || null, shift_id || null]
     )
 
     // results 可能是前端传来的 JSON 字符串，也可能是对象，统一转为 JSON 字符串存储
@@ -148,9 +169,22 @@ router.post('/records', async (req, res) => {
       try { resultsData = JSON.parse(results) } catch { resultsData = [] }
     }
     const newResults = JSON.stringify(Array.isArray(resultsData) ? resultsData : [])
-    // 判断是否全部项目都已检查（对比 all_items 中的所有非空项）
-    const allItemsList = (all_items || []).filter((l) => l.trim())
-    const allDone = allItemsList.length > 0 && allItemsList.every((li) => (results || []).includes(li))
+    // 后端自己查 inspection_items 表获取完整的 check_content，不依赖前端 all_items
+    let allItemsList = []
+    try {
+      const [itemRows] = await pool.query(
+        'SELECT check_content FROM inspection_items WHERE plan_id = ? AND device_id = ? LIMIT 1',
+        [plan_id, device_id]
+      )
+      if (itemRows.length > 0 && itemRows[0].check_content) {
+        allItemsList = itemRows[0].check_content.split('\n').map(l => l.trim()).filter(Boolean)
+      }
+    } catch (e) { /* ignore */ }
+    // 如果前端传了 all_items 且后端查不到，用前端的（兼容旧逻辑）
+    if (allItemsList.length === 0 && Array.isArray(all_items)) {
+      allItemsList = all_items.filter(l => l.trim())
+    }
+    const allDone = allItemsList.length > 0 && allItemsList.every(li => (resultsData || []).includes(li))
     // 有异常时直接标记为abnormal并终结任务，否则按全部完成判断
     const status = has_abnormal ? 'abnormal' : (allDone ? 'completed' : 'in_progress')
 
@@ -160,51 +194,157 @@ router.post('/records', async (req, res) => {
       try { existingResults = JSON.parse(existing[0].check_items || '[]') } catch {}
       const mergedResults = [...new Set([...existingResults, ...(Array.isArray(resultsData) ? resultsData : [])])]
       await pool.query(
-        `UPDATE inspection_task_records SET check_items = ?, status = ?, has_abnormal = ?, abnormal_desc = ? WHERE id = ?`,
-        [JSON.stringify(mergedResults), status, has_abnormal ? 1 : 0, abnormal_desc || null, existing[0].id]
+        `UPDATE inspection_task_records SET check_items = ?, status = ?, has_abnormal = ?, abnormal_desc = ?, check_date = ?, check_time = ?, shift_id = ? WHERE id = ?`,
+        [JSON.stringify(mergedResults), status, has_abnormal ? 1 : 0, abnormal_desc || null, check_date, check_time, shift_id || null, existing[0].id]
       )
+      await pool.query('COMMIT')
+      const [verify] = await pool.query('SELECT * FROM inspection_task_records WHERE id = ?', [existing[0].id])
+      console.log('[DEBUG POST /records] UPDATE验证查询:', verify.map(r => ({id:r.id, status:r.status, executor_id:r.executor_id, plan_id:r.plan_id, device_id:r.device_id, check_items:r.check_items})))
       // 有异常时生成问题工单
       if (has_abnormal && abnormal_desc) {
+        // 查当前执行人的 actual team/role（users 表）
+        let executorTeam = null
+        let executorRole = executor_role || null
+        if (executor_id) {
+          try {
+            const [userRows] = await pool.query('SELECT team, role FROM users WHERE id = ?', [executor_id])
+            if (userRows.length > 0) {
+              if (!executorTeam) executorTeam = userRows[0].team
+              if (!executorRole) executorRole = userRows[0].role
+            }
+          } catch {}
+        }
+        // fallback: 从 plans 查执行人角色
+        if (!executorRole) {
+          try {
+            const [planRows] = await pool.query('SELECT executor_role FROM inspection_plans WHERE id = ?', [plan_id])
+            if (planRows.length > 0) executorRole = planRows[0].executor_role
+          } catch {}
+        }
+        // 查当前班次的 member_name（这个 executor 所在的班次）
+        let executorMemberName = null
+        try {
+          const [shiftRows] = await pool.query(
+            `SELECT member_name FROM handover_shifts WHERE shift_end IS NULL AND user_name = ? ORDER BY shift_start DESC LIMIT 1`,
+            [executor_name || executor]
+          )
+          if (shiftRows[0]?.member_name) executorMemberName = shiftRows[0].member_name
+        } catch {}
         const [poResult] = await pool.query(
-          'INSERT INTO problem_orders (content, reporter_name, status, device_id) VALUES (?, ?, ?, ?)',
-          [`【巡检异常】${device_name}：${abnormal_desc}`, executor_name || executor, 'pending', device_id]
+          'INSERT INTO problem_orders (content, reporter_name, status, device_id, team, role, member_name) VALUES (?, ?, ?, ?, ?, ?, ?)',
+          [`【巡检异常】${device_name}：${abnormal_desc}`, executor_name || executor, 'pending', device_id, executorTeam, executorRole, executorMemberName]
         )
         const problemOrderId = poResult.insertId
         await pool.query('UPDATE inspection_task_records SET problem_order_id = ? WHERE id = ?', [problemOrderId, existing[0].id])
+        if (device_id) await pool.query('UPDATE devices SET status = 1 WHERE id = ?', [device_id])
+        sseEmit('inspection-update', { plan_id, device_id })
+        sseEmit('problem-update', { id: problemOrderId })
         return res.json({ id: existing[0].id, status, problem_order_id: problemOrderId })
       }
+      console.log('[DEBUG POST /records] UPDATE existing, id:', existing[0].id, 'status:', status)
+      sseEmit('inspection-update', { plan_id, device_id })
       return res.json({ id: existing[0].id, status, merged: true })
     }
 
     // 新建记录
     const [result] = await pool.query(
-      `INSERT INTO inspection_task_records (plan_id, device_id, device_name, executor_id, executor_name, check_date, check_time, status, has_abnormal, abnormal_desc, check_items) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [plan_id, device_id, device_name, executor_id, executor_name || executor, check_date, check_time, status, has_abnormal ? 1 : 0, abnormal_desc || null, newResults]
+      `INSERT INTO inspection_task_records (plan_id, device_id, device_name, executor_id, executor_name, shift_id, check_date, check_time, status, has_abnormal, abnormal_desc, check_items) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [plan_id, device_id, device_name, executor_id, executor_name || executor, shift_id || null, check_date, check_time, status, has_abnormal ? 1 : 0, abnormal_desc || null, newResults]
     )
     const recordId = result.insertId
     let problemOrderId = null
     if (has_abnormal && abnormal_desc) {
+      // 查当前执行人的 actual team/role（users 表）
+      let executorTeam = null
+      let executorRole = executor_role || null
+      if (executor_id) {
+        try {
+          const [userRows] = await pool.query('SELECT team, role FROM users WHERE id = ?', [executor_id])
+          if (userRows.length > 0) {
+            if (!executorTeam) executorTeam = userRows[0].team
+            if (!executorRole) executorRole = userRows[0].role
+          }
+        } catch {}
+      }
+      // fallback: 从 plans 查执行人角色
+      if (!executorRole) {
+        try {
+          const [planRows] = await pool.query('SELECT executor_role FROM inspection_plans WHERE id = ?', [plan_id])
+          if (planRows.length > 0) executorRole = planRows[0].executor_role
+        } catch {}
+      }
+      // 查当前班次的 member_name
+      let executorMemberName = null
+      try {
+        const [shiftRows] = await pool.query(
+          `SELECT member_name FROM handover_shifts WHERE shift_end IS NULL AND user_name = ? ORDER BY shift_start DESC LIMIT 1`,
+          [executor_name || executor]
+        )
+        if (shiftRows[0]?.member_name) executorMemberName = shiftRows[0].member_name
+      } catch {}
       const [poResult] = await pool.query(
-        'INSERT INTO problem_orders (content, reporter_name, status, device_id) VALUES (?, ?, ?, ?)',
-        [`【巡检异常】${device_name}：${abnormal_desc}`, executor_name || executor, 'pending', device_id]
+        'INSERT INTO problem_orders (content, reporter_name, status, device_id, team, role, member_name) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        [`【巡检异常】${device_name}：${abnormal_desc}`, executor_name || executor, 'pending', device_id, executorTeam, executorRole, executorMemberName]
       )
       problemOrderId = poResult.insertId
       await pool.query('UPDATE inspection_task_records SET problem_order_id = ? WHERE id = ?', [problemOrderId, recordId])
+      if (device_id) await pool.query('UPDATE devices SET status = 1 WHERE id = ?', [device_id])
     }
+    console.log('[DEBUG POST /records] INSERT成功, recordId:', recordId, 'status:', status, 'newResults:', newResults)
+    sseEmit('inspection-update', { plan_id, device_id })
+    if (problemOrderId) sseEmit('problem-update', { id: problemOrderId })
     res.json({ id: recordId, problem_order_id: problemOrderId, status })
   } catch (err) {
+    console.error('[DEBUG POST /records] 错误:', err.message)
     res.status(500).json({ error: err.message })
   }
 })
-
-// 获取执行人的巡检任务（含已完成状态）
 router.get('/pending-tasks', async (req, res) => {
   const { executor_id } = req.query
-  const today = new Date().toISOString().split('T')[0]
+  // 使用 BJT 日期（服务器时区是 Asia/Shanghai），避免 UTC 跨天问题
+  const now = new Date()
+  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+  console.log('[DEBUG pending-tasks] executor_id:', executor_id, 'today:', today)
   try {
-    const [taskRecords] = executor_id
-      ? await pool.query('SELECT * FROM inspection_task_records WHERE executor_id = ? AND check_date = ?', [executor_id, today])
-      : await pool.query('SELECT * FROM inspection_task_records WHERE check_date = ?', [today])
+    // 查当前活跃班次 (取 id + shift_start)
+    const [curShiftRows] = await pool.query(
+      `SELECT id, shift_start FROM handover_shifts WHERE shift_end IS NULL ORDER BY shift_start DESC LIMIT 1`
+    )
+    const currentShiftId = curShiftRows[0]?.id || null
+    const shiftStart = curShiftRows[0]?.shift_start
+      ? new Date(curShiftRows[0].shift_start)
+      : null
+    // 按当前班次 shift_id 查 task records (不同班次独立保留)
+    const taskRecords = currentShiftId
+      ? (await pool.query(
+          executor_id
+            ? `SELECT * FROM inspection_task_records WHERE shift_id = ? AND executor_id = ?`
+            : `SELECT * FROM inspection_task_records WHERE shift_id = ?`,
+          executor_id ? [currentShiftId, executor_id] : [currentShiftId]
+        ))[0]
+      : (await pool.query(
+          shiftStart
+            ? `SELECT r.* FROM inspection_task_records r
+               INNER JOIN (
+                 SELECT plan_id, device_id, executor_id, MAX(updated_at) AS max_updated
+                 FROM inspection_task_records
+                 WHERE executor_id = ? AND updated_at >= ?
+                 GROUP BY plan_id, device_id, executor_id
+               ) latest ON r.plan_id = latest.plan_id AND r.device_id = latest.device_id
+                 AND r.executor_id = latest.executor_id AND r.updated_at = latest.max_updated`
+            : `SELECT r.* FROM inspection_task_records r
+               INNER JOIN (
+                 SELECT plan_id, device_id, executor_id, MAX(updated_at) AS max_updated
+                 FROM inspection_task_records
+                 WHERE executor_id = ? AND check_date = ?
+                 GROUP BY plan_id, device_id, executor_id
+               ) latest ON r.plan_id = latest.plan_id AND r.device_id = latest.device_id
+                 AND r.executor_id = latest.executor_id AND r.updated_at = latest.max_updated`,
+          shiftStart
+            ? [executor_id, shiftStart]
+            : [executor_id, today]
+        ))[0]
+    console.log('[DEBUG pending-tasks] taskRecords count:', taskRecords.length, 'currentShiftId:', currentShiftId)
 
     const recordMap = new Map()
     for (const r of taskRecords) {
@@ -214,8 +354,10 @@ router.get('/pending-tasks', async (req, res) => {
         : `${r.plan_id}-${r.device_id}`
       recordMap.set(key, r)
     }
+    console.log('[DEBUG pending-tasks] recordMap keys:', Array.from(recordMap.keys()))
 
     const [plans] = await pool.query('SELECT * FROM inspection_plans')
+    console.log('[DEBUG pending-tasks] plans count:', plans.length)
     const result = []
     for (const plan of plans) {
       let executorIds = []
@@ -253,6 +395,29 @@ router.get('/pending-tasks', async (req, res) => {
     res.json(result)
   } catch (err) {
     res.status(500).json({ error: err.message })
+  }
+})
+
+// 初始化全部巡检数据（清空 plans、items、records）
+router.post('/reset-all', async (req, res) => {
+  const conn = await pool.getConnection()
+  try {
+    await conn.beginTransaction()
+    await conn.query('DELETE FROM inspection_task_records')
+    await conn.query('DELETE FROM inspection_items')
+    await conn.query('DELETE FROM inspection_plans')
+    await conn.query('DELETE FROM inspection_records')
+    // 同时清空保养相关表
+    await conn.query('DELETE FROM maintenance_records')
+    await conn.query('DELETE FROM maintenance_plans')
+    await conn.commit()
+    sseEmit('inspection-update', {})
+    res.json({ success: true, message: '巡检数据已全部清空' })
+  } catch (err) {
+    await conn.rollback()
+    res.status(500).json({ error: err.message })
+  } finally {
+    conn.release()
   }
 })
 

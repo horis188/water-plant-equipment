@@ -1,5 +1,6 @@
 import express from 'express'
 import pool from '../db/mysql.js'
+import { sseEmit } from '../events.js'
 
 const router = express.Router()
 
@@ -68,6 +69,10 @@ router.post('/records', async (req, res) => {
       'INSERT INTO maintenance_records (plan_id, device_id, device_name, executor_id, executor_name, results, has_abnormal, abnormal_desc) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
       [plan_id, device_id || null, device_name || '', executor_id || null, executor_name || '', JSON.stringify(results || []), has_abnormal ? 1 : 0, abnormal_desc || '']
     )
+    // 保养异常 → 设备状态变为维修中
+    if (has_abnormal && device_id) {
+      await pool.query('UPDATE devices SET status = 2 WHERE id = ?', [device_id])
+    }
     // 更新计划下次执行时间
     const [plans] = await pool.query('SELECT cycle_type, cycle_value FROM maintenance_plans WHERE id = ?', [plan_id])
     if (plans.length > 0) {
@@ -80,6 +85,7 @@ router.post('/records', async (req, res) => {
       else if (cycle_type === 'year') next.setFullYear(now.getFullYear() + (cycle_value || 1))
       await pool.query('UPDATE maintenance_plans SET next_execute_time = ? WHERE id = ?', [next.toISOString().slice(0, 19).replace('T', ' '), plan_id])
     }
+    sseEmit('maintenance-update', { plan_id, device_id })
     res.json({ success: true })
   } catch (err) {
     console.error('[POST /records error]', err.message)
@@ -134,6 +140,7 @@ router.post('/plans', async (req, res) => {
       }
     }
     await conn.commit()
+    sseEmit('maintenance-update', { plan_id: planId })
     res.json({ id: planId, name, executor_role, device_name, device_type, cycle_type, cycle_value, has_third_party, third_party_name })
   } catch (err) {
     await conn.rollback()
@@ -164,6 +171,7 @@ router.put('/plans/:id', async (req, res) => {
       }
     }
     await conn.commit()
+    sseEmit('maintenance-update', { plan_id: Number(req.params.id) })
     res.json({ id: req.params.id, name })
   } catch (err) {
     await conn.rollback()
@@ -178,6 +186,7 @@ router.delete('/plans/:id', async (req, res) => {
   try {
     await pool.query('DELETE FROM maintenance_items WHERE plan_id = ?', [req.params.id])
     await pool.query('DELETE FROM maintenance_plans WHERE id = ?', [req.params.id])
+    sseEmit('maintenance-update', { plan_id: Number(req.params.id) })
     res.json({ success: true })
   } catch (err) {
     res.status(500).json({ error: err.message })

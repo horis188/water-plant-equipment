@@ -684,6 +684,23 @@ import { currentUser, devices as maintDeviceStore, isOnDuty, updateDeviceStatusB
 const API_BASE = '/api/inspection'
 const isAdmin = computed(() => currentUser.value?.role === '系统管理人')
 
+// ── SSE 实时同步 ──
+let inspectionEventSource: EventSource | null = null
+function setupInspectionSSE() {
+  if (inspectionEventSource) inspectionEventSource.close()
+  inspectionEventSource = new EventSource('http://localhost:3000/api/events')
+  inspectionEventSource.addEventListener('inspection-update', () => {
+    loadMyTasks()
+    loadAdminTasks()
+  })
+  inspectionEventSource.addEventListener('maintenance-update', () => {
+    loadMyMaintTasks()
+  })
+  inspectionEventSource.onerror = () => {
+    console.warn('[SSE] connection lost, retrying...')
+  }
+}
+
 // ===== 保养计划管理 =====
 const MAINT_API = '/api/maintenance'
 const maintPlans = ref<any[]>([])
@@ -756,7 +773,8 @@ async function maintLoadUsers() {
         roleMap[u.role].push(u)
       }
       maintUsersByRole.value = roleMap
-maintAllRoles.value = [...new Set([...ALL_ROLES, ...Object.keys(roleMap)])]
+      const maintRoleNames = Object.keys(roleMap).filter(k => !MAIN_ROLES.includes(k))
+      maintAllRoles.value = [...new Set([...MAIN_ROLES, ...maintRoleNames])]
     }
   } catch (err) { console.error('加载用户失败', err) }
 }
@@ -914,7 +932,12 @@ async function submitMaintResult() {
           assigner_name: currentUser.value?.name,
           handler_name: null,
           problem_order_id: null,
-          deviceId: item?.device_id || null
+          deviceId: item?.device_id || null,
+          team: currentUser.value?.team || 'A班',
+          role: currentUser.value?.role || '',
+          user_name: currentUser.value?.name,
+          reporter_name: currentUser.value?.name,
+          member_name: currentUser.value?.member_name || ''
         })
       })
       // 保养异常 -> 设备状态变为维修中
@@ -1073,6 +1096,7 @@ async function maintSavePlan() {
       }
     }
     await maintLoadPlans()
+    await loadMyMaintTasks()
     maintCloseDialog()
   } catch (err) { console.error('保存失败', err); alert('保存失败') }
 }
@@ -1082,6 +1106,7 @@ async function maintDeletePlan(id: number) {
   try {
     await fetch(`${MAINT_API}/plans/${id}`, { method: 'DELETE' })
     await maintLoadPlans()
+    await loadMyMaintTasks()
   } catch (err) { console.error('删除失败', err) }
 }
 
@@ -1110,6 +1135,9 @@ const usersByRole = ref<Record<string, any[]>>({})
 const allRoles = ref<string[]>([])
 const selectedExecutorId = ref<string>('')
 const selectedRole = ref<string>('')
+
+// 去重后的角色列表（过滤 ALL_ROLES 中多余的岗位类角色）
+const MAIN_ROLES = ['带班', '维修组', '值班岗位']
 
 const currentTask = ref<any>(null)
 const showExecuteDialog = ref(false)
@@ -1230,7 +1258,8 @@ async function loadUsers() {
         roleMap[u.role].push(u)
       }
       usersByRole.value = roleMap
-allRoles.value = [...new Set([...ALL_ROLES, ...Object.keys(roleMap)])]
+      const roleNames = Object.keys(roleMap).filter(k => !MAIN_ROLES.includes(k))
+      allRoles.value = [...new Set([...MAIN_ROLES, ...roleNames])]
     }
   } catch (err) {
     console.error('加载用户失败', err)
@@ -1349,6 +1378,12 @@ async function savePlan() {
       throw new Error(`HTTP ${res.status}: ${text}`)
     }
     await loadPlans()
+    if (isAdmin.value) {
+      await loadAdminTasks()
+      await loadMyTasks()
+    } else {
+      await loadMyTasks()
+    }
     closeDialog()
   } catch (err) {
     console.error('保存失败:', err)
@@ -1362,6 +1397,12 @@ async function deletePlan(id: number) {
   try {
     await fetch(`${API_BASE}/plans/${id}`, { method: 'DELETE' })
     await loadPlans()
+    if (isAdmin.value) {
+      await loadAdminTasks()
+      await loadMyTasks()
+    } else {
+      await loadMyTasks()
+    }
   } catch (err) {
     console.error('删除失败', err)
   }
@@ -1388,7 +1429,11 @@ onMounted(async () => {
       t.remainingMs = getTaskRemainingMs(t, plan, now)
     }
   }, 60000)
-  onUnmounted(() => clearInterval(timer))
+  onUnmounted(() => {
+    clearInterval(timer)
+    inspectionEventSource?.close()
+  })
+  setupInspectionSSE()
 })
 
 const inspectionItems = ref<any[]>([])
@@ -1424,6 +1469,7 @@ async function loadMyTasks() {
   try {
     const res = await fetch(`${API_BASE}/pending-tasks?executor_role=${encodeURIComponent(role)}&executor_id=${userId}`)
     const tasks = await res.json()
+    console.log('[DEBUG loadMyTasks] API返回任务数:', tasks.length)
     // 补充剩余时间（直接用task自带字段，不依赖plans查找）
     const now = Date.now()
     for (const t of tasks) {
@@ -1437,7 +1483,21 @@ async function loadMyTasks() {
       if (a.remainingMs !== b.remainingMs) return a.remainingMs - b.remainingMs
       return (a.plan_name || '').localeCompare(b.plan_name || '')
     })
-    myTasks.value = tasks
+    // 合并：保留本地已标记的状态（is_completed/results），用API返回的数据补充其余字段
+    const localMap: Record<string, any> = {}
+    for (const t of myTasks.value) {
+      const key = `${String(t.plan_id)}-${String(t.device_id)}-${String(t.executor_id)}-${String(t.executor_role)}`
+      localMap[key] = t
+    }
+    const merged = tasks.map((t: any) => {
+      const key = `${String(t.plan_id)}-${String(t.device_id)}-${String(t.executor_id)}-${String(t.executor_role)}`
+      const local = localMap[key]
+      if (local && local.is_completed) {
+        return { ...t, is_completed: local.is_completed, results: local.results, status: local.status }
+      }
+      return t
+    })
+    myTasks.value = merged
   } catch (err) {
     console.error('加载任务失败', err)
   }
@@ -1520,6 +1580,7 @@ async function executeTask(task: any) {
   if (task.is_completed) return
   // 弹出巡检执行对话框，加载已有检查进度
   currentTask.value = task
+  console.log('[DEBUG executeTask] 打开任务 plan_id:', task.plan_id, 'device_id:', task.device_id, 'is_completed:', task.is_completed, 'results:', task.results)
   // 加载已检查的项目（如果有记录的话）
   if (task.results) {
     try {
@@ -1539,7 +1600,6 @@ async function executeTask(task: any) {
 }
 
 function isItemChecked(task: any, item: string): boolean {
-  if (!task.is_completed) return false
   if (!task.results) return false
   try {
     let results = task.results
@@ -1605,28 +1665,52 @@ async function submitTaskResult() {
         all_items: (currentTask.value?.check_content || '').split('\n').map((l: string) => l.trim()).filter(Boolean)
       })
     })
-    if (!res.ok) throw new Error('提交失败')
-    const data = await res.json()
-    if (data.status === 'in_progress') {
-      // 部分完成，仍在进行中，刷新进度
-    } else if (data.status === 'completed' || data.status === 'abnormal') {
-      markTaskComplete(currentTask.value, hasAbnormal.value)
+    if (!res.ok) throw new Error('提交失败 (HTTP ' + res.status + ')')
+    let data
+    try {
+      data = await res.json()
+    } catch (err) {
+      const text = await res.text().catch(() => '无法读取响应内容')
+      console.error('JSON解析失败，响应内容:', text.slice(0, 500))
+      alert('提交失败：响应格式错误')
+      return
+    }
+    if (data.error) {
+      alert('提交失败：' + (data.error || '未知错误'))
+      return
+    }
+    // 先在本地标记状态（同步操作，用户立即看到变化）
+    const localTask = myTasks.value.find(t => String(t.plan_id) === String(currentTask.value.plan_id) && String(t.device_id) === String(currentTask.value.device_id))
+    if (localTask) {
+      localTask.results = JSON.stringify(checkedItems.value)
+      if (data.status === 'in_progress') {
+        localTask.status = 'in_progress'
+        localTask.is_completed = false
+      } else if (data.status === 'completed' || data.status === 'abnormal') {
+        localTask.is_completed = true
+        localTask.has_abnormal = hasAbnormal.value ? 1 : 0
+        localTask.status = data.status
+      }
     }
     // 巡检异常 -> 设备状态变为告警
     if (hasAbnormal.value && currentTask.value?.device_id) {
-      await loadDevicesFromDB() // 确保设备数据已加载
+      await loadDevicesFromDB()
       await updateDeviceStatusByOrder(String(currentTask.value.device_id), '告警', currentUser.value?.name)
     }
+    // 立即刷新任务列表
+    await Promise.all([loadMyTasks(), loadAdminTasks()])
     showExecuteDialog.value = false
     checkedItems.value = []
     hasAbnormal.value = false
     abnormalDesc.value = ''
     currentTask.value = null
-    loadMyTasks()
-    loadAdminTasks()
   } catch (err) {
-    console.error('提交失败', err)
-    alert('提交失败，请重试')
+    console.error('提交失败详情:', err)
+    const msg = err instanceof Error ? err.message : String(err)
+    // 区分"API失败"是来自设备更新还是其他步骤
+    console.error('当前任务device_id:', currentTask.value?.device_id)
+    console.error('当前devices列表:', JSON.stringify(devices.value.map(d => d.id)))
+    alert('提交失败：' + msg + '\ndevice_id=' + currentTask.value?.device_id + '\ndevices: ' + JSON.stringify(devices.value.map(d => d.id)) + '\n请截图反馈')
   }
 }
 

@@ -82,10 +82,19 @@
           <!-- 执行角色 -->
           <div class="form-row">
             <label>执行角色</label>
-            <select v-model="form.executor_role">
+            <select v-model="form.executor_role" @change="onExecutorRoleChange">
               <option value="">请选择</option>
               <option value="值班岗位">值班岗位</option>
               <option value="带班">带班</option>
+              <option value="维修组">维修组</option>
+            </select>
+          </div>
+
+          <!-- 执行人（值班岗位时可选具体账号） -->
+          <div class="form-row" v-if="form.executor_role === '值班岗位'">
+            <select v-model="form.executor_ids">
+              <option value="">请选择执行人</option>
+              <option v-for="acc in executorAccountList" :key="acc.username" :value="JSON.stringify([acc.id])">{{ acc.name }}（{{ acc.username }}）</option>
             </select>
           </div>
           
@@ -164,7 +173,8 @@ const form = ref({
   name: '',
   location: '',
   cycle: 'daily',
-  executor_role: ''
+  executor_role: '',
+  executor_ids: '[]'
 })
 
 const cycleOptions = [
@@ -177,6 +187,21 @@ const cycleOptions = [
 const selectedDevices = computed(() => 
   availableDevices.value.filter(d => selectedDeviceIds.value.includes(d.id))
 )
+
+const executorAccountList = computed(() => {
+  if (form.value.executor_role !== '值班岗位') return []
+  return [
+    { id: 2, username: 'yqzs', name: '一期制水' },
+    { id: 4, username: 'jczs', name: '旧厂制水' },
+    { id: 5, username: 'tyj', name: '投药间' },
+    { id: 6, username: 'xg', name: '新高值班' },
+    { id: 7, username: 'nscj', name: '泥水车间' }
+  ]
+})
+
+function onExecutorRoleChange() {
+  form.value.executor_ids = ''
+}
 
 function cycleLabel(cycle: string) {
   return cycleOptions.find(c => c.value === cycle)?.label || cycle
@@ -231,7 +256,8 @@ function editPlan(plan: any) {
     name: plan.name,
     location: plan.location,
     cycle: plan.cycle,
-    executor_role: plan.executor_role
+    executor_role: plan.executor_role,
+    executor_ids: plan.executor_ids || '[]'
   }
   selectedDeviceIds.value = []
   deviceCheckItems.value = {}
@@ -251,7 +277,7 @@ function editPlan(plan: any) {
 function closeDialog() {
   showCreateDialog.value = false
   editingPlan.value = null
-  form.value = { name: '', location: '', cycle: 'daily', executor_role: '' }
+  form.value = { name: '', location: '', cycle: 'daily', executor_role: '', executor_ids: '[]' }
   selectedDeviceIds.value = []
   deviceCheckItems.value = {}
 }
@@ -273,6 +299,7 @@ async function savePlan() {
     location: form.value.location,
     cycle: form.value.cycle,
     executor_role: form.value.executor_role,
+    executor_ids: form.value.executor_ids,
     device_ids: selectedDeviceIds.value,
     items
   }
