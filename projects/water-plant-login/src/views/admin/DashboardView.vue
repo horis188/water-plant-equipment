@@ -1,6 +1,6 @@
 <template>
   <div class="dashboard-page">
-    <TopNavBar />
+    <!-- TopNavBar 由 AdminLayout 提供, 这里不重复 -->
     <div class="dashboard-header">
       <h2 class="dashboard-title">📊 数据驾驶舱</h2>
       <div class="dashboard-meta">
@@ -163,7 +163,6 @@
 <script setup lang="ts">
 // P3.1 驾驶舱数据大屏
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import TopNavBar from '../../components/TopNavBar.vue'
 import { useSSE } from '../../composables/useSSE'
 
 const data = ref<any>(null)
