@@ -60,11 +60,12 @@ router.get('/low-stock-list', async (req, res) => {
 
 // 新增备件
 router.post('/', async (req, res) => {
-  const { name, type, quantity, min_quantity, location, vendor, specs } = req.body
+  const { name, type, quantity, min_quantity, location, vendor, specs, tech_docs } = req.body
   try {
+    const techDocsJson = tech_docs ? JSON.stringify(tech_docs) : null
     const [result] = await pool.query(
-      'INSERT INTO spareparts (name, type, quantity, min_quantity, location, vendor, specs) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      [name, type, quantity || 0, min_quantity || 0, location, vendor, specs]
+      'INSERT INTO spareparts (name, type, quantity, min_quantity, location, vendor, specs, tech_docs) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      [name, type, quantity || 0, min_quantity || 0, location, vendor, specs, techDocsJson]
     )
     const newSp = { id: result.insertId, name, type, quantity: quantity || 0, min_quantity: min_quantity || 0 }
     await checkAndEmitLowStock(newSp)
@@ -76,11 +77,12 @@ router.post('/', async (req, res) => {
 
 // 更新备件
 router.put('/:id', async (req, res) => {
-  const { name, type, quantity, min_quantity, location, vendor, specs } = req.body
+  const { name, type, quantity, min_quantity, location, vendor, specs, tech_docs } = req.body
   try {
+    const techDocsJson = tech_docs ? JSON.stringify(tech_docs) : null
     await pool.query(
-      'UPDATE spareparts SET name=?, type=?, quantity=?, min_quantity=?, location=?, vendor=?, specs=? WHERE id=?',
-      [name, type, quantity, min_quantity || 0, location, vendor, specs, req.params.id]
+      'UPDATE spareparts SET name=?, type=?, quantity=?, min_quantity=?, location=?, vendor=?, specs=?, tech_docs=? WHERE id=?',
+      [name, type, quantity, min_quantity || 0, location, vendor, specs, techDocsJson, req.params.id]
     )
     await checkAndEmitLowStock({ id: parseInt(req.params.id), quantity, min_quantity: min_quantity || 0 })
     res.json({ id: req.params.id, ...req.body })

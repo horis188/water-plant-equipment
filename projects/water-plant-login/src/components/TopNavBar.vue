@@ -85,15 +85,19 @@ const navItems = ref([
   { name: '驾驶舱',   path: '/main',           icon: '🚀', permission: 'menu:dashboard' },
   { name: '设备管理', path: '/device/inuse',   icon: '🖥️', permission: 'menu:device' },
   { name: '巡检保养', path: '/inspection',     icon: '🔍', permission: 'menu:inspection' },
-  { name: '备件仓库', path: '/spareparts',     icon: '📦', permission: 'menu:spareparts' },
+  { name: '备件仓库', path: '/spareparts',     icon: '📦', permission: 'menu:spareparts', roles: ['系统管理人', '带班', '维修组'] /* 值班岗位不需备件仓库 */ },
   { name: '班组交接', path: '/handover',       icon: '🔄', permission: 'menu:handover' },
   { name: '维修工单', path: '/workorder',      icon: '🔧', permission: 'menu:workorder' },
-  { name: '设备价值', path: '/asset',          icon: '💰' /* 暂未分配权限码, 所有登录用户可见 */ },
-  { name: '系统管理', path: '/admin',          icon: '⚙️', permission: 'menu:admin' }
+  { name: '统计分析', path: '/asset',          icon: '💰', roles: ['系统管理人', '厂长'] /* 仅系统管理人+厂长可见 */ },
+  { name: '系统管理', path: '/admin',          icon: '⚙️', permission: 'menu:admin', roles: ['系统管理人'] /* 仅系统管理人可见, 防误入 */ }
 ])
 
 // 根据当前用户权限码过滤可见的菜单 (P0-5: 取代旧的 hideFor/roles 字符串判断)
-const visibleNavItems = computed(() => navItems.value.filter(item => !item.permission || has(item.permission)))
+const visibleNavItems = computed(() => navItems.value.filter(item => {
+  if (item.permission && !has(item.permission)) return false
+  if (item.roles && !item.roles.includes(currentUser.value?.role)) return false
+  return true
+}))
 
 const activeNav = ref('')
 

@@ -1,12 +1,14 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import WaterBackground from '../components/WaterBackground.vue'
-import { deviceStats, deviceListWithStatus, deviceChangeLog, currentUser, currentShiftContext, setCurrentShiftContext, loadDevicesFromDB } from '../composables/useDeviceStore'
+import DeviceDetailPanel from '../components/DeviceDetailPanel.vue'
+import WorkOrderDetailPanel from '../components/WorkOrderDetailPanel.vue'
+import { deviceStats, deviceListWithStatus, deviceChangeLog, currentUser, currentShiftContext, setCurrentShiftContext, loadDevicesFromDB, authHeader } from '../composables/useDeviceStore'
 import { usePermission } from '../composables/usePermission'
 import { useSSE } from '../composables/useSSE'
 import { spareparts } from '../composables/useSparepartStore'
-import { maintenanceOrders } from '../composables/useWorkOrderStore'
+import { maintenanceOrders, loadAllWorkOrders } from '../composables/useWorkOrderStore'
 
 const API_BASE = '/api/inspection'
 const router = useRouter()
@@ -18,8 +20,35 @@ const inspectionTasks = ref<any[]>([])
 const showExecuteDialog = ref(false)
 const currentTaskForDialog = ref<any>(null)
 const checkedItems = ref<string[]>([])
+const executeRemark = ref('')
 const hasAbnormal = ref(false)
 const abnormalDesc = ref('')
+const abnormalImages = ref<string[]>([])
+
+// 异常子弹窗
+const showAbnormalDialog = ref(false)
+
+// 图片灯箱 (跟工单页一致: 多图数组 + 翻页索引 + 点遮罩/X 关闭)
+const lightboxImages = ref<string[]>([])
+const lightboxIndex = ref(0)
+function openLightbox(images: string[], idx = 0) {
+  lightboxImages.value = images || []
+  lightboxIndex.value = idx
+}
+function closeLightbox() { lightboxImages.value = []; lightboxIndex.value = 0 }
+// 全局 Esc 关闭 (lightbox 打开时)
+function onLightboxKeydown(e: KeyboardEvent) {
+  if (e.key === 'Escape' && lightboxImages.value.length) {
+    e.stopPropagation()
+    closeLightbox()
+  } else if (e.key === 'ArrowLeft' && lightboxImages.value.length > 1) {
+    lightboxIndex.value = (lightboxIndex.value - 1 + lightboxImages.value.length) % lightboxImages.value.length
+  } else if (e.key === 'ArrowRight' && lightboxImages.value.length > 1) {
+    lightboxIndex.value = (lightboxIndex.value + 1) % lightboxImages.value.length
+  }
+}
+onMounted(() => window.addEventListener('keydown', onLightboxKeydown))
+onUnmounted(() => window.removeEventListener('keydown', onLightboxKeydown))
 
 const myTasks = computed(() => {
   return inspectionTasks.value
@@ -84,39 +113,221 @@ function getTaskRemainingMs(task: any, plan: any, now: number): number {
 }
 
 function goToExecute(item: any) {
-  if (item.status !== 'pending') return
+  // 所有状态都能查看项目详情, 只有 pending 可以操作
   const task = item.task
+  // 后端 abnormal_images 可能是 JSON 字符串, 解析成数组供模板使用
+  if (task && task.abnormal_images) {
+    if (typeof task.abnormal_images === 'string') {
+      try { task.abnormal_images = JSON.parse(task.abnormal_images) } catch { task.abnormal_images = [] }
+    }
+    if (!Array.isArray(task.abnormal_images)) task.abnormal_images = []
+  } else if (task) {
+    task.abnormal_images = []
+  }
   showExecuteDialog.value = true
   currentTaskForDialog.value = task
+  // pending 任务可预填上次的检查结果; 已完成/异常任务不预填 (历史结果只是只读参考, 避免误以为用户当时勾了)
+  if (!task.is_completed) {
+    if (task.results) {
+      try { checkedItems.value = JSON.parse(task.results) } catch { checkedItems.value = [] }
+    } else {
+      checkedItems.value = []
+    }
+  } else {
+    checkedItems.value = []
+  }
 }
 
-async function submitTaskResultFromMain() {
+// 设备 Modal
+const showDeviceModal = ref(false)
+const modalDevice = ref<any>(null)
+
+// 工单 Modal
+const showWorkOrderModal = ref(false)
+const modalOrder = ref<any>(null)
+
+// 打开设备详情弹窗
+function openDeviceDetail(device: any) {
+  modalDevice.value = device
+  showDeviceModal.value = true
+}
+
+function closeDeviceModal() {
+  showDeviceModal.value = false
+  modalDevice.value = null
+}
+
+function onDeviceUpdated() {
+  loadDevicesFromDB()
+}
+
+function onDeviceDeleted() {
+  showDeviceModal.value = false
+  modalDevice.value = null
+  loadDevicesFromDB()
+}
+
+// modal 关闭后强制恢复 body 滚动 (修复 n-modal 关闭后滚动条不显示的 bug)
+function onModalAfterLeave() {
+  // 下一 tick 清理, 避免与 n-modal 自身逻辑冲突
+  setTimeout(() => {
+    document.documentElement.style.overflow = ''
+    document.documentElement.style.overflowY = ''
+    document.body.style.overflow = ''
+    document.body.style.overflowY = ''
+    document.body.style.paddingRight = ''
+  }, 50)
+}
+
+// 打开工单详情弹窗
+function openWorkOrderDetail(order: any) {
+  modalOrder.value = order
+  showWorkOrderModal.value = true
+}
+
+function closeWorkOrderModal() {
+  showWorkOrderModal.value = false
+  modalOrder.value = null
+}
+
+function onWorkOrderUpdated() {
+  loadTodayWorkOrders()
+  loadDevicesFromDB()
+}
+
+// 公告详情 (在主页打开 modal)
+const noticeDetail = ref<any>(null)
+const showNoticeDialog = ref(false)
+function openNoticeDetail(notif: any) {
+  noticeDetail.value = notif
+  showNoticeDialog.value = true
+}
+function closeNoticeDetail() {
+  showNoticeDialog.value = false
+  noticeDetail.value = null
+}
+function noticeTypeLabel(type: string): string {
+  const map: Record<string, string> = { warning: '告警', info: '提示', success: '成功', error: '错误' }
+  return map[type] || type
+}
+
+// 重置所有巡检相关状态
+function resetExecuteState() {
+  checkedItems.value = []
+  executeRemark.value = ''
+  hasAbnormal.value = false
+  abnormalDesc.value = ''
+  abnormalImages.value = []
+  currentTaskForDialog.value = null
+}
+
+// 打开异常子弹窗 (主弹窗不关闭, 堆叠显示)
+function openAbnormalDialog() {
   if (!currentTaskForDialog.value) return
+  showAbnormalDialog.value = true
+}
+
+function closeAbnormalDialog() {
+  showAbnormalDialog.value = false
+}
+
+// 异常图片上传 (不压缩, 直接传原图, 避免点击放大后模糊)
+async function handleAbnormalImageUpload(e: Event) {
+  const files = (e.target as HTMLInputElement).files
+  if (!files || files.length === 0) return
   try {
-    await fetch(`${API_BASE}/records`, {
+    const remain = 6 - abnormalImages.value.length
+    const fd = new FormData()
+    for (const f of Array.from(files).slice(0, remain)) {
+      // 原图直接传, 后端 multer 50MB 限额内
+      fd.append('files', f, f.name)
+    }
+    const r = await fetch('/api/upload', { method: 'POST', body: fd })
+    if (!r.ok) { alert('上传失败: ' + r.status); return }
+    const data = await r.json()
+    const urls = data.urls || []
+    abnormalImages.value.push(...urls)
+  } catch (err: any) {
+    alert('上传失败: ' + err.message)
+  } finally {
+    // 清 input value 允许重复上传同一文件
+    (e.target as HTMLInputElement).value = ''
+  }
+}
+
+// 提交「完成巡检」: 全部勾选, 标记为正常
+async function submitTaskComplete() {
+  if (!currentTaskForDialog.value) return
+  const task = currentTaskForDialog.value
+  try {
+    const r = await fetch(`${API_BASE}/records`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        plan_id: currentTaskForDialog.value.plan_id,
-        device_id: currentTaskForDialog.value.device_id,
-        device_name: currentTaskForDialog.value.device_name,
+        plan_id: task.plan_id,
+        device_id: task.device_id,
+        device_name: task.device_name,
         executor_id: currentUser.value?.id,
         executor_name: currentUser.value?.name,
         results: checkedItems.value,
-        has_abnormal: hasAbnormal.value,
-        abnormal_desc: abnormalDesc.value
+        remark: executeRemark.value,
+        has_abnormal: false,
+        abnormal_desc: '',
+        status: 'completed'
       })
     })
+    if (!r.ok) throw new Error('HTTP ' + r.status)
     showExecuteDialog.value = false
-    checkedItems.value = []
-    hasAbnormal.value = false
-    abnormalDesc.value = ''
-    currentTaskForDialog.value = null
+    resetExecuteState()
     await loadInspectionTasks()
-  } catch (err) {
+  } catch (err: any) {
     console.error('提交失败', err)
-    alert('提交失败')
+    alert('提交失败: ' + err.message)
   }
+}
+
+// 提交「上报异常」
+async function submitTaskAbnormal() {
+  if (!currentTaskForDialog.value) return
+  if (!abnormalDesc.value.trim()) {
+    alert('请填写异常描述')
+    return
+  }
+  const task = currentTaskForDialog.value
+  try {
+    const r = await fetch(`${API_BASE}/records`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        plan_id: task.plan_id,
+        device_id: task.device_id,
+        device_name: task.device_name,
+        executor_id: currentUser.value?.id,
+        executor_name: currentUser.value?.name,
+        results: checkedItems.value,
+        remark: executeRemark.value,
+        has_abnormal: true,
+        abnormal_desc: abnormalDesc.value,
+        abnormal_images: abnormalImages.value,
+        status: 'abnormal'
+      })
+    })
+    if (!r.ok) throw new Error('HTTP ' + r.status)
+    showAbnormalDialog.value = false
+    showExecuteDialog.value = false
+    resetExecuteState()
+    await loadInspectionTasks()
+  } catch (err: any) {
+    console.error('提交异常失败', err)
+    alert('提交失败: ' + err.message)
+  }
+}
+
+// 保留原函数 (备用, 被新函数取代但避免引用报错)
+async function submitTaskResultFromMain() {
+  if (!currentTaskForDialog.value) return
+  // 默认调用完成
+  await submitTaskComplete()
 }
 
 function formatRemaining(ms: number): string {
@@ -130,7 +341,9 @@ function formatRemaining(ms: number): string {
 onMounted(async () => {
   await loadTeamMembers()
   loadInspectionTasks()
-  loadDevicesFromDB()
+  await loadDevicesFromDB()
+  await loadTodayWorkOrders()
+  await loadNotifications()
   loadLeaderShift()
   loadShiftFromAPI()
 })
@@ -149,6 +362,12 @@ useSSE('device-status-change', async (payload) => {
   console.info('[SSE] 设备状态变更:', payload)
   // loadDevicesFromDB 会更新 deviceListWithStatus, deviceStats 是 computed 自动重算
   await loadDevicesFromDB()
+  await loadNotifications()
+})
+// P1: 工单变更
+useSSE('workorder-update', async () => {
+  await loadTodayWorkOrders()
+  await loadNotifications()
 })
 
 onUnmounted(() => {
@@ -202,11 +421,18 @@ async function loadShiftFromAPI() {
   } catch {}
 }
 
-const workOrderNotifications = ref([
-  { id: 1, title: '3号取水泵温度异常', level: '紧急', time: '09:23' },
-  { id: 2, title: '1号滤池滤料更换', level: '普通', time: '08:00' },
-  { id: 3, title: '水质监测设备校准', level: '定期', time: '10:00' }
-])
+const workOrderNotifications = computed(() => {
+  // 从今日工单派生: 紧急/超时/待处理, 最多 5 条
+  return workOrders.value
+    .filter(o => o.level === '紧急' || o.status === '待处理' || o.status === '延时')
+    .slice(0, 5)
+    .map(o => ({
+      id: o.id,
+      title: o.title,
+      level: o.level,
+      time: o.createTime
+    }))
+})
 
 const handleLogout = () => {
   router.push('/')
@@ -231,16 +457,20 @@ const navItems = ref([
   { name: '驾驶舱',   path: '/main',         icon: '🚀', permission: 'menu:dashboard' },
   { name: '设备管理', path: '/device/inuse', icon: '🖥️', permission: 'menu:device' },
   { name: '巡检保养', path: '/inspection',   icon: '🔍', permission: 'menu:inspection' },
-  { name: '备件仓库', path: '/spareparts',   icon: '📦', permission: 'menu:spareparts' },
+  { name: '备件仓库', path: '/spareparts',   icon: '📦', permission: 'menu:spareparts', roles: ['系统管理人', '带班', '维修组'] /* 值班岗位不需备件仓库 */ },
   { name: '班组交接', path: '/handover',     icon: '🔄', permission: 'menu:handover' },
   { name: '维修工单', path: '/workorder',    icon: '🔧', permission: 'menu:workorder' },
-  { name: '统计分析', path: '/asset',        icon: '💰' /* 暂未分配权限码, 所有登录用户可见 */ },
-  { name: '系统管理', path: '/admin',        icon: '⚙️', permission: 'menu:admin' }
+  { name: '统计分析', path: '/asset',        icon: '💰', roles: ['系统管理人', '厂长'] /* 仅系统管理人+厂长可见 */ },
+  { name: '系统管理', path: '/admin',        icon: '⚙️', permission: 'menu:admin', roles: ['系统管理人'] /* 仅系统管理人可见, 防误入 */ }
 ])
 
 const activeNav = ref('驾驶舱')
 
-const visibleNavItems = computed(() => navItems.value.filter(item => !item.permission || has(item.permission)))
+const visibleNavItems = computed(() => navItems.value.filter(item => {
+  if (item.permission && !has(item.permission)) return false
+  if (item.roles && !item.roles.includes(currentUser.value?.role)) return false
+  return true
+}))
 
 const handleNavClick = (item: any) => {
   activeNav.value = item.name
@@ -311,27 +541,95 @@ const workOrdersList = computed(() => {
     .slice(0, 6)
 })
 
-// 今日工单
-const workOrders = ref([
-  { id: 'WO-2026041901', title: '3号取水泵温度异常', device: '3号取水泵', level: '紧急', levelColor: '#EF4444', createTime: '09:23', status: '处理中', handler: '李伟' },
-  { id: 'WO-2026041902', title: '1号滤池滤料更换', device: '1号滤池', level: '一般', levelColor: '#93C5FD', createTime: '08:00', status: '待处理', handler: '--' },
-  { id: 'WO-2026041903', title: '加药间2号计量泵检修', device: '加药间', level: '普通', levelColor: '#1E6BB8', createTime: '07:30', status: '已完成', handler: '王强' },
-  { id: 'WO-2026041904', title: '水质监测设备校准', device: '水质监测站', level: '中等', levelColor: '#F59E0B', createTime: '10:00', status: '待处理', handler: '--' }
-])
+// 今日工单（从后端 API 拉取）
+const workOrders = ref<any[]>([])
 
-// 消息通知
-const notifications = ref([
-  { id: 1, type: 'warning', content: '3号取水泵温度超过75°C，请及时处理', time: '09:23' },
-  { id: 2, type: 'info', content: '今日设备巡检计划已完成 42/60 项', time: '10:30' },
-  { id: 3, type: 'success', content: '加药间2号计量泵检修完成', time: '08:45' },
-  { id: 4, type: 'info', content: '1号滤池滤料更换工单待处理', time: '08:00' },
-  { id: 5, type: 'warning', content: '2号送水泵压力异常，请检查', time: '11:15' },
-  { id: 6, type: 'success', content: '水质监测设备校准完成', time: '14:00' },
-  { id: 7, type: 'info', content: '下周设备保养计划已排定', time: '15:30' },
-  { id: 8, type: 'warning', content: '加药间液位计读数偏低', time: '16:20' },
-  { id: 9, type: 'info', content: '备件仓库新到一批滤芯', time: '09:00' },
-  { id: 10, type: 'success', content: '4号取水泵维修工单已结单', time: '17:00' }
-])
+const statusLabelMap: Record<string, string> = {
+  pending: '待处理', to_maintenance: '处理中', delay: '延时',
+  returned: '退回', completed: '已完成', closed: '已闭环', self_resolved: '已自处理'
+}
+const levelLabelMap: Record<string, { label: string; color: string }> = {
+  heavy: { label: '紧急', color: '#EF4444' },
+  medium: { label: '中等', color: '#F59E0B' },
+  light: { label: '普通', color: '#1E6BB8' }
+}
+function deviceName(id: number | null | undefined): string {
+  if (!id) return '--'
+  // 注意: deviceListWithStatus 里 id 是 String (loadDevicesFromDB 转换), 工单里 device_id 是 number, 都转 string 再比
+  const d = deviceListWithStatus.value.find(x => String(x.id) === String(id))
+  return d?.name || `设备#${id}`
+}
+function mapWorkOrder(o: any, type: 'problem' | 'maintenance') {
+  const lv = type === 'problem'
+    ? { label: '紧急', color: '#EF4444' }
+    : (levelLabelMap[o.level] || { label: '普通', color: '#1E6BB8' })
+  return {
+    id: type === 'problem' ? `PO-${o.id}` : `WO-${o.id}`,
+    _type: type,
+    _createdAtMs: new Date(o.created_at).getTime(),
+    title: (o.content || '工单').slice(0, 30),
+    device: deviceName(o.device_id),
+    level: lv.label,
+    levelColor: lv.color,
+    createTime: new Date(o.created_at).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }),
+    status: statusLabelMap[o.status] || o.status,
+    handler: o.handler_name || o.assigner_name || o.user_name || '--'
+  }
+}
+async function loadTodayWorkOrders() {
+  try {
+    const headers = authHeader()
+    // 同步全量工单到 store (供 WorkOrderDetailPanel 查全量字段: last_action_at, handler_name, device_id 等)
+    const { probs, maints } = await loadAllWorkOrders(headers)
+    // 不只今日: 拉所有未闭环工单, 按创建时间倒序
+    // 问题工单额外排除 to_maintenance (已转维修, 避免重复显示)
+    const isProblemOpen = (s: string) => s === 'pending'
+    const isMaintOpen = (s: string) => !['completed', 'closed'].includes(s)
+    const list = [
+      ...probs.filter((p: any) => isProblemOpen(p.status)).map((p: any) => mapWorkOrder(p, 'problem')),
+      ...maints.filter((m: any) => isMaintOpen(m.status)).map((m: any) => mapWorkOrder(m, 'maintenance'))
+    ]
+    // 拿原数据按 created_at 倒序
+    list.sort((a: any, b: any) => (b._createdAtMs || 0) - (a._createdAtMs || 0))
+    workOrders.value = list
+  } catch (err) {
+    console.error('加载工单失败', err)
+  }
+}
+
+// 消息通知（从后端实时告警 + 设备/工单/备件名派生）
+const notifications = ref<any[]>([])
+async function loadNotifications() {
+  try {
+    const r = await fetch('/api/dashboard/overview', { headers: authHeader() })
+    if (!r.ok) return
+    const d = await r.json()
+    const now = new Date()
+    const time = now.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+    const list: any[] = []
+    let nid = 1
+    const a = d.real_time_alerts || {}
+    // 设备告警
+    const warningDevices = deviceListWithStatus.value.filter(x => x.status === '告警')
+    warningDevices.forEach(dev => list.push({ id: nid++, type: 'warning', content: `设备「${dev.name}」告警，请检查`, time }))
+    // 设备维修中
+    const maintDevices = deviceListWithStatus.value.filter(x => x.status === '维修中')
+    maintDevices.forEach(dev => list.push({ id: nid++, type: 'warning', content: `设备「${dev.name}」维修中`, time }))
+    // 工单 SLA 超时
+    if (a.workorder_sla_breached) list.push({ id: nid++, type: 'warning', content: `工单 SLA 超时 ${a.workorder_sla_breached} 个`, time })
+    if (a.workorder_sla_warning) list.push({ id: nid++, type: 'info', content: `工单 SLA 即将超时 ${a.workorder_sla_warning} 个`, time })
+    // 巡检超时
+    if (a.inspection_overdue) list.push({ id: nid++, type: 'warning', content: `巡检任务超时 ${a.inspection_overdue} 个`, time })
+    // 备件低库存
+    if (a.sparepart_low_stock) list.push({ id: nid++, type: 'warning', content: `备件低库存 ${a.sparepart_low_stock} 种`, time })
+    // 插入今日工单已完成的消息
+    const done = workOrders.value.filter(o => o.status === '已完成' || o.status === '已闭环' || o.status === '已自处理')
+    done.slice(0, 3).forEach(o => list.push({ id: nid++, type: 'success', content: `工单「${o.title}」已处理完成`, time: o.createTime }))
+    notifications.value = list
+  } catch (err) {
+    console.error('加载通知公告失败', err)
+  }
+}
 
 // 低库存备件提醒（排除电机、水泵、阀门、仪表）
 const lowStockExcludes = ['电机', '水泵', '阀门', '仪表']
@@ -455,40 +753,148 @@ const getLevelClass = (level: string) => {
       </div>
     </header>
 
-    <!-- 执行巡检弹窗（从主页直接弹出） -->
-    <div v-if="showExecuteDialog" class="dialog-overlay" @click.self="showExecuteDialog = false">
-      <div class="dialog">
+    <!-- 公告详情弹窗 -->
+    <div v-if="showNoticeDialog && noticeDetail" class="dialog-overlay" @click.self="closeNoticeDetail">
+      <div class="dialog dialog-notice-detail">
         <div class="dialog-header">
-          <h3>执行巡检</h3>
-          <button class="dialog-close" @click="showExecuteDialog = false">×</button>
+          <h3>
+            <span class="notif-type-badge" :class="`badge-${noticeDetail.type}`">{{ noticeTypeLabel(noticeDetail.type) }}</span>
+            公告详情
+          </h3>
+          <button class="dialog-close" @click="closeNoticeDetail">×</button>
         </div>
         <div class="dialog-body">
-          <div class="execute-info">
-            <div class="execute-device">{{ currentTaskForDialog?.device_name }}</div>
-            <div class="execute-plan">📍{{ currentTaskForDialog?.location }} · {{ currentTaskForDialog?.plan_name }}</div>
-          </div>
-          <div class="execute-checklist">
-            <div v-for="(item, idx) in (currentTaskForDialog?.check_content || '').split('\n').filter((l: string) => l.trim())" :key="idx" class="check-row">
-              <div class="check-box-wrap">
-                <input type="checkbox" v-model="checkedItems" :value="item" :id="'mcheck-' + idx" class="check-input" />
-                <label :for="'mcheck-' + idx" class="check-label">{{ item }}</label>
-              </div>
-            </div>
-          </div>
-          <div class="abnormal-section">
-            <label class="abnormal-label">
-              <input type="checkbox" v-model="hasAbnormal" class="check-input" />
-              <span>发现异常</span>
-            </label>
-            <textarea v-if="hasAbnormal" v-model="abnormalDesc" placeholder="描述异常情况..." rows="3"></textarea>
+          <div class="notice-detail-content">{{ noticeDetail.content }}</div>
+          <div class="notice-detail-meta">
+            <span class="notice-detail-time">🕐 {{ noticeDetail.time }}</span>
+            <span v-if="noticeDetail.id" class="notice-detail-id">编号: {{ noticeDetail.id }}</span>
           </div>
         </div>
         <div class="dialog-footer">
-          <button class="btn-cancel" @click="showExecuteDialog = false">取消</button>
-          <button class="btn-confirm" @click="submitTaskResultFromMain">提交巡检结果</button>
+          <button class="btn-confirm" @click="closeNoticeDetail">关闭</button>
         </div>
       </div>
     </div>
+
+    <!-- 执行巡检主弹窗 (n-modal 风格) -->
+    <n-modal
+      v-model:show="showExecuteDialog"
+      :mask-closable="true"
+      :on-after-leave="onModalAfterLeave"
+      title="执行巡检"
+      preset="card"
+      class="detail-modal-shell"
+      style="width: 600px;"
+      :bordered="false"
+      size="huge"
+    >
+      <div v-if="currentTaskForDialog" class="execute-modal-body">
+        <!-- 任务信息 -->
+        <div class="execute-info">
+          <div class="execute-device-row">
+            <span class="execute-device">{{ currentTaskForDialog.device_name }}</span>
+            <span class="execute-task-id">#{{ currentTaskForDialog.plan_id }}-{{ currentTaskForDialog.device_id }}</span>
+          </div>
+          <div class="execute-plan">📍 {{ currentTaskForDialog.location || '--' }} · {{ currentTaskForDialog.plan_name }}</div>
+        </div>
+
+        <!-- 巡检项目 checklist -->
+        <div class="execute-checklist">
+          <div class="checklist-title">巡检项目</div>
+          <div v-for="(item, idx) in (currentTaskForDialog.check_content || '').split('\n').filter((l: string) => l.trim())" :key="idx" class="check-row" :class="{ 'check-row-disabled': currentTaskForDialog?.is_completed }">
+            <input type="checkbox" v-model="checkedItems" :value="item" :id="'mcheck-' + idx" class="check-input" :disabled="currentTaskForDialog?.is_completed" />
+            <label :for="'mcheck-' + idx" class="check-label">{{ item }}</label>
+          </div>
+          <div v-if="!(currentTaskForDialog.check_content || '').trim()" class="checklist-empty">本任务无具体检查项</div>
+        </div>
+
+        <!-- 备注 -->
+        <div class="execute-remark">
+          <label class="remark-label">备注 (可选)</label>
+          <textarea v-model="executeRemark" placeholder="如有需要请填写..." rows="2" class="remark-textarea" />
+        </div>
+
+        <!-- 历史异常 (只读, 重新打开已异常的任务时显示) -->
+        <div v-if="currentTaskForDialog?.abnormal_desc || (currentTaskForDialog?.abnormal_images && currentTaskForDialog.abnormal_images.length)" class="execute-history">
+          <div class="history-title">⚠ 异常记录</div>
+          <div v-if="currentTaskForDialog?.abnormal_desc" class="history-desc">
+            {{ currentTaskForDialog.abnormal_desc }}
+          </div>
+          <div v-if="currentTaskForDialog?.abnormal_images && currentTaskForDialog.abnormal_images.length" class="history-images">
+            <div v-for="(img, idx) in currentTaskForDialog.abnormal_images" :key="idx" class="history-img-link" @click="openLightbox(currentTaskForDialog.abnormal_images, idx)">
+              <img :src="img" />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <template #action>
+        <div class="execute-modal-footer">
+          <button class="dm-btn dm-btn-cancel" @click="showExecuteDialog = false">{{ currentTaskForDialog?.is_completed ? '关闭' : '取消' }}</button>
+          <button v-if="!currentTaskForDialog?.is_completed" class="dm-btn dm-btn-danger" @click="openAbnormalDialog">⚠ 上报异常</button>
+          <button v-if="!currentTaskForDialog?.is_completed" class="dm-btn dm-btn-primary" @click="submitTaskComplete">✓ 完成巡检</button>
+          <span v-else class="execute-status-tag" :class="`status-${currentTaskForDialog?.status}`">
+            {{ currentTaskForDialog?.status === 'abnormal' ? '⚠ 异常已上报' : '✓ 已完成' }}
+          </span>
+        </div>
+      </template>
+    </n-modal>
+
+    <!-- 上报异常子弹窗 -->
+    <n-modal
+      v-model:show="showAbnormalDialog"
+      :mask-closable="false"
+      :on-after-leave="onModalAfterLeave"
+      title="上报巡检异常"
+      preset="card"
+      class="detail-modal-shell"
+      style="width: 560px;"
+      :bordered="false"
+      size="huge"
+    >
+      <div v-if="currentTaskForDialog" class="abnormal-modal-body">
+        <div class="abnormal-task-info">
+          <strong>{{ currentTaskForDialog.device_name }}</strong>
+          <span class="abnormal-task-id">#{{ currentTaskForDialog.plan_id }}-{{ currentTaskForDialog.device_id }}</span>
+        </div>
+        <div class="abnormal-field">
+          <label class="abnormal-field-label required">异常描述</label>
+          <textarea v-model="abnormalDesc" placeholder="详细描述异常情况 (如: 压力偏高/漏水/异响 等)..." rows="4" class="abnormal-textarea" />
+        </div>
+        <div class="abnormal-field">
+          <label class="abnormal-field-label">现场照片 (可选, 最多 6 张)</label>
+          <div class="abnormal-images">
+            <div v-for="(img, idx) in abnormalImages" :key="idx" class="abnormal-img-preview">
+              <img :src="img" />
+              <button class="abnormal-img-remove" @click="abnormalImages.splice(idx, 1)">×</button>
+            </div>
+            <label v-if="abnormalImages.length < 6" class="abnormal-img-upload">
+              <input type="file" accept="image/*" multiple @change="handleAbnormalImageUpload" style="display:none" />
+              <span>+ 拍照/上传</span>
+            </label>
+          </div>
+        </div>
+      </div>
+      <template #action>
+        <div class="execute-modal-footer">
+          <button class="dm-btn dm-btn-cancel" @click="closeAbnormalDialog">取消</button>
+          <button class="dm-btn dm-btn-danger" :disabled="!abnormalDesc.trim()" @click="submitTaskAbnormal">提交异常</button>
+        </div>
+      </template>
+    </n-modal>
+
+    <!-- 图片灯箱 (跟工单页统一风格: 固定遮罩 + 左右翻页 + 关闭)
+         修复: 用 Teleport 传送到 body 根, 脱离 n-modal 父级 stacking context, 浮在最上层 -->
+    <Teleport to="body">
+      <div v-if="lightboxImages.length > 0" class="image-preview-mask" @click.self="closeLightbox">
+        <button class="image-preview-close" @click="closeLightbox">×</button>
+        <button v-if="lightboxImages.length > 1" class="image-preview-nav left" :disabled="lightboxIndex === 0" @click="lightboxIndex = (lightboxIndex - 1 + lightboxImages.length) % lightboxImages.length">‹</button>
+        <div class="image-preview-content">
+          <img :src="lightboxImages[lightboxIndex]" />
+        </div>
+        <button v-if="lightboxImages.length > 1" class="image-preview-nav right" :disabled="lightboxIndex === lightboxImages.length - 1" @click="lightboxIndex = (lightboxIndex + 1) % lightboxImages.length">›</button>
+      </div>
+    </Teleport>
 
     <!-- 第二行：左侧带班信息卡片 + 右侧通知公告卡片 -->
     <div class="info-row">
@@ -563,8 +969,9 @@ const getLevelClass = (level: string) => {
           <div
             v-for="notif in (showAllNotifs ? expandedNotifs : visibleNotifs)"
             :key="notif.id"
-            class="notif-row"
+            class="notif-row clickable"
             :class="`notif-${notif.type}`"
+            @click="openNoticeDetail(notif)"
           >
             <div class="notif-dot"></div>
             <span class="notif-text">{{ notif.content }}</span>
@@ -621,7 +1028,8 @@ const getLevelClass = (level: string) => {
             <div
               v-for="device in deviceListSorted"
               :key="device.id"
-              class="device-item"
+              class="device-item clickable"
+              @click="openDeviceDetail(device)"
             >
               <div class="device-icon" :class="getStatusClass(device.status)">
                 <span v-if="device.status === '在用'">💧</span>
@@ -650,7 +1058,8 @@ const getLevelClass = (level: string) => {
             <div
               v-for="order in workOrdersList"
               :key="order.id"
-              class="order-item"
+              class="order-item clickable"
+              @click="openWorkOrderDetail(order)"
             >
               <div class="order-left">
                 <div class="order-header">
@@ -678,6 +1087,45 @@ const getLevelClass = (level: string) => {
     <footer class="page-footer">
       <p>© 2024 广州市番禺水务股份有限公司</p>
     </footer>
+
+    <!-- 设备详情弹窗 -->
+    <n-modal
+      v-model:show="showDeviceModal"
+      :mask-closable="true"
+      :on-after-leave="onModalAfterLeave"
+      title="设备详情"
+      class="detail-modal-shell"
+      style="width: 680px;"
+      :bordered="false"
+      size="huge"
+    >
+      <DeviceDetailPanel
+        v-if="modalDevice"
+        :device="modalDevice"
+        @close="closeDeviceModal"
+        @updated="onDeviceUpdated"
+        @deleted="onDeviceDeleted"
+      />
+    </n-modal>
+
+    <!-- 工单详情弹窗 -->
+    <n-modal
+      v-model:show="showWorkOrderModal"
+      :mask-closable="true"
+      :on-after-leave="onModalAfterLeave"
+      title="工单详情"
+      class="detail-modal-shell"
+      style="width: 800px;"
+      :bordered="false"
+      size="huge"
+    >
+      <WorkOrderDetailPanel
+        v-if="modalOrder"
+        :order-item="modalOrder"
+        @close="closeWorkOrderModal"
+        @updated="onWorkOrderUpdated"
+      />
+    </n-modal>
   </div>
 </template>
 
@@ -1317,6 +1765,7 @@ const getLevelClass = (level: string) => {
 .notif-row:hover {
   background: rgba(255, 255, 255, 0.06);
 }
+.notif-row.clickable { cursor: pointer; }
 
 .notif-dot {
   width: 6px;
@@ -1620,6 +2069,7 @@ const getLevelClass = (level: string) => {
 .device-item:hover {
   background: rgba(0, 0, 0, 0.3);
 }
+.device-item.clickable { cursor: pointer; }
 
 .device-icon {
   width: 36px;
@@ -1698,6 +2148,7 @@ const getLevelClass = (level: string) => {
 .order-item:hover {
   background: rgba(0, 0, 0, 0.3);
 }
+.order-item.clickable { cursor: pointer; }
 
 .order-header {
   display: flex;
@@ -1753,13 +2204,18 @@ const getLevelClass = (level: string) => {
   font-weight: 500;
 }
 
-.order-status.status-处理中 { background: rgba(245, 158, 11, 0.2); color: #F59E0B; }
-.order-status.status-待处理 { background: rgba(30, 107, 184, 0.2); color: #93C5FD; }
-.order-status.status-已完成 { background: rgba(16, 185, 129, 0.2); color: #6EE7B7; }
+.order-status.status-处理中 { background: rgba(245, 158, 11, 0.25); color: #FBBF24; font-weight: 600; }
+.order-status.status-待处理 { background: rgba(30, 107, 184, 0.3); color: #93C5FD; font-weight: 600; }
+.order-status.status-已完成 { background: rgba(16, 185, 129, 0.3); color: #6EE7B7; font-weight: 600; }
+.order-status.status-延时 { background: rgba(234, 179, 8, 0.3); color: #FDE047; font-weight: 600; }
+.order-status.status-退回 { background: rgba(239, 68, 68, 0.3); color: #FCA5A5; font-weight: 600; }
+.order-status.status-已闭环 { background: rgba(16, 185, 129, 0.3); color: #6EE7B7; font-weight: 600; }
+.order-status.status-已自处理 { background: rgba(139, 92, 246, 0.3); color: #C4B5FD; font-weight: 600; }
 
 .order-handler {
   font-size: 12px;
-  color: rgba(255, 255, 255, 0.4);
+  color: rgba(255, 255, 255, 0.85);  /* 改亮: 0.4 → 0.85, 提升对比度 */
+  font-weight: 500;
 }
 
 /* 快捷功能 */
@@ -1975,6 +2431,36 @@ const getLevelClass = (level: string) => {
   max-height: 80vh;
   overflow-y: auto;
 }
+.dialog-notice-detail { width: 480px; }
+.notif-type-badge {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 10px;
+  font-size: 12px;
+  margin-right: 8px;
+  font-weight: 500;
+}
+.notif-type-badge.badge-warning { background: rgba(245, 158, 11, 0.2); color: #fbbf24; }
+.notif-type-badge.badge-info { background: rgba(96, 165, 250, 0.2); color: #93c5fd; }
+.notif-type-badge.badge-success { background: rgba(45, 212, 191, 0.2); color: #2dd4bf; }
+.notif-type-badge.badge-error { background: rgba(239, 68, 68, 0.2); color: #fca5a5; }
+.notice-detail-content {
+  font-size: 16px;
+  line-height: 1.7;
+  color: rgba(255,255,255,0.92);
+  padding: 12px 4px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.notice-detail-meta {
+  display: flex;
+  gap: 16px;
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255,255,255,0.08);
+  font-size: 12px;
+  color: rgba(255,255,255,0.5);
+}
 
 .dialog-header {
   display: flex;
@@ -2033,4 +2519,72 @@ const getLevelClass = (level: string) => {
 .btn-confirm:hover {
   background: rgba(45, 212, 191, 0.25);
 }
+</style>
+
+<style scoped>
+/* ====== 执行巡检弹窗 (n-modal 内) ====== */
+.execute-modal-body { padding: 4px 0 12px; }
+.execute-info { background: rgba(45, 212, 191, 0.08); border: 1px solid rgba(45, 212, 191, 0.2); border-radius: 8px; padding: 12px 16px; margin-bottom: 16px; }
+.execute-device-row { display: flex; align-items: center; gap: 12px; margin-bottom: 6px; }
+.execute-device { font-size: 16px; font-weight: 600; color: #fff; }
+.execute-task-id { font-family: ui-monospace, monospace; font-size: 12px; color: rgba(255, 255, 255, 0.5); background: rgba(255, 255, 255, 0.05); padding: 2px 8px; border-radius: 4px; }
+.execute-plan { font-size: 12px; color: rgba(255, 255, 255, 0.6); }
+.execute-checklist { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
+.checklist-title { font-size: 12px; color: rgba(255, 255, 255, 0.5); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px; font-weight: 600; }
+.check-row { display: flex; align-items: center; gap: 10px; padding: 8px 10px; background: rgba(255, 255, 255, 0.04); border-radius: 6px; cursor: pointer; }
+.check-row:hover { background: rgba(255, 255, 255, 0.07); }
+.check-input { width: 16px; height: 16px; cursor: pointer; accent-color: #2DD4BF; }
+.check-label { color: rgba(255, 255, 255, 0.9); font-size: 14px; cursor: pointer; flex: 1; }
+.checklist-empty { padding: 12px; text-align: center; color: rgba(255, 255, 255, 0.4); font-size: 13px; background: rgba(255, 255, 255, 0.02); border-radius: 6px; }
+.check-row-disabled { opacity: 0.5; cursor: not-allowed; }
+.check-row-disabled .check-input { cursor: not-allowed; }
+.check-row-disabled .check-label { cursor: not-allowed; }
+.history-images { display: flex; flex-wrap: wrap; gap: 6px; max-height: 200px; overflow-y: auto; }
+/* 异常记录区 (修复: 之前仅 .history-images 有样式, .execute-history/.history-title/.history-desc 三个类都漏了) */
+.execute-history { margin-top: 14px; padding: 12px; background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.25); border-radius: 6px; }
+.history-title { font-size: 13px; font-weight: 600; color: #FCA5A5; margin-bottom: 8px; }
+.history-desc { font-size: 13px; color: rgba(255, 255, 255, 0.85); line-height: 1.5; padding: 8px 10px; background: rgba(0, 0, 0, 0.2); border-radius: 4px; margin-bottom: 8px; white-space: pre-wrap; word-break: break-word; }
+.history-img-link { width: 44px; height: 44px; border-radius: 4px; overflow: hidden; cursor: pointer; border: 1px solid rgba(239, 68, 68, 0.3); flex-shrink: 0; transition: transform 0.15s; }
+.history-img-link:hover { transform: scale(1.1); border-color: #EF4444; }
+.history-img-link img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+.execute-remark { margin-bottom: 12px; }
+.remark-label { display: block; font-size: 12px; color: rgba(255, 255, 255, 0.5); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px; font-weight: 600; }
+.remark-textarea { width: 100%; box-sizing: border-box; background: rgba(0, 0, 0, 0.25); border: 1px solid rgba(45, 212, 191, 0.2); border-radius: 6px; padding: 8px 10px; color: #fff; font-size: 13px; resize: vertical; font-family: inherit; }
+.remark-textarea:focus { outline: none; border-color: #2DD4BF; }
+
+.execute-modal-footer { display: flex; justify-content: flex-end; gap: 10px; }
+
+/* ====== 异常子弹窗 ====== */
+.abnormal-modal-body { padding: 4px 0 12px; }
+.abnormal-task-info { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; padding: 10px 14px; background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 8px; }
+.abnormal-task-info strong { color: #fff; font-size: 14px; }
+.abnormal-task-id { font-family: ui-monospace, monospace; font-size: 12px; color: rgba(255, 255, 255, 0.6); }
+.abnormal-field { margin-bottom: 14px; }
+.abnormal-field-label { display: block; font-size: 12px; color: rgba(255, 255, 255, 0.7); margin-bottom: 6px; font-weight: 500; }
+.abnormal-field-label.required::after { content: ' *'; color: #EF4444; }
+.abnormal-textarea { width: 100%; box-sizing: border-box; background: rgba(0, 0, 0, 0.25); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 6px; padding: 8px 10px; color: #fff; font-size: 13px; resize: vertical; font-family: inherit; }
+.abnormal-textarea:focus { outline: none; border-color: #EF4444; }
+.abnormal-images { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.abnormal-img-preview { position: relative; aspect-ratio: 1; border-radius: 6px; overflow: hidden; border: 1px solid rgba(45, 212, 191, 0.2); }
+.abnormal-img-preview img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.abnormal-img-remove { position: absolute; top: 4px; right: 4px; width: 20px; height: 20px; background: rgba(0, 0, 0, 0.6); border: none; color: #fff; border-radius: 50%; cursor: pointer; font-size: 14px; line-height: 1; }
+.abnormal-img-remove:hover { background: rgba(239, 68, 68, 0.8); }
+.abnormal-img-upload { display: flex; align-items: center; justify-content: center; aspect-ratio: 1; background: rgba(255, 255, 255, 0.04); border: 1px dashed rgba(45, 212, 191, 0.3); border-radius: 6px; cursor: pointer; color: rgba(255, 255, 255, 0.5); font-size: 13px; transition: all 0.15s; }
+.abnormal-img-upload:hover { background: rgba(45, 212, 191, 0.08); border-color: #2DD4BF; color: #2DD4BF; }
+.dm-btn-danger:disabled { opacity: 0.5; cursor: not-allowed; }
+.execute-status-tag { padding: 6px 14px; border-radius: 6px; font-size: 13px; font-weight: 600; }
+.execute-status-tag.status-completed { background: rgba(16, 185, 129, 0.2); color: #6EE7B7; }
+.execute-status-tag.status-abnormal { background: rgba(239, 68, 68, 0.2); color: #FCA5A5; }
+
+/* 图片灯箱 (修复: 之前漏了 CSS, 导致点击图片只空出块状区域, 关闭按钮也错位)
+   z-index 9999 > n-modal 默认 2000, 浮在执行巡检弹窗之上 */
+.image-preview-mask { position: fixed; inset: 0; background: rgba(0,0,0,0.85); z-index: 9999; display: flex; align-items: center; justify-content: center; }
+.image-preview-content { max-width: 90vw; max-height: 90vh; }
+.image-preview-content img { max-width: 100%; max-height: 90vh; object-fit: contain; }
+.image-preview-close { position: absolute; top: 20px; right: 20px; width: 36px; height: 36px; border-radius: 50%; background: rgba(255,255,255,0.15); color: #fff; border: none; font-size: 18px; cursor: pointer; }
+.image-preview-nav { position: absolute; top: 50%; transform: translateY(-50%); width: 48px; height: 48px; border-radius: 50%; background: rgba(255,255,255,0.15); color: #fff; border: none; font-size: 24px; cursor: pointer; }
+.image-preview-nav.left { left: 20px; }
+.image-preview-nav.right { right: 20px; }
+.image-preview-nav:disabled { opacity: 0.3; cursor: not-allowed; }
 </style>

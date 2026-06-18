@@ -36,7 +36,7 @@ async function initTables() {
         cycle VARCHAR(50) DEFAULT 'daily' COMMENT '执行周期',
         executor_role VARCHAR(100) DEFAULT NULL COMMENT '执行角色',
         executor_ids VARCHAR(500) DEFAULT '[]' COMMENT '执行人ID列表(JSON)',
-        custom_times JSON DEFAULT '[]' COMMENT '自定义时间段',
+        custom_times JSON DEFAULT NULL COMMENT '自定义时间段',
         custom_type VARCHAR(50) DEFAULT 'daily' COMMENT '自定义周期类型',
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP

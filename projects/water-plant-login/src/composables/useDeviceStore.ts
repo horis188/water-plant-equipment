@@ -1,8 +1,9 @@
 import { ref, computed } from 'vue'
 
 // ============ 当前登录用户 ============
-const saved = sessionStorage.getItem('currentUser')
-export const currentUser = ref<{ name: string; role: string; role_id?: number; avatar: string; id: number; team?: string; member_name?: string; token?: string }>(saved ? JSON.parse(saved) : { name: '张明', role: '运行班长', avatar: '张', id: 0 })
+// 默认值兜底 (10+ 处直接读 currentUser.value.role/name 不加 ?., 防止 null 崩溃)
+// sessionStorage → ref 的同步由 main.ts 启动时负责 (避免模块顶层副作用反模式)
+export const currentUser = ref<{ name: string; role: string; role_id?: number; avatar: string; id: number; team?: string; member_name?: string; token?: string }>({ name: '张明', role: '运行班长', avatar: '张', id: 0 })
 
 export function setCurrentUser(user: { name: string; role: string; role_id?: number; avatar: string; id: number; team?: string; member_name?: string; token?: string }) {
   currentUser.value = user
@@ -90,11 +91,24 @@ export const isOnDuty = computed(() => {
 const statusValueMap: Record<string, number> = { '0': 0, '1': 1, '2': 2 }
 const statusLabelMap: Record<number, string> = { 0: '在用', 1: '告警', 2: '维修中' }
 
+// 统一加 Authorization 头的 fetch helper
+function apiFetch(url: string, options: RequestInit = {}): Promise<Response> {
+  const headers: Record<string, string> = {
+    ...authHeader() as Record<string, string>,
+    ...(options.headers as Record<string, string> || {})
+  }
+  return fetch(url, { ...options, headers })
+}
+
 export const devices = ref<any[]>([])
 
 export async function loadDevicesFromDB() {
   try {
-    const res = await fetch('/api/devices')
+    const res = await fetch('/api/devices', { headers: authHeader() })
+    if (!res.ok) {
+      console.warn('[loadDevicesFromDB] HTTP', res.status)
+      return
+    }
     const dbDevices = await res.json()
     devices.value = dbDevices.map((d: any) => ({
       ...d,
@@ -146,7 +160,7 @@ export const deviceChangeLog = ref<DeviceChange[]>([])
 // 添加设备变动记录（同时写入数据库）
 export async function addDeviceChangeLogToDB(deviceId: string, deviceName: string, changeType: string, content: string, operator: string) {
   try {
-    await fetch('/api/devices/changes', {
+    await apiFetch('/api/devices/changes', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ device_name: deviceName, change_type: changeType, operator, content })
@@ -199,7 +213,7 @@ export async function updateDeviceStatusByOrder(deviceId: string, newStatus: str
   
   // 同步到数据库，成功后再更新本地，失败则回滚
   try {
-    const res = await fetch(`/api/devices/${deviceId}`, {
+    const res = await apiFetch(`/api/devices/${deviceId}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ status: newStatus })
@@ -235,7 +249,7 @@ export async function addDevice(data: Omit<typeof devices.value[0], 'id'>) {
   const record = { ...data, id: frontendId, statusValue: statusValueMap[data.status] ?? 0 }
   devices.value.push(record)
   try {
-    const res = await fetch('/api/devices', {
+    const res = await apiFetch('/api/devices', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data)
@@ -316,7 +330,7 @@ export async function updateDevice(id: string, data: Partial<typeof devices.valu
     // 同步数据库
     try {
       const { id: _id, statusValue: _sv, ...putData } = devices.value[idx]
-      await fetch(`/api/devices/${id}`, {
+      await apiFetch(`/api/devices/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(putData)
@@ -330,7 +344,7 @@ export async function updateDevice(id: string, data: Partial<typeof devices.valu
 export async function deleteDevice(id: string) {
   devices.value = devices.value.filter(d => d.id !== id)
   try {
-    await fetch(`/api/devices/${id}`, { method: 'DELETE' })
+    await apiFetch(`/api/devices/${id}`, { method: 'DELETE' })
   } catch (err) {
     console.error('删除设备失败', err)
   }

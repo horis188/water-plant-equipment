@@ -9,7 +9,7 @@
         <span class="page-date">{{ today }}</span>
       </div>
       <!-- 非管理员显示我的巡检统计 -->
-      <div class="header-stats" v-if="currentUser?.role !== '系统管理人' && activeTab !== 'maintenance'">
+      <div class="header-stats" v-if="!isReadOnlyAdmin && activeTab !== 'maintenance'">
         <div class="stat-pill stat-teal">
           <span class="stat-dot"></span>
           今日巡检 {{ myDoneCount }}/{{ myTasks.length }}
@@ -76,13 +76,13 @@
         <span class="tab-count">{{ myPendingCount }}</span>
       </button>
       <button 
-        v-if="isAdmin || currentUser?.role === '维修组'"
+        v-if="isAdmin || isDirector || currentUser?.role === '维修组'"
         class="tab-btn" 
         :class="{ active: activeTab === 'maintenance' }"
         @click="activeTab = 'maintenance'"
       >
         <span class="tab-icon">🔧</span>
-        {{ isAdmin ? '保养计划管理' : '保养任务' }}
+        {{ isAdmin ? '保养计划管理' : '保养计划' }}
         <span v-if="maintPlans.length > 0" class="tab-badge">{{ maintPlans.length }}</span>
       </button>
     </div>
@@ -116,7 +116,7 @@
       </div>
 
       <!-- 管理员：所有账号巡检任务 -->
-      <div v-if="isAdmin" class="admin-all-tasks">
+      <div v-if="isReadOnlyAdmin" class="admin-all-tasks">
         <div class="admin-tasks-header">
           <span class="admin-tasks-title">所有账号巡检任务</span>
           <span class="admin-tasks-count">{{ adminTasks.length }} 项任务</span>
@@ -391,15 +391,15 @@
 
     <!-- 保养计划内容 -->
     <div v-show="activeTab === 'maintenance'" class="tab-content">
-      <!-- 系统管理人：完整管理界面 -->
-      <div v-if="isAdmin" class="maint-admin-wrapper">
+      <!-- 系统管理人：完整管理界面 / 厂长: 只读 -->
+      <div v-if="isAdmin || isDirector" class="maint-admin-wrapper">
         <div class="page-header" style="padding: 24px 32px 20px;">
           <div class="header-left">
-            <h2 class="page-title">保养计划管理</h2>
-            <span class="page-desc">制定设备保养计划，分派执行周期和负责人</span>
+            <h2 class="page-title">{{ isDirector ? '保养计划' : '保养计划管理' }}</h2>
+            <span class="page-desc">{{ isDirector ? '查看设备保养计划与执行情况' : '制定设备保养计划，分派执行周期和负责人' }}</span>
           </div>
           <div class="header-actions">
-            <button class="btn-primary" @click="maintOpenCreate">+ 新建保养计划</button>
+            <button v-if="isAdmin" class="btn-primary" @click="maintOpenCreate">+ 新建保养计划</button>
           </div>
         </div>
 
@@ -423,8 +423,8 @@
                 </div>
               </div>
               <div class="plan-actions">
-                <button class="btn-edit" @click="maintEditPlan(plan)">编辑</button>
-                <button class="btn-delete" @click="maintDeletePlan(plan.id)">删除</button>
+                <button v-if="isAdmin" class="btn-edit" @click="maintEditPlan(plan)">编辑</button>
+                <button v-if="isAdmin" class="btn-delete" @click="maintDeletePlan(plan.id)">删除</button>
               </div>
             </div>
 
@@ -486,8 +486,8 @@
         </div>
       </div>
 
-      <!-- 非系统管理人：保养任务列表 -->
-      <div v-if="!isAdmin" class="maint-admin-wrapper">
+      <!-- 非系统管理人/厂长：保养任务列表 -->
+      <div v-if="!isAdmin && !isDirector" class="maint-admin-wrapper">
         <div class="page-header" style="padding: 24px 32px 20px;">
           <div class="header-left">
             <h2 class="page-title">保养任务</h2>
@@ -708,6 +708,9 @@ import { useSSE } from '../composables/useSSE'
 
 const API_BASE = '/api/inspection'
 const isAdmin = computed(() => currentUser.value?.role === '系统管理人')
+const isDirector = computed(() => currentUser.value?.role === '厂长')
+// 只读管理员: 系统管理人+厂长(看所有任务, 但厂长不能创建/执行)
+const isReadOnlyAdmin = computed(() => isAdmin.value || isDirector.value)
 
 // ── SSE 实时同步 ──
 let inspectionEventSource: EventSource | null = null
@@ -1403,7 +1406,7 @@ async function savePlan() {
       throw new Error(`HTTP ${res.status}: ${text}`)
     }
     await loadPlans()
-    if (isAdmin.value) {
+    if (isReadOnlyAdmin.value) {
       await loadAdminTasks()
       await loadMyTasks()
     } else {
@@ -1422,7 +1425,7 @@ async function deletePlan(id: number) {
   try {
     await fetch(`${API_BASE}/plans/${id}`, { method: 'DELETE' })
     await loadPlans()
-    if (isAdmin.value) {
+    if (isReadOnlyAdmin.value) {
       await loadAdminTasks()
       await loadMyTasks()
     } else {
@@ -1460,11 +1463,14 @@ onMounted(async () => {
   loadUsers()
   await loadMyTasks()
   await loadOverdueList()
-  if (isAdmin.value) {
+  if (isReadOnlyAdmin.value) {
     await loadAdminTasks()
-    maintLoadUsers()
-    await maintLoadPlans()
-    maintLoadDeviceData()
+    if (isAdmin.value || isDirector.value) {
+      // 保养计划: 系统管理人可管理, 厂长只读
+      maintLoadUsers()
+      await maintLoadPlans()
+      maintLoadDeviceData()
+    }
   } else {
     await loadMyMaintTasks()
   }
@@ -1500,6 +1506,8 @@ const myAbnormalCount = computed(() => myTasks.value.filter(t => t.has_abnormal)
 const adminTasksGrouped = computed(() => {
   const groups: Record<string, any[]> = {}
   for (const t of adminTasks.value) {
+    // 厂长只看所有岗位+带班的任务, 过滤掉维修组
+    if (isDirector.value && t.executor_role === '维修组') continue
     const role = t.executor_role || '未知角色'
     if (!groups[role]) groups[role] = []
     groups[role].push(t)
@@ -1549,9 +1557,9 @@ async function loadMyTasks() {
   }
 }
 
-// 管理员加载所有账号的巡检任务
+// 管理员加载所有账号的巡检任务 (系统管理人+厂长)
 async function loadAdminTasks() {
-  if (!isAdmin.value) return
+  if (!isReadOnlyAdmin.value) return
   try {
     // 获取所有用户的任务（不带executor_id参数）
     const res = await fetch(`${API_BASE}/pending-tasks`)

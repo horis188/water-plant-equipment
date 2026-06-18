@@ -183,6 +183,57 @@ export const problemOrders = ref<ProblemWorkOrder[]>([])
 // ============ 维修工单（从数据库同步）============
 export const maintenanceOrders = ref<MaintenanceWorkOrder[]>([])
 
+// 一次性从后端拉全量工单到 store (供 dashboard 弹窗/详情页使用)
+// 后端返回 snake_case 字段, 这里转换为 camelCase 以匹配 WorkOrder 接口和模板
+function mapProblemOrder(o: any) {
+  return {
+    ...o,
+    reporterName: o.reporter_name || '',
+    memberName: o.member_name || '',
+    images: Array.isArray(o.images) ? o.images : [],
+    videos: Array.isArray(o.videos) ? o.videos : [],
+    resolutionImages: Array.isArray(o.resolution_images) ? o.resolution_images : [],
+    createdAt: o.created_at ? new Date(o.created_at).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }) : '',
+    lastActionAt: o.last_action_at ? new Date(o.last_action_at).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }) : '',
+    closedAt: o.closed_at ? new Date(o.closed_at).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }) : ''
+  }
+}
+function mapMaintenanceOrder(o: any) {
+  return {
+    ...o,
+    id: String(o.id),
+    assignerName: o.assigner_name || '',
+    handlerName: o.handler_name || '',
+    problemOrderId: o.problem_order_id || null,
+    participants: Array.isArray(o.participants) ? o.participants : [],
+    delayImages: Array.isArray(o.delay_images) ? o.delay_images : [],
+    sparepartUsage: Array.isArray(o.sparepart_usage) ? o.sparepart_usage : [],
+    returnImages: Array.isArray(o.return_images) ? o.return_images : [],
+    completionImages: Array.isArray(o.completion_images) ? o.completion_images : [],
+    reporterName: o.reporter_name || '',
+    memberName: o.member_name || '',
+    createdAt: o.created_at ? new Date(o.created_at).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }) : '',
+    lastActionAt: o.last_action_at ? new Date(o.last_action_at).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }) : '',
+    closedAt: o.closed_at ? new Date(o.closed_at).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }) : ''
+  }
+}
+
+export async function loadAllWorkOrders(headers: Record<string, string> = {}) {
+  try {
+    const [probRes, maintRes] = await Promise.all([
+      fetch('/api/workorders/problem', { headers }),
+      fetch('/api/workorders/maintenance', { headers })
+    ])
+    const [probs, maints] = await Promise.all([probRes.json(), maintRes.json()])
+    problemOrders.value = Array.isArray(probs) ? probs.map(mapProblemOrder) : []
+    maintenanceOrders.value = Array.isArray(maints) ? maints.map(mapMaintenanceOrder) : []
+    return { probs: problemOrders.value, maints: maintenanceOrders.value }
+  } catch (err) {
+    console.error('加载工单到 store 失败', err)
+    return { probs: [], maints: [] }
+  }
+}
+
 // ============ 操作日志 ============
 export const workOrderLogs = ref<WorkOrderLog[]>([])
 
@@ -353,6 +404,7 @@ export async function updateMaintenanceOrder(id: string, data: Partial<Maintenan
   if (data.delayDays !== undefined) updateData.delay_days = data.delayDays
   if (data.completedAt !== undefined) updateData.completed_at = data.completedAt
   if (data.problemOrderId !== undefined) updateData.problem_order_id = data.problemOrderId
+  if (data.closedAt !== undefined) updateData.closed_at = data.closedAt  // 修复: 闭环时同步 closed_at
   if (Object.keys(updateData).length === 0) return
   try {
     const res = await fetch(`/api/workorders/maintenance/${id}`, {

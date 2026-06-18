@@ -2,6 +2,7 @@ import express from 'express'
 import { requireAuth } from '../middleware/requireAuth.js'
 import pool from '../db/mysql.js'
 import { sseEmit } from '../events.js'
+import { parseJsonFieldsInRows } from '../db/jsonFields.js'
 
 const router = express.Router()
 
@@ -22,6 +23,7 @@ router.get('/locations', async (req, res) => {
 router.get('/plans', async (req, res) => {
   try {
     const [plans] = await pool.query('SELECT * FROM maintenance_plans ORDER BY id DESC')
+    parseJsonFieldsInRows(plans, ['executor_ids'])
     for (const plan of plans) {
       const [items] = await pool.query('SELECT * FROM maintenance_items WHERE plan_id = ?', [plan.id])
       plan.items = items
@@ -101,6 +103,7 @@ router.post('/records', async (req, res) => {
 router.get('/records/:planId', async (req, res) => {
   try {
     const [records] = await pool.query('SELECT * FROM maintenance_records WHERE plan_id = ? ORDER BY record_time DESC', [req.params.planId])
+    parseJsonFieldsInRows(records, ['results'])
     // 按 device_id 分组，只保留最新一条
     const latestMap = new Map()
     for (const r of records) {

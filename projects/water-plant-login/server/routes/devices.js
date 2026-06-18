@@ -19,11 +19,12 @@ router.get('/', async (req, res) => {
 
 // 新增设备
 router.post('/', async (req, res) => {
-  const { name, type, model, location, params, status, value, vendor, remark } = req.body
+  const { name, type, model, location, params, status, value, vendor, remark, tech_docs } = req.body
   try {
+    const techDocsJson = tech_docs ? JSON.stringify(tech_docs) : null
     const [result] = await pool.query(
-      'INSERT INTO devices (name, type, model, location, params, status, value, vendor, remark) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [name, type, model, location, params, status || '在用', value, vendor, remark]
+      'INSERT INTO devices (name, type, model, location, params, status, value, vendor, remark, tech_docs) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [name, type, model, location, params, status || '在用', value, vendor, remark, techDocsJson]
     )
     res.json({ id: result.insertId, ...req.body })
   } catch (err) {
@@ -33,7 +34,7 @@ router.post('/', async (req, res) => {
 
 // 更新设备
 router.put('/:id', async (req, res) => {
-  const { name, type, model, location, params, status, value, vendor, remark } = req.body
+  const { name, type, model, location, params, status, value, vendor, remark, tech_docs } = req.body
   try {
     const updates = []
     const values = []
@@ -51,6 +52,9 @@ router.put('/:id', async (req, res) => {
     if (value !== undefined) { updates.push('value=?'); values.push(value) }
     if (vendor !== undefined) { updates.push('vendor=?'); values.push(vendor) }
     if (remark !== undefined) { updates.push('remark=?'); values.push(remark) }
+    if (tech_docs !== undefined) {
+      updates.push('tech_docs=?'); values.push(tech_docs ? JSON.stringify(tech_docs) : null)
+    }
     if (updates.length === 0) return res.status(400).json({ error: 'No fields to update' })
     values.push(req.params.id)
     await pool.query(`UPDATE devices SET ${updates.join(', ')} WHERE id=?`, values)

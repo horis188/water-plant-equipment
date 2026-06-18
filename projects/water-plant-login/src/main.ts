@@ -46,6 +46,13 @@ window.fetch = async (input: any, init: RequestInit = {}) => {
   return originalFetch(input as any, init)
 }
 
+// 启动时从 sessionStorage 强制同步 currentUser (修复 useDeviceStore 模块顶层
+// 副作用导致的 ref 旧值问题: 刷新页面后 ref 不会重新读 sessionStorage)
+const savedUser = sessionStorage.getItem('currentUser')
+if (savedUser) {
+  try { currentUser.value = JSON.parse(savedUser) } catch {}
+}
+
 const app = createApp(App)
 
 app.use(router)

@@ -11,15 +11,15 @@ router.use(requireAuth)
 // ====================================================================
 // P1: SLA 跟踪 (P2.1 工单 P1)
 // SLA 规则 (单位: 小时):
-//   问题工单: 4 (统一, 无等级概念)
-//   维修工单: 轻=72, 中=24, 重=4
+//   问题工单: 8
+//   维修工单: 轻=120 (5天), 中=48 (2天), 重=12
 // ====================================================================
 function getSlaHours(type, level) {
-  if (type === 'problem') return 4
+  if (type === 'problem') return 8
   if (type === 'maintenance') {
-    if (level === '重' || level === 'urgent') return 4
-    if (level === '中' || level === 'medium') return 24
-    return 72  // 轻/普通
+    if (level === '重' || level === 'urgent') return 12
+    if (level === '中' || level === 'medium') return 48
+    return 120  // 轻/普通 (5天)
   }
   return 24
 }
@@ -41,10 +41,15 @@ function getSlaStatus(sla_due_at, status) {
   return 'normal'
 }
 
+// 把行里所有 JSON 字符串列安全地解析成对象/数组 (mysql2 默认把 JSON 列当字符串返回)
+// 修复: images/videos 是 JSON 字符串, 前端 v-for 按字符迭代会渲染 "42 张无效图片" (实际是 length 46 - 4 = +42)
+import { parseJsonFieldsInRows } from '../db/jsonFields.js'
+
 // 获取问题工单
 router.get('/problem', async (req, res) => {
   try {
     const [rows] = await pool.query('SELECT * FROM problem_orders ORDER BY id DESC')
+    parseJsonFieldsInRows(rows, ['images', 'videos', 'resolution_images'])
     res.json(rows)
   } catch (err) {
     res.status(500).json({ error: err.message })
@@ -117,6 +122,7 @@ router.delete('/problem/:id', async (req, res) => {
 router.get('/maintenance', async (req, res) => {
   try {
     const [rows] = await pool.query('SELECT * FROM maintenance_orders ORDER BY id DESC')
+    parseJsonFieldsInRows(rows, ['completion_images', 'delay_images', 'sparepart_usage', 'return_images'])
     res.json(rows)
   } catch (err) {
     res.status(500).json({ error: err.message })

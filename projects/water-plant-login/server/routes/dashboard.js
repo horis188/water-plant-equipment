@@ -19,10 +19,21 @@ router.get('/overview', async (req, res) => {
     // ---------- 1. 实时告警 ----------
     const [deviceStats] = await pool.query(
       `SELECT
+         COUNT(*) AS total,
+         SUM(CASE WHEN status = '0' THEN 1 ELSE 0 END) AS normal,
          SUM(CASE WHEN status = '1' THEN 1 ELSE 0 END) AS warning,
          SUM(CASE WHEN status = '2' THEN 1 ELSE 0 END) AS maintenance
        FROM devices`
     )
+    const device_total = Number(deviceStats[0].total) || 0
+    const device_normal = Number(deviceStats[0].normal) || 0
+    const device_metrics = {
+      total: device_total,
+      normal: device_normal,
+      warning: Number(deviceStats[0].warning) || 0,
+      maintenance: Number(deviceStats[0].maintenance) || 0,
+      normal_rate: device_total > 0 ? Math.round((device_normal / device_total) * 1000) / 10 : 100
+    }
     const [woStats] = await pool.query(
       `SELECT
          SUM(CASE WHEN sla_breached = 1 AND status NOT IN ('closed', 'self_resolved', 'completed') THEN 1 ELSE 0 END) AS breached,
@@ -37,17 +48,39 @@ router.get('/overview', async (req, res) => {
     const [insOverdue] = await pool.query(
       `SELECT COUNT(*) AS cnt FROM inspection_task_records WHERE status = 'pending' AND check_date < CURDATE()`
     )
-    const [spLowStock] = await pool.query(
-      `SELECT COUNT(*) AS cnt FROM spareparts WHERE min_quantity > 0 AND quantity < min_quantity`
+    const [spMetrics] = await pool.query(
+      `SELECT
+         COUNT(*) AS total,
+         SUM(CASE WHEN min_quantity > 0 AND quantity < min_quantity THEN 1 ELSE 0 END) AS low_stock
+       FROM spareparts`
     )
+    const sparepart_total = Number(spMetrics[0].total) || 0
+    const sparepart_low = Number(spMetrics[0].low_stock) || 0
+    const sparepart_metrics = {
+      total: sparepart_total,
+      low_stock: sparepart_low,
+      normal: sparepart_total - sparepart_low,
+      normal_rate: sparepart_total > 0 ? Math.round(((sparepart_total - sparepart_low) / sparepart_total) * 1000) / 10 : 100
+    }
+    const [pendingStats] = await pool.query(
+      `SELECT
+         (SELECT COUNT(*) FROM problem_orders WHERE status NOT IN ('closed', 'self_resolved')) AS problem_pending,
+         (SELECT COUNT(*) FROM maintenance_orders WHERE status NOT IN ('completed', 'closed')) AS maintenance_pending
+       FROM DUAL`
+    )
+    const pending_workorders = {
+      problem: Number(pendingStats[0].problem_pending) || 0,
+      maintenance: Number(pendingStats[0].maintenance_pending) || 0,
+      total: (Number(pendingStats[0].problem_pending) || 0) + (Number(pendingStats[0].maintenance_pending) || 0)
+    }
 
     const realTimeAlerts = {
-      device_warning: Number(deviceStats[0].warning) || 0,
-      device_maintenance: Number(deviceStats[0].maintenance) || 0,
+      device_warning: device_metrics.warning,
+      device_maintenance: device_metrics.maintenance,
       workorder_sla_breached: Number(woStats[0].breached) || 0,
       workorder_sla_warning: Number(woStats[0].warning_2h) || 0,
       inspection_overdue: Number(insOverdue[0].cnt) || 0,
-      sparepart_low_stock: Number(spLowStock[0].cnt) || 0
+      sparepart_low_stock: sparepart_metrics.low_stock
     }
     realTimeAlerts.total = Object.values(realTimeAlerts).reduce((a, b) => a + b, 0)
 
@@ -106,10 +139,41 @@ router.get('/overview', async (req, res) => {
            (SELECT COUNT(*) FROM maintenance_orders WHERE closed_at >= ? AND closed_at < DATE_ADD(?, INTERVAL 1 DAY)) AS maint_closed`,
         [d, d, d, d, d, d, d, d]
       )
+      const problem_new = Number(row[0].problem_new) || 0
+      const maint_new = Number(row[0].maint_new) || 0
+      const problem_closed = Number(row[0].problem_closed) || 0
+      const maint_closed = Number(row[0].maint_closed) || 0
       trend.push({
         date: `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`,
-        new: Number(row[0].problem_new) + Number(row[0].maint_new),
-        closed: Number(row[0].problem_closed) + Number(row[0].maint_closed)
+        problem_new,
+        maintenance_new: maint_new,
+        problem_closed,
+        maintenance_closed: maint_closed,
+        new: problem_new + maint_new,
+        closed: problem_closed + maint_closed
+      })
+    }
+
+    // ---------- 4b. 巡检趋势 (7 天) ----------
+    const insTrend = []
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(); d.setDate(d.getDate() - i); d.setHours(0, 0, 0, 0)
+      const dStr = d.toISOString().slice(0, 10)
+      const [row] = await pool.query(
+        `SELECT
+           COUNT(*) AS total,
+           SUM(CASE WHEN status = 'completed' OR status = 'abnormal' THEN 1 ELSE 0 END) AS completed
+         FROM inspection_task_records
+         WHERE check_date = ?`,
+        [dStr]
+      )
+      const total = Number(row[0].total) || 0
+      const completed = Number(row[0].completed) || 0
+      insTrend.push({
+        date: `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`,
+        total,
+        completed,
+        rate: total > 0 ? Math.round((completed / total) * 1000) / 10 : null
       })
     }
 
@@ -135,9 +199,13 @@ router.get('/overview', async (req, res) => {
     res.json({
       generated_at: new Date().toISOString(),
       real_time_alerts: realTimeAlerts,
+      device_metrics,
+      pending_workorders,
+      sparepart_metrics,
       sla_metrics,
       inspection_metrics,
       workorder_trend: trend,
+      inspection_trend: insTrend,
       team_comparison: teamStats
     })
   } catch (err) {

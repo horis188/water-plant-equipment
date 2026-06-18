@@ -45,7 +45,8 @@ INSERT INTO roles (code, name, description, is_system, enabled, sort_order) VALU
   ('系统管理人', '系统管理人', '最高权限, 可管理用户/角色/业务配置', 1, 1, 1),
   ('带班',     '带班',     '值班长, 可审核/派发工单, 可见全部班组事务', 1, 1, 2),
   ('值班岗位', '值班岗位', '一线值班员, 处理巡检/问题工单/交接班',     1, 1, 3),
-  ('维修组',   '维修组',   '维修人员, 处理维修工单与保养',              1, 1, 4)
+  ('维修组',   '维修组',   '维修人员, 处理维修工单与保养',              1, 1, 4),
+  ('厂长',     '厂长',     '厂级管理, 可看所有业务菜单+统计分析',     1, 1, 5)
 ON DUPLICATE KEY UPDATE name = VALUES(name), description = VALUES(description);
 
 -- ====================================================================
@@ -147,6 +148,16 @@ WHERE r.code = '维修组'
       'menu:maintenance','menu:device','menu:spareparts',
       'btn:wo_create_maintenance','btn:wo_complete','btn:wo_close_problem','btn:wo_edit'
     )
+  );
+
+-- 厂长: 业务菜单全看(驾驶舱/设备/巡检/交接/工单/备件) + 统计分析(前端 roles 白名单)
+INSERT IGNORE INTO role_permissions (role_id, permission_id)
+SELECT r.id, p.id FROM roles r, permissions p
+WHERE r.code = '厂长'
+  AND p.type = 'menu'
+  AND p.code IN (
+    'menu:dashboard','menu:device','menu:inspection',
+    'menu:handover','menu:workorder','menu:spareparts'
   );
 
 -- ====================================================================

@@ -32,7 +32,7 @@
 
     <div class="wo-header">
       <div class="wo-title">
-        <h2 v-if="currentUser.role === '值班岗位' || currentUser.role === '带班' || currentUser.role === '系统管理人'">{{ activeTab === 'maintenance' ? '维修工单' : '问题工单' }}</h2>
+        <h2 v-if="['值班岗位', '带班', '系统管理人', '厂长'].includes(currentUser.role)">{{ activeTab === 'maintenance' ? '维修工单' : '问题工单' }}</h2>
         <h2 v-else>维修工单</h2>
         <span v-if="currentUser.role === '维修组'" class="wo-stat">
           未接单 {{ maintenanceOrders.filter(o => o.status === 'pending').length }}
@@ -43,22 +43,22 @@
         <span v-if="currentUser.role === '维修组'" class="wo-stat">
           已完成 {{ maintenanceOrders.filter(o => o.status === 'completed' || o.status === 'closed').length }}
         </span>
-        <span v-if="(currentUser.role === '值班岗位' || currentUser.role === '带班' || currentUser.role === '系统管理人') && activeTab === 'maintenance'" class="wo-stat">
+        <span v-if="['值班岗位', '带班', '系统管理人', '厂长'].includes(currentUser.role) && activeTab === 'maintenance'" class="wo-stat">
           未接单 {{ maintenanceOrders.filter(o => o.status === 'pending').length }}
         </span>
-        <span v-if="(currentUser.role === '值班岗位' || currentUser.role === '带班' || currentUser.role === '系统管理人') && activeTab === 'maintenance'" class="wo-stat">
+        <span v-if="['值班岗位', '带班', '系统管理人', '厂长'].includes(currentUser.role) && activeTab === 'maintenance'" class="wo-stat">
           进行中 {{ maintenanceOrders.filter(o => o.status === 'processing' || o.status === 'delay' || o.status === 'returned').length }}
         </span>
-        <span v-if="(currentUser.role === '值班岗位' || currentUser.role === '带班' || currentUser.role === '系统管理人') && activeTab === 'maintenance'" class="wo-stat">
+        <span v-if="['值班岗位', '带班', '系统管理人', '厂长'].includes(currentUser.role) && activeTab === 'maintenance'" class="wo-stat">
           已完成 {{ maintenanceOrders.filter(o => o.status === 'completed' || o.status === 'closed').length }}
         </span>
-        <span v-if="(currentUser.role === '值班岗位' || currentUser.role === '带班' || currentUser.role === '系统管理人') && activeTab === 'problem'" class="wo-stat">
+        <span v-if="['值班岗位', '带班', '系统管理人', '厂长'].includes(currentUser.role) && activeTab === 'problem'" class="wo-stat">
           未处理 {{ problemOrders.filter(o => o.status === 'pending').length }}
         </span>
-        <span v-if="(currentUser.role === '值班岗位' || currentUser.role === '带班' || currentUser.role === '系统管理人') && activeTab === 'problem'" class="wo-stat">
+        <span v-if="['值班岗位', '带班', '系统管理人', '厂长'].includes(currentUser.role) && activeTab === 'problem'" class="wo-stat">
           转维修 {{ problemOrders.filter(o => o.status === 'to_maintenance').length }}
         </span>
-        <span v-if="(currentUser.role === '值班岗位' || currentUser.role === '带班' || currentUser.role === '系统管理人') && activeTab === 'problem'" class="wo-stat">
+        <span v-if="['值班岗位', '带班', '系统管理人', '厂长'].includes(currentUser.role) && activeTab === 'problem'" class="wo-stat">
           已解决 {{ problemOrders.filter(o => o.status === 'self_resolved' && isRecentResolved(o)).length }}
         </span>
       </div>
@@ -94,7 +94,7 @@
         <div class="wo-card-body">
           <p class="wo-content">{{ order.content }}</p>
           <div class="wo-meta">
-            <span>{{ order.team || '' }} {{ order.role || '值班岗位' }} · {{ order.memberName || order.reporterName }}</span>
+            <span>{{ order.reporterName || order.memberName }}{{ order.team ? ' · ' + order.team : '' }}{{ order.memberName ? ' · ' + order.memberName : '' }}</span>
             <span>创建:{{ order.createdAt }}</span>
             <span v-if="order.lastActionAt && order.lastActionAt !== order.createdAt">最新处理:{{ order.lastActionAt }}</span>
             <span v-if="order.closedAt" style="color:#16a34a;">闭环:{{ order.closedAt }}</span>
@@ -103,8 +103,8 @@
               ⏱ {{ slaText(order.sla_due_at, order.status) }}
             </span>
           </div>
-          <div v-if="order.images.length || ('videos' in order && order.videos?.length)" class="wo-attachments">
-            <div v-if="order.images.length" class="wo-thumbs">
+          <div v-if="(order.images && order.images.length) || ('videos' in order && order.videos?.length)" class="wo-attachments">
+            <div v-if="order.images && order.images.length" class="wo-thumbs">
               <img v-for="(img, idx) in order.images.slice(0, 4)" :key="'img-'+idx" :src="img" class="wo-thumb" @click.stop="openImagePreview(order.images, idx)" />
               <span v-if="order.images.length > 4" class="wo-thumb-more">+{{ order.images.length - 4 }}</span>
             </div>
@@ -137,7 +137,7 @@
         <div class="wo-card-body">
           <p class="wo-content">{{ order.content || '维修任务' }}</p>
           <div class="wo-meta">
-            <span v-if="order.reporterName">{{ order.team || '' }} {{ order.role || '值班岗位' }} · {{ order.memberName || order.reporterName }}</span>
+            <span v-if="order.reporterName">{{ order.reporterName }}{{ order.team ? ' · ' + order.team : '' }}{{ order.memberName ? ' · ' + order.memberName : '' }}</span>
             <span>分派:{{ order.assignerName }}</span>
             <span v-if="order.handlerName">接单:{{ order.handlerName }}</span>
             <span>创建:{{ order.createdAt }}</span>
@@ -427,38 +427,16 @@
       </div>
     </div>
 
-    <!-- 工单详情弹窗 -->
+    <!-- 工单详情弹窗 (沿用首页驾驶舱同款 WorkOrderDetailPanel, 完整显示问题/维修/闭环/延时/退回/备件/参与者) -->
     <div v-if="detailDialogVisible" class="dm-dialog-overlay" @click.self="detailDialogVisible = false">
-      <div class="dm-dialog">
-        <div class="dialog-header">
-          <h3>工单详情</h3>
-          <button class="dialog-close" @click="detailDialogVisible = false">×</button>
-        </div>
-        <div class="dialog-body">
-          <template v-if="detailOrder">
-            <div class="detail-row"><label>工单编号:</label><span>{{ detailOrder.id }}</span></div>
-            <div class="detail-row"><label>状态:</label><span :style="{ color: statusColor(detailOrder.status) }">{{ statusLabel(detailOrder.status) }}</span></div>
-            <div class="detail-row"><label>内容:</label><span>{{ detailOrder.content || '无' }}</span></div>
-            <div v-if="'handlerName' in detailOrder && detailOrder.handlerName" class="detail-row"><label>接单人:</label><span>{{ detailOrder.handlerName }}</span></div>
-            <div v-if="'reporterName' in detailOrder && detailOrder.reporterName" class="detail-row">
-              <label>报告人:</label>
-              <span>
-                {{ detailOrder.reporterName }}
-                <span v-if="detailOrder.memberName" style="color:rgba(255,255,255,0.5);">(岗位人员:{{ detailOrder.memberName }})</span>
-                <span v-if="detailOrder.role" style="color:rgba(255,255,255,0.5);"> · {{ detailOrder.role }}</span>
-              </span>
-            </div>
-            <div v-if="'sparepartUsage' in detailOrder && detailOrder.sparepartUsage.length" class="detail-row">
-              <label>备件使用:</label>
-              <div v-for="sp in detailOrder.sparepartUsage" :key="sp.name" class="sp-item">{{ sp.name }} × {{ sp.quantity }}</div>
-            </div>
-          </template>
-        </div>
-        <div class="dialog-footer">
-          <button v-if="has('btn:wo_edit') && detailOrder && 'status' in detailOrder && !['closed', 'completed'].includes(detailOrder.status)" class="dm-btn" @click="openEditDialog(detailOrder)">编辑</button>
-          <button v-if="has('btn:wo_edit') && detailOrder && 'status' in detailOrder && !['closed', 'completed'].includes(detailOrder.status)" class="dm-btn" @click="returnOrder(detailOrder)">退回</button>
-          <button class="dm-btn dm-btn-cancel" @click="detailDialogVisible = false">关闭</button>
-        </div>
+      <div class="dm-dialog dm-dialog-large">
+        <button class="dialog-close dialog-close-floating" @click="detailDialogVisible = false">×</button>
+        <WorkOrderDetailPanel
+          v-if="detailOrder"
+          :order-item="detailOrder"
+          @close="detailDialogVisible = false"
+          @updated="onDetailOrderUpdated"
+        />
       </div>
     </div>
 
@@ -538,9 +516,29 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
+
+// 统一 API 调用: 自动加 Authorization, 401 跳登录页
+// 修复: 之前多个 fetch 漏带 Authorization, 后端返回 {error:'缺少 token'} (对象不是数组),
+//       遍历后全 undefined, 工单列表为空 → 空白页
+async function apiFetch(url: string, opts: RequestInit = {}): Promise<any> {
+  const r = await fetch(url, { ...opts, headers: { ...authHeader(), ...(opts.headers || {}) } })
+  if (r.status === 401) {
+    console.warn('[apiFetch] 401 unauthorized, 跳转登录', url)
+    sessionStorage.removeItem('currentUser')
+    sessionStorage.removeItem('authToken')
+    window.location.href = '/#/login'
+    return null
+  }
+  if (!r.ok) {
+    console.error('[apiFetch] 请求失败', url, r.status)
+    return null
+  }
+  return r.json()
+}
 import TopNavBar from '../components/TopNavBar.vue'
-import { currentUser, updateDeviceStatusByOrder, isOnDuty, loadDevicesFromDB, devices } from '../composables/useDeviceStore'
+import WorkOrderDetailPanel from '../components/WorkOrderDetailPanel.vue'
+import { currentUser, updateDeviceStatusByOrder, isOnDuty, loadDevicesFromDB, devices, authHeader } from '../composables/useDeviceStore'
 import { usePermission } from '../composables/usePermission'
 import {
   matchDeviceByContent, problemOrders, maintenanceOrders,
@@ -592,7 +590,7 @@ function slaColor(sla_due_at: string, status: string): string {
 const stats = ref<any>(null)
 async function loadWorkorderStats() {
   try {
-    const r = await fetch('/api/workorders/stats?days=7')
+    const r = await fetch('/api/workorders/stats?days=7', { headers: authHeader() })
     if (!r.ok) return
     stats.value = await r.json()
   } catch {}
@@ -604,54 +602,50 @@ function formatMinutes(min: number): string {
 }
 
 // 从数据库同步问题工单
+// 修复: 旧逻辑用 if (!exists) push + else 只更新 deviceId, 如果 store 里有占位空对象
+//       (来自 addProblemOrder / loadAllWorkOrders 错误数据), 同步后这些空字段不会被填上
+// 新逻辑: 直接完全替换 store, 避免被占位对象污染
 async function syncProblemOrdersFromDB() {
   try {
-    const res = await fetch('/api/workorders/problem')
+    const res = await fetch('/api/workorders/problem', { headers: authHeader() })
+    if (!res.ok) return
     const dbOrders = await res.json()
-    // 合并到本地(去重),优先用数据库中的device_id,fallback到关键词匹配
-    for (const o of dbOrders) {
-      const exists = problemOrders.value.find(p => p.id === o.id)
-      // 优先用数据库中已有的device_id,否则用关键词匹配
+    if (!Array.isArray(dbOrders)) return
+    // 完全重置: 丢掉本地 store, 用数据库数据重建
+    problemOrders.value = dbOrders.map((o: any) => {
       const dbDeviceId = o.device_id ? String(o.device_id) : null
-      const orderDeviceId = dbDeviceId || matchDeviceByContent(o.content || '') || undefined
-      if (!exists) {
-        problemOrders.value.push({
-          id: o.id,
-          reporterId: o.reporter_name || o.reporterId,
-          reporterName: o.reporter_name || '',
-          content: o.content,
-          status: o.status,
-          shiftId: '',
-          deviceId: orderDeviceId,
-          images: typeof o.images === 'string' ? (o.images || '').split(',').map((s: string) => s.trim()).filter(Boolean) : (o.images || []),
-          videos: typeof o.videos === 'string' ? (o.videos || '').split(',').map((s: string) => s.trim()).filter(Boolean) : (o.videos || []),
-          resolutionImages: typeof o.resolution_images === 'string' ? (o.resolution_images || '').split(',').map((s: string) => s.trim()).filter(Boolean) : (o.resolution_images || []),
-          createdAt: new Date(o.created_at).toLocaleString('zh-CN'),
-          resolution: o.resolution,
-          role: o.role || '',
-          memberName: o.member_name || '',
-          team: o.team || '',
-          lastActionAt: o.last_action_at ? new Date(o.last_action_at).toLocaleString('zh-CN') : '',
-          closedAt: o.closed_at ? new Date(o.closed_at).toLocaleString('zh-CN') : '',
-          sla_due_at: o.sla_due_at,  // P1: SLA 跟踪
-          sla_hours: o.sla_hours
-        })
-      } else {
-        // 更新已有工单的deviceId
-        const idx = problemOrders.value.findIndex(p => p.id === o.id)
-        if (idx !== -1) {
-          problemOrders.value[idx] = { ...problemOrders.value[idx], deviceId: orderDeviceId }
-        }
+      return {
+        id: o.id,
+        reporterId: o.reporter_name || o.reporterId || '',
+        reporterName: o.reporter_name || '',
+        content: o.content,
+        status: o.status,
+        shiftId: '',
+        deviceId: dbDeviceId || matchDeviceByContent(o.content || '') || undefined,
+        images: Array.isArray(o.images) ? o.images : [],
+        videos: Array.isArray(o.videos) ? o.videos : [],
+        resolutionImages: Array.isArray(o.resolution_images) ? o.resolution_images : [],
+        createdAt: o.created_at ? new Date(o.created_at).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }) : '',
+        resolution: o.resolution,
+        role: o.role || '',
+        memberName: o.member_name || '',
+        team: o.team || '',
+        lastActionAt: o.last_action_at ? new Date(o.last_action_at).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }) : '',
+        closedAt: o.closed_at ? new Date(o.closed_at).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }) : '',
+        sla_due_at: o.sla_due_at,
+        sla_hours: o.sla_hours
       }
-    }
+    })
   } catch {}
 }
 
 async function syncMaintenanceOrdersFromDB() {
   try {
-    const res = await fetch('/api/workorders/maintenance')
+    const res = await fetch('/api/workorders/maintenance', { headers: authHeader() })
+    if (!res.ok) return
     const dbOrders = await res.json()
-    // 完全替换内存数据,保证与数据库同步
+    if (!Array.isArray(dbOrders)) return
+    // 完全重置: 用数据库数据重建
     maintenanceOrders.value = dbOrders.map((o: any) => ({
       id: String(o.id),
       content: o.content,
@@ -662,23 +656,23 @@ async function syncMaintenanceOrdersFromDB() {
       handlerId: o.handler_name || '',
       handlerName: o.handler_name || '',
       problemOrderId: o.problem_order_id || null,
-      participants: typeof o.participants === 'string' ? JSON.parse(o.participants || '[]') : (o.participants || []),
+      participants: Array.isArray(o.participants) ? o.participants : [],
       delayDays: o.delay_days || 0,
       delayReason: o.delay_reason || '',
-      delayImages: typeof o.delay_images === 'string' ? JSON.parse(o.delay_images || '[]') : (o.delay_images || []),
-      sparepartUsage: typeof o.sparepart_usage === 'string' ? JSON.parse(o.sparepart_usage || '[]') : (o.sparepart_usage || []),
+      delayImages: Array.isArray(o.delay_images) ? o.delay_images : [],
+      sparepartUsage: Array.isArray(o.sparepart_usage) ? o.sparepart_usage : [],
       returnReason: o.return_reason || '',
-      returnImages: typeof o.return_images === 'string' ? (o.return_images || '').split(',').map((s: string) => s.trim()).filter(Boolean) : (o.return_images || []),
+      returnImages: Array.isArray(o.return_images) ? o.return_images : [],
       completionNote: o.completion_note || '',
-      completionImages: typeof o.completion_images === 'string' ? JSON.parse(o.completion_images || '[]') : (o.completion_images || []),
+      completionImages: Array.isArray(o.completion_images) ? o.completion_images : [],
       reporterName: o.reporter_name || '',
       memberName: o.member_name || '',
       role: o.role || '',
       team: o.team || '',
-      createdAt: o.created_at ? new Date(o.created_at).toLocaleString('zh-CN') : '',
-      lastActionAt: o.last_action_at ? new Date(o.last_action_at).toLocaleString('zh-CN') : '',
-      closedAt: o.closed_at ? new Date(o.closed_at).toLocaleString('zh-CN') : '',
-      sla_due_at: o.sla_due_at,  // P1: SLA 跟踪
+      createdAt: o.created_at ? new Date(o.created_at).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }) : '',
+      lastActionAt: o.last_action_at ? new Date(o.last_action_at).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }) : '',
+      closedAt: o.closed_at ? new Date(o.closed_at).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }) : '',
+      sla_due_at: o.sla_due_at,
       sla_hours: o.sla_hours
     }))
   } catch {}
@@ -688,7 +682,8 @@ let syncTimer: any = null
 async function loadShiftStatus() {
   if (!currentUser.value?.role) return
   try {
-    const r = await fetch(`/api/handover/status?role=${encodeURIComponent(currentUser.value.role)}`)
+    const r = await fetch(`/api/handover/status?role=${encodeURIComponent(currentUser.value.role)}`, { headers: authHeader() })
+    if (!r.ok) return
     const d = await r.json()
     wsCurrentShift.value = d.currentShift || null
   } catch(e) {}
@@ -822,12 +817,12 @@ const selectedProblemTplId = ref('')
 const selectedMaintenanceTplId = ref('')
 async function loadWorkorderTemplates() {
   try {
-    const r = await fetch('/api/workorder-templates?type=problem', { headers: { 'X-User-Id': String(currentUser.value?.id || 0) } })
+    const r = await fetch('/api/workorder-templates?type=problem', { headers: authHeader() })
     const d = await r.json()
     problemTemplates.value = d.rows || []
   } catch {}
   try {
-    const r = await fetch('/api/workorder-templates?type=maintenance', { headers: { 'X-User-Id': String(currentUser.value?.id || 0) } })
+    const r = await fetch('/api/workorder-templates?type=maintenance', { headers: authHeader() })
     const d = await r.json()
     maintenanceTemplates.value = d.rows || []
   } catch {}
@@ -1212,13 +1207,19 @@ const detailDialogVisible = ref(false)
 const detailOrder = ref<ProblemWorkOrder | MaintenanceWorkOrder | null>(null)
 
 function openProblemDetail(order: ProblemWorkOrder) {
-  detailOrder.value = order
+  // 加 _type 让 WorkOrderDetailPanel 判断是问题/维修工单
+  detailOrder.value = { ...order, _type: 'problem' } as any
   detailDialogVisible.value = true
 }
 
 function openMaintenanceDetail(order: MaintenanceWorkOrder) {
-  detailOrder.value = order
+  detailOrder.value = { ...order, _type: 'maintenance' } as any
   detailDialogVisible.value = true
+}
+
+// WorkOrderDetailPanel 更新后: 5s 同步周期会自动拉新数据
+function onDetailOrderUpdated() {
+  // 不需要手动 reload, syncTimer 每 5s 会刷新
 }
 
 async function returnOrder(order: ProblemWorkOrder | MaintenanceWorkOrder) {
@@ -1453,6 +1454,8 @@ function confirmMaintenanceDelete() {
   border-radius: 12px; width: 520px; max-height: 85vh; overflow-y: auto;
 }
 .dm-dialog-sm { width: 380px; }
+.dm-dialog-large { width: 800px; max-width: 95vw; }
+.dialog-close-floating { position: absolute; top: 12px; right: 16px; z-index: 10; }
 .dialog-header {
   display: flex; justify-content: space-between; align-items: center;
   padding: 16px 20px; border-bottom: 1px solid rgba(45,212,191,0.1);

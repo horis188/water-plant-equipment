@@ -13,7 +13,7 @@
     </div>
 
     <!-- 状态卡片行 (仅单岗位值班使用, 带班/系统管理人隐藏) -->
-    <div v-if="!['系统管理人', '带班'].includes(currentUser?.role || '')" class="status-cards-row" style="padding: 0 32px;">
+    <div v-if="!['系统管理人', '带班', '厂长'].includes(currentUser?.role || '')" class="status-cards-row" style="padding: 0 32px;">
       <div class="stat-card">
         <span class="stat-num" :class="tasksDone >= tasksTotal && tasksTotal > 0 ? 'stat-green' : 'stat-orange'">{{ tasksDone }}</span>
         <span class="stat-lbl">巡检完成</span>
@@ -36,7 +36,7 @@
     </div>
 
     <!-- 系统管理员/带班专属概览 (顶部 stats) -->
-    <div v-if="(currentUser?.role === '系统管理人' || currentUser?.role === '带班') && adminOverview" class="admin-overview" style="padding: 0 32px; margin-top: 16px;">
+    <div v-if="['系统管理人', '带班', '厂长'].includes(currentUser?.role || '') && adminOverview" class="admin-overview" style="padding: 0 32px; margin-top: 16px;">
       <div class="admin-stats" style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-bottom:16px;">
         <div class="admin-stat-card" style="background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:16px;">
           <div style="font-size:13px;color:rgba(255,255,255,0.6);margin-bottom:10px;">📋 今日工单情况</div>
@@ -59,7 +59,7 @@
     </div>
 
     <!-- 各岗位事务卡片 (带班账号过滤掉"带班"自己) -->
-    <div v-if="(currentUser?.role === '系统管理人' || currentUser?.role === '带班') && displayPositions.length > 0" style="padding: 0 32px; margin-top: 16px;">
+    <div v-if="['系统管理人', '带班', '厂长'].includes(currentUser?.role || '') && displayPositions.length > 0" style="padding: 0 32px; margin-top: 16px;">
       <div class="section-title" style="font-size:16px;font-weight:600;color:rgba(255,255,255,0.85);margin-bottom:12px;">
         👥 当前值班班组岗位事务
       </div>
@@ -137,7 +137,7 @@
     <!-- 主内容区 -->
     <div style="padding: 0 32px;">
       <!-- 上一班交接信息 -->
-      <div v-if="lastHandover && handoverStatus !== 'pending' && !['系统管理人', '带班'].includes(currentUser?.role || '')" class="info-card" style="margin-top: 20px;">
+      <div v-if="lastHandover && handoverStatus !== 'pending' && !['系统管理人', '带班', '厂长'].includes(currentUser?.role || '')" class="info-card" style="margin-top: 20px;">
         <div class="card-header">
           <h3 class="card-title">上一班交接信息</h3>
           <span class="card-tag" :class="lastHandover.status === 'completed' ? 'tag-done' : 'tag-wait'">
@@ -437,7 +437,7 @@ const displayPositions = computed(() => {
   return all
 })
 
-const isAdminViewer = computed(() => ['系统管理人', '带班'].includes(currentUser.value?.role || ''))
+const isAdminViewer = computed(() => ['系统管理人', '带班', '厂长'].includes(currentUser.value?.role || ''))
 
 function toggleAdminPosition(role: string) {
   if (expandedAdminPositions.value.has(role)) expandedAdminPositions.value.delete(role)
@@ -446,7 +446,7 @@ function toggleAdminPosition(role: string) {
 }
 
 async function loadAdminOverview() {
-  if (!currentUser.value || !['系统管理人', '带班'].includes(currentUser.value.role)) return
+  if (!currentUser.value || !['系统管理人', '带班', '厂长'].includes(currentUser.value.role)) return
   try {
     const now = new Date()
     const today = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`
@@ -640,7 +640,7 @@ async function loadData() {
     if (data.lastDutyNotes) lastDutyNotes.value = data.lastDutyNotes
 
     // 系统管理员/带班: 加载专属概览
-    if (['系统管理人', '带班'].includes(currentUser.value?.role || '')) {
+    if (['系统管理人', '带班', '厂长'].includes(currentUser.value?.role || '')) {
       await loadAdminOverview()
     }
 
@@ -742,9 +742,9 @@ function formatTime(timeStr: string): string {
 async function loadHistory(page = 1) {
   if (!currentUser.value) return
   const role = currentUser.value.role
-  // 系统管理员/带班: 查全部 (不默认加 user 过滤)
+  // 系统管理员/带班/厂长: 查全部 (不默认加 user 过滤)
   // 其他角色: 默认按本岗位名 (currentUser.name) 过滤
-  const isBroadViewer = ['系统管理人', '带班'].includes(currentUser.value.role)
+  const isBroadViewer = ['系统管理人', '带班', '厂长'].includes(currentUser.value.role)
   const defaultUser = isBroadViewer ? '' : (currentUser.value.name || '')
   const offset = (page - 1) * historyPageSize
   let url = `${API_BASE}/history?role=${encodeURIComponent(role)}&limit=${historyPageSize}&offset=${offset}&viewerRole=${encodeURIComponent(currentUser.value.role)}`

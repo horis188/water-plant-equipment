@@ -2,6 +2,7 @@ import express from 'express'
 import { requireAuth } from '../middleware/requireAuth.js'
 import pool from '../db/mysql.js'
 import { sseEmit } from '../events.js'
+import { parseJsonFieldsInRows, parseJsonFields } from '../db/jsonFields.js'
 
 const router = express.Router()
 
@@ -33,7 +34,14 @@ router.post('/locations', async (req, res) => {
 router.get('/plans', async (req, res) => {
   try {
     const [plans] = await pool.query('SELECT * FROM inspection_plans ORDER BY id DESC')
+    parseJsonFieldsInRows(plans, ['device_ids', 'custom_times'])
     for (const plan of plans) {
+      // executor_ids 是 VARCHAR 存的 JSON 字符串, 也需 parse
+      if (plan.executor_ids && typeof plan.executor_ids === 'string') {
+        try { plan.executor_ids = JSON.parse(plan.executor_ids) } catch { plan.executor_ids = [] }
+      } else if (plan.executor_ids == null) {
+        plan.executor_ids = []
+      }
       const [items] = await pool.query('SELECT * FROM inspection_items WHERE plan_id = ?', [plan.id])
       plan.items = items
     }
@@ -48,6 +56,10 @@ router.get('/plans/:id', async (req, res) => {
   try {
     const [plans] = await pool.query('SELECT * FROM inspection_plans WHERE id = ?', [req.params.id])
     if (plans.length === 0) return res.status(404).json({ error: '计划不存在' })
+    parseJsonFields(plans[0], ['device_ids', 'custom_times'])
+    if (plans[0].executor_ids && typeof plans[0].executor_ids === 'string') {
+      try { plans[0].executor_ids = JSON.parse(plans[0].executor_ids) } catch { plans[0].executor_ids = [] }
+    }
     const [items] = await pool.query('SELECT * FROM inspection_items WHERE plan_id = ?', [req.params.id])
     res.json({ ...plans[0], items })
   } catch (err) {
@@ -132,6 +144,7 @@ router.delete('/plans/:id', async (req, res) => {
 router.get('/records', async (req, res) => {
   try {
     const [rows] = await pool.query('SELECT * FROM inspection_records ORDER BY id DESC LIMIT 200')
+    parseJsonFieldsInRows(rows, ['check_items'])
     res.json(rows)
   } catch (err) {
     res.status(500).json({ error: err.message })
@@ -141,7 +154,7 @@ router.get('/records', async (req, res) => {
 // 提交巡检结果 → 写入 inspection_task_records
 // 以 (plan_id, device_id, executor_id, shift_id) 为唯一键, 不同班次/不同人可独立保留
 router.post('/records', async (req, res) => {
-  const { plan_id, device_id, device_name, executor, executor_id, executor_name, results, has_abnormal, abnormal_desc, all_items, executor_role, shift_id: shiftIdFromBody } = req.body
+  const { plan_id, device_id, device_name, executor, executor_id, executor_name, results, has_abnormal, abnormal_desc, abnormal_images, all_items, executor_role, shift_id: shiftIdFromBody, remark } = req.body
   // 如果前端没传 shift_id, 兑底查当前 active shift
   let shift_id = shiftIdFromBody
   if (!shift_id && executor_name) {
@@ -198,8 +211,8 @@ router.post('/records', async (req, res) => {
       try { existingResults = JSON.parse(existing[0].check_items || '[]') } catch {}
       const mergedResults = [...new Set([...existingResults, ...(Array.isArray(resultsData) ? resultsData : [])])]
       await pool.query(
-        `UPDATE inspection_task_records SET check_items = ?, status = ?, has_abnormal = ?, abnormal_desc = ?, check_date = ?, check_time = ?, shift_id = ? WHERE id = ?`,
-        [JSON.stringify(mergedResults), status, has_abnormal ? 1 : 0, abnormal_desc || null, check_date, check_time, shift_id || null, existing[0].id]
+        `UPDATE inspection_task_records SET check_items = ?, status = ?, has_abnormal = ?, abnormal_desc = ?, abnormal_images = ?, check_date = ?, check_time = ?, shift_id = ? WHERE id = ?`,
+        [JSON.stringify(mergedResults), status, has_abnormal ? 1 : 0, abnormal_desc || null, has_abnormal && abnormal_images ? JSON.stringify(Array.isArray(abnormal_images) ? abnormal_images : [abnormal_images]) : null, check_date, check_time, shift_id || null, existing[0].id]
       )
       await pool.query('COMMIT')
       const [verify] = await pool.query('SELECT * FROM inspection_task_records WHERE id = ?', [existing[0].id])
@@ -235,8 +248,8 @@ router.post('/records', async (req, res) => {
           if (shiftRows[0]?.member_name) executorMemberName = shiftRows[0].member_name
         } catch {}
         const [poResult] = await pool.query(
-          'INSERT INTO problem_orders (content, reporter_name, status, device_id, team, role, member_name) VALUES (?, ?, ?, ?, ?, ?, ?)',
-          [`【巡检异常】${device_name}：${abnormal_desc}`, executor_name || executor, 'pending', device_id, executorTeam, executorRole, executorMemberName]
+          'INSERT INTO problem_orders (content, reporter_name, status, device_id, team, role, member_name, images, last_action_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())',
+          [`【巡检异常】${device_name}：${abnormal_desc}`, executor_name || executor, 'pending', device_id, executorTeam, executorRole, executorMemberName, JSON.stringify(Array.isArray(abnormal_images) ? abnormal_images : (abnormal_images ? [abnormal_images] : []))]
         )
         const problemOrderId = poResult.insertId
         await pool.query('UPDATE inspection_task_records SET problem_order_id = ? WHERE id = ?', [problemOrderId, existing[0].id])
@@ -253,8 +266,8 @@ router.post('/records', async (req, res) => {
 
     // 新建记录
     const [result] = await pool.query(
-      `INSERT INTO inspection_task_records (plan_id, device_id, device_name, executor_id, executor_name, shift_id, check_date, check_time, status, has_abnormal, abnormal_desc, check_items) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [plan_id, device_id, device_name, executor_id, executor_name || executor, shift_id || null, check_date, check_time, status, has_abnormal ? 1 : 0, abnormal_desc || null, newResults]
+      `INSERT INTO inspection_task_records (plan_id, device_id, device_name, executor_id, executor_name, shift_id, check_date, check_time, status, has_abnormal, abnormal_desc, abnormal_images, check_items) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [plan_id, device_id, device_name, executor_id, executor_name || executor, shift_id || null, check_date, check_time, status, has_abnormal ? 1 : 0, abnormal_desc || null, has_abnormal && abnormal_images ? JSON.stringify(Array.isArray(abnormal_images) ? abnormal_images : [abnormal_images]) : null, newResults]
     )
     const recordId = result.insertId
     let problemOrderId = null
@@ -288,8 +301,8 @@ router.post('/records', async (req, res) => {
         if (shiftRows[0]?.member_name) executorMemberName = shiftRows[0].member_name
       } catch {}
       const [poResult] = await pool.query(
-        'INSERT INTO problem_orders (content, reporter_name, status, device_id, team, role, member_name) VALUES (?, ?, ?, ?, ?, ?, ?)',
-        [`【巡检异常】${device_name}：${abnormal_desc}`, executor_name || executor, 'pending', device_id, executorTeam, executorRole, executorMemberName]
+        'INSERT INTO problem_orders (content, reporter_name, status, device_id, team, role, member_name, images, last_action_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())',
+        [`【巡检异常】${device_name}：${abnormal_desc}`, executor_name || executor, 'pending', device_id, executorTeam, executorRole, executorMemberName, JSON.stringify(Array.isArray(abnormal_images) ? abnormal_images : (abnormal_images ? [abnormal_images] : []))]
       )
       problemOrderId = poResult.insertId
       await pool.query('UPDATE inspection_task_records SET problem_order_id = ? WHERE id = ?', [problemOrderId, recordId])
@@ -375,6 +388,8 @@ router.get('/pending-tasks', async (req, res) => {
     const overdueNotified = global.__inspectionOverdueNotified
 
     const [plans] = await pool.query('SELECT * FROM inspection_plans')
+    // plans.custom_times 是 JSON 字符串, 后端统一 parse 后返回
+    parseJsonFieldsInRows(plans, ['custom_times'])
     console.log('[DEBUG pending-tasks] plans count:', plans.length)
     const result = []
     for (const plan of plans) {
@@ -438,6 +453,7 @@ router.get('/pending-tasks', async (req, res) => {
           is_overdue: isOverdue,  // P1
           overdue_minutes: overdueMinutes,  // P1
           abnormal_desc: rec ? (rec.abnormal_desc || '') : '',
+          abnormal_images: (() => { const v = rec && rec.abnormal_images; if (!v) return []; if (typeof v === 'string') { try { return JSON.parse(v) } catch { return [] } } return v })(),
           results: rec ? (rec.check_items || '') : '',
           record_id: rec ? rec.id : null,
           record_created_at: rec ? rec.created_at : null

@@ -20,7 +20,7 @@
         <span class="sp-count">共 {{ filteredSpareparts.length }} 项备件</span>
       </div>
       <div class="sp-actions">
-        <button class="dm-btn dm-btn-primary" @click="openAddDialog">+ 新增备件</button>
+        <button v-if="canEdit" class="dm-btn dm-btn-primary" @click="openAddDialog">+ 新增备件</button>
         <div class="export-dropdown">
           <button class="dm-btn dm-btn-export" @click="toggleExportMenu" :disabled="selectedIds.length === 0">
             📥 导出 ▾
@@ -84,14 +84,17 @@
         <tbody>
           <tr v-for="sp in paginatedSpareparts" :key="sp.id">
             <td class="col-check"><input type="checkbox" :value="sp.id" v-model="selectedIds" /></td>
-            <td>{{ sp.name }}</td>
+            <td><a href="#" class="name-link" @click.prevent="openDetailDialog(sp)">{{ sp.name }}</a></td>
             <td><span class="type-badge">{{ sp.type }}</span></td>
-            <td :class="{ 'low-stock': sp.quantity <= 2 }">{{ sp.quantity }}</td>
+            <td :class="{ 'low-stock': sp.min_quantity > 0 && sp.quantity < sp.min_quantity }">
+              {{ sp.quantity }}
+            </td>
             <td>{{ sp.location }}</td>
             <td>{{ sp.vendor }}</td>
             <td class="specs-cell">{{ sp.specs || '-' }}</td>
             <td class="col-actions">
-              <button class="action-btn" @click="openEditDialog(sp)">✏️ 编辑</button>
+              <button v-if="canEdit" class="action-btn" @click="openEditDialog(sp)">✏️ 编辑</button>
+              <button v-if="currentUser.role === '系统管理人'" class="action-btn action-btn-danger" @click="confirmDeleteSparepart(sp)">🗑️ 删除</button>
               <button class="action-btn action-btn-success" @click="openInoutDialog(sp, '入仓')">📥 入仓</button>
               <button class="action-btn action-btn-danger" @click="openInoutDialog(sp, '出仓')">📤 出仓</button>
             </td>
@@ -147,64 +150,111 @@
       <button class="page-btn" @click="currentPage = totalPages" :disabled="currentPage >= totalPages">»</button>
     </div>
 
-    <!-- 新增/编辑备件弹窗 -->
+    <!-- 新增/编辑/详情备件弹窗 -->
     <div v-if="dialogVisible" class="dm-dialog-overlay" @click.self="dialogVisible = false">
       <div class="dm-dialog">
         <div class="dialog-header">
-          <h3>{{ editingSp ? '编辑备件' : '新增备件' }}</h3>
+          <h3>{{ isReadOnly ? '备件详情' : (editingSp ? '编辑备件' : '新增备件') }}</h3>
           <button class="dialog-close" @click="dialogVisible = false">×</button>
         </div>
-        <div class="dialog-body">
+        <div class="dialog-body" :class="{ 'readonly-body': isReadOnly }">
           <div class="form-row">
-            <label>备件名称 <span class="required">*</span></label>
-            <input v-model="form.name" type="text" placeholder="请输入备件名称" />
+            <label>备件名称 <span class="required" v-if="!isReadOnly">*</span></label>
+            <input v-model="form.name" type="text" placeholder="请输入备件名称" :disabled="isReadOnly" />
           </div>
           <div class="form-row">
-            <label>类型 <span class="required">*</span></label>
-            <input v-model="form.type" type="text" list="sparepart-types-list" placeholder="选择或输入新类型" @blur="handleTypeBlur" />
+            <label>类型 <span class="required" v-if="!isReadOnly">*</span></label>
+            <input v-model="form.type" type="text" list="sparepart-types-list" placeholder="选择或输入新类型" @blur="handleTypeBlur" :disabled="isReadOnly" />
             <datalist id="sparepart-types-list">
               <option v-for="t in sparepartTypes" :key="t" :value="t" />
             </datalist>
           </div>
           <div class="form-row-group">
             <div class="form-row">
-              <label>数量 <span class="required">*</span></label>
-              <input v-model.number="form.quantity" type="number" placeholder="数量" min="0" />
+              <label>数量 <span class="required" v-if="!isReadOnly">*</span></label>
+              <input v-model.number="form.quantity" type="number" placeholder="数量" min="0" :disabled="isReadOnly" />
             </div>
             <div class="form-row">
-              <label>摆放位置</label>
-              <input v-model="form.location" type="text" placeholder="如 A区-03-02" />
+              <label>报警阈值 <span class="threshold-hint" title="库存低于此值会触发低库存告警">ⓘ</span></label>
+              <input v-model.number="form.min_quantity" type="number" placeholder="0 = 不告警" min="0" :disabled="isReadOnly" />
             </div>
+          </div>
+          <div class="form-row">
+            <label>摆放位置</label>
+            <input v-model="form.location" type="text" placeholder="如 A区-03-02" :disabled="isReadOnly" />
           </div>
           <div class="form-row">
             <label>厂商</label>
-            <input v-model="form.vendor" type="text" placeholder="请输入厂商" />
+            <input v-model="form.vendor" type="text" placeholder="请输入厂商" :disabled="isReadOnly" />
           </div>
           <div class="form-row">
             <label>规格</label>
-            <div class="params-checkboxes">
-              <label class="param-check"><input type="checkbox" v-model="specsInput.voltage.checked" />电压</label>
-              <input v-if="specsInput.voltage.checked" v-model="specsInput.voltage.value" type="text" placeholder="如 380V" class="param-input" />
-              <label class="param-check"><input type="checkbox" v-model="specsInput.current.checked" />电流</label>
-              <input v-if="specsInput.current.checked" v-model="specsInput.current.value" type="text" placeholder="如 10A" class="param-input" />
-              <label class="param-check"><input type="checkbox" v-model="specsInput.power.checked" />功率</label>
-              <input v-if="specsInput.power.checked" v-model="specsInput.power.value" type="text" placeholder="如 15kW" class="param-input" />
-              <label class="param-check"><input type="checkbox" v-model="specsInput.pipeDiameter.checked" />管径</label>
-              <input v-if="specsInput.pipeDiameter.checked" v-model="specsInput.pipeDiameter.value" type="text" placeholder="如 DN100" class="param-input" />
-              <label class="param-check"><input type="checkbox" v-model="specsInput.thread.checked" />螺纹</label>
-              <input v-if="specsInput.thread.checked" v-model="specsInput.thread.value" type="text" placeholder="如 G1/2" class="param-input" />
-              <label class="param-check"><input type="checkbox" v-model="specsInput.length.checked" />长度</label>
-              <input v-if="specsInput.length.checked" v-model="specsInput.length.value" type="text" placeholder="如 3mm" class="param-input" />
+            <!-- 详情模式: 文本框多行只读 -->
+            <textarea v-if="isReadOnly" class="specs-textarea" :value="editingSp?.specs || ''" rows="3" readonly></textarea>
+            <!-- 编辑/新增模式: textarea (自由编辑) + 下方勾选+填值工具 -->
+            <div v-else class="specs-edit-wrap">
+              <textarea v-model="specsText" class="specs-textarea" rows="3" placeholder="直接编辑规格，如: 3x2.5, DN50 法兰, 6205-2RS。勾选下方选项会快速添加对应字段。"></textarea>
+              <div class="params-checkboxes">
+                <div class="preset-item">
+                  <label class="param-check"><input type="checkbox" @change="onPresetCheck('电压', specsInput.voltage, $event)" />电压</label>
+                  <input v-model="specsInput.voltage.value" type="text" placeholder="如 380V" class="param-input" />
+                </div>
+                <div class="preset-item">
+                  <label class="param-check"><input type="checkbox" @change="onPresetCheck('电流', specsInput.current, $event)" />电流</label>
+                  <input v-model="specsInput.current.value" type="text" placeholder="如 10A" class="param-input" />
+                </div>
+                <div class="preset-item">
+                  <label class="param-check"><input type="checkbox" @change="onPresetCheck('功率', specsInput.power, $event)" />功率</label>
+                  <input v-model="specsInput.power.value" type="text" placeholder="如 15kW" class="param-input" />
+                </div>
+                <div class="preset-item">
+                  <label class="param-check"><input type="checkbox" @change="onPresetCheck('管径', specsInput.pipeDiameter, $event)" />管径</label>
+                  <input v-model="specsInput.pipeDiameter.value" type="text" placeholder="如 DN100" class="param-input" />
+                </div>
+                <div class="preset-item">
+                  <label class="param-check"><input type="checkbox" @change="onPresetCheck('螺纹', specsInput.thread, $event)" />螺纹</label>
+                  <input v-model="specsInput.thread.value" type="text" placeholder="如 G1/2" class="param-input" />
+                </div>
+                <div class="preset-item">
+                  <label class="param-check"><input type="checkbox" @change="onPresetCheck('长度', specsInput.length, $event)" />长度</label>
+                  <input v-model="specsInput.length.value" type="text" placeholder="如 3mm" class="param-input" />
+                </div>
+              </div>
             </div>
           </div>
+          <!-- 技术文档: 已上传文件 + 上传按钮 -->
           <div class="form-row">
-            <label>其他参数</label>
-            <input v-model="specsInput.extra" type="text" placeholder="输入其他参数说明" />
+            <label>技术文档</label>
+            <!-- 详情模式: 只读文件列表 (点击打开/下载) -->
+            <div v-if="isReadOnly" class="tech-docs-list">
+              <div v-if="techDocs.length === 0" class="tech-docs-empty">无技术文档</div>
+              <a v-for="(doc, idx) in techDocs" :key="idx" :href="doc.url" target="_blank" :download="doc.name" class="tech-doc-item" :title="`点击打开: ${doc.name} (${formatSize(doc.size)})`">
+                <span class="doc-icon">📄</span>
+                <span class="doc-name">{{ doc.name }}</span>
+                <span class="doc-size">{{ formatSize(doc.size) }}</span>
+                <span class="doc-action">打开</span>
+              </a>
+            </div>
+            <!-- 编辑/新增模式: 文件列表 + 上传按钮 -->
+            <div v-else class="tech-docs-edit">
+              <div v-if="techDocs.length === 0" class="tech-docs-empty">未上传技术文档 (PDF / Word / Excel / 图片等)</div>
+              <div v-for="(doc, idx) in techDocs" :key="idx" class="tech-doc-item tech-doc-item-editable">
+                <span class="doc-icon">📄</span>
+                <a :href="doc.url" target="_blank" class="doc-name" :title="`点击打开: ${doc.name}`">{{ doc.name }}</a>
+                <span class="doc-size">{{ formatSize(doc.size) }}</span>
+                <button type="button" class="doc-remove" @click="removeTechDoc(idx)" title="移除">×</button>
+              </div>
+              <label class="tech-docs-upload">
+                <input type="file" multiple @change="onUploadTechDoc" :disabled="uploading" accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip,.rar,.7z,.dwg,.jpg,.jpeg,.png,.gif,.webp,.bmp" />
+                <span v-if="!uploading">📎 上传技术文档 (可多个)</span>
+                <span v-else>上传中...</span>
+              </label>
+            </div>
           </div>
         </div>
         <div class="dialog-footer">
-          <button class="dm-btn dm-btn-cancel" @click="dialogVisible = false">取消</button>
-          <button class="dm-btn dm-btn-primary" @click="saveSparepart">{{ editingSp ? '保存' : '新增' }}</button>
+          <button class="dm-btn dm-btn-cancel" @click="dialogVisible = false">关闭</button>
+          <button v-if="!isReadOnly" class="dm-btn dm-btn-primary" @click="saveSparepart">{{ editingSp ? '保存' : '新增' }}</button>
         </div>
       </div>
     </div>
@@ -243,8 +293,8 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from 'vue'
 import TopNavBar from '../components/TopNavBar.vue'
-import { spareparts, sparepartLogs, sparepartTypes, addSparepart, updateSparepart, addSparepartType, inoutSparepart, Sparepart } from '../composables/useSparepartStore'
-import { currentUser } from '../composables/useDeviceStore'
+import { spareparts, sparepartLogs, sparepartTypes, addSparepart, updateSparepart, deleteSparepart, addSparepartType, inoutSparepart, loadSpareparts, loadSparepartLogs, Sparepart } from '../composables/useSparepartStore'
+import { currentUser, authHeader } from '../composables/useDeviceStore'
 import { useSSE } from '../composables/useSSE'
 
 // ============ 搜索 ============
@@ -304,7 +354,7 @@ const currentPage = ref(1)
 const pageSize = ref(10)
 
 // ============ 选中 ============
-const selectedIds = ref<string[]>([])
+const selectedIds = ref<(number | string)[]>([])
 
 const isAllSelected = computed(() => {
   return paginatedSpareparts.value.length > 0 && paginatedSpareparts.value.every(sp => selectedIds.value.includes(sp.id))
@@ -341,6 +391,8 @@ useSSE('sparepart-low-stock', async (payload) => {
 })
 onMounted(() => {
   loadLowStock()
+  loadSpareparts()
+  loadSparepartLogs()
 })
 
 const filteredSpareparts = computed(() => {
@@ -387,39 +439,112 @@ const defaultSpecs = () => ({
   pipeDiameter: { checked: false, value: '' },
   thread: { checked: false, value: '' },
   length: { checked: false, value: '' },
-  extra: ''
+  extra: { checked: false, value: '' }
 })
 
-const form = ref({ name: '', type: '', quantity: null as number | null, location: '', vendor: '' })
+const form = ref({ name: '', type: '', quantity: null as number | null, min_quantity: 0 as number, location: '', vendor: '' })
 const specsInput = ref(defaultSpecs())
+// 规格文本 (textarea 双向绑定, 取代之前的 checkbox 组合输入)
+const specsText = ref('')
+// 技术文档文件列表
+const techDocs = ref<{ url: string; name: string; size: number; uploaded_at?: string; uploaded_by?: string }[]>([])
+// 上传中状态
+const uploading = ref(false)
+// 只读模式 (查看详情 vs 编辑): 编辑/新增为 false, 查看详情为 true
+const isReadOnly = ref(false)
+// 仅有系统管理人/维修组能编辑
+const canEdit = computed(() => ['系统管理人', '维修组'].includes(currentUser.value?.role || ''))
+
+// 格式化文件大小
+function formatSize(bytes: number): string {
+  if (bytes < 1024) return bytes + ' B'
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
+  if (bytes < 1024 * 1024 * 1024) return (bytes / 1024 / 1024).toFixed(1) + ' MB'
+  return (bytes / 1024 / 1024 / 1024).toFixed(1) + ' GB'
+}
+
+// 上传技术文档
+async function onUploadTechDoc(ev: Event) {
+  const input = ev.target as HTMLInputElement
+  const files = input.files
+  if (!files || files.length === 0) return
+  uploading.value = true
+  try {
+    const formData = new FormData()
+    for (let i = 0; i < files.length; i++) {
+      formData.append('files', files[i])
+    }
+    const r = await fetch('/api/upload/', {
+      method: 'POST',
+      headers: authHeader(),
+      body: formData
+    })
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}))
+      throw new Error(err.error || `HTTP ${r.status}`)
+    }
+    const data = await r.json()
+    const newItems = (data.items || []).map((it: any) => ({
+      url: it.url,
+      name: it.name,
+      size: it.size,
+      uploaded_at: new Date().toISOString(),
+      uploaded_by: currentUser.value?.name || '未知'
+    }))
+    // 追加 (不覆盖已上传)
+    techDocs.value = [...techDocs.value, ...newItems]
+  } catch (err) {
+    alert('上传失败：' + (err instanceof Error ? err.message : String(err)))
+  } finally {
+    uploading.value = false
+    input.value = ''  // 清空 input, 允许重复上传同名文件
+  }
+}
+
+// 移除技术文档 (仅编辑模式下前端移除, 保存时同步)
+function removeTechDoc(idx: number) {
+  techDocs.value.splice(idx, 1)
+}
+
+// 常用规格快捷键 (勾选 checkbox 时把「字段名:值」追加到 specsText; 取消勾选不生效)
+function onPresetCheck(label: string, slot: { checked: boolean; value: string }, ev: Event) {
+  const checked = (ev.target as HTMLInputElement).checked
+  if (!checked) return  // 取消勾选不生效
+  const kv = label + ':' + (slot.value || '')
+  // 若 textarea 末尾不是逗号, 加逗号
+  if (specsText.value && !specsText.value.trimEnd().endsWith(',')) {
+    specsText.value = specsText.value.trimEnd() + ','
+  }
+  specsText.value = specsText.value + kv
+}
 
 function openAddDialog() {
+  if (!canEdit.value) return
   editingSp.value = null
-  form.value = { name: '', type: '', quantity: null, location: '', vendor: '' }
-  specsInput.value = defaultSpecs()
+  isReadOnly.value = false
+  form.value = { name: '', type: '', quantity: null, min_quantity: 0, location: '', vendor: '' }
+  specsText.value = ''
+  techDocs.value = []
   dialogVisible.value = true
 }
 
+function openDetailDialog(sp: Sparepart) {
+  isReadOnly.value = true
+  // 复用 openEditDialog 的 prefill, 后面禁用表单
+  openEditDialog(sp)
+}
+
 function openEditDialog(sp: Sparepart) {
+  if (!canEdit.value) {
+    isReadOnly.value = true
+  } else {
+    isReadOnly.value = false
+  }
   editingSp.value = sp
-  form.value = { name: sp.name, type: sp.type, quantity: sp.quantity, location: sp.location, vendor: sp.vendor }
-  // 解析 specs
-  const si = defaultSpecs()
-  const parts: Record<string, string> = {}
-  ;(sp.specs || '').split(',').forEach(p => {
-    const colonIdx = p.indexOf(':')
-    if (colonIdx > 0) {
-      parts[p.substring(0, colonIdx).trim()] = p.substring(colonIdx + 1).trim()
-    }
-  })
-  si.voltage = { checked: !!parts['电压'], value: parts['电压'] || '' }
-  si.current = { checked: !!parts['电流'], value: parts['电流'] || '' }
-  si.power = { checked: !!parts['功率'], value: parts['功率'] || '' }
-  si.pipeDiameter = { checked: !!parts['管径'], value: parts['管径'] || '' }
-  si.thread = { checked: !!parts['螺纹'], value: parts['螺纹'] || '' }
-  si.length = { checked: !!parts['长度'], value: parts['长度'] || '' }
-  si.extra = parts['其他'] || ''
-  specsInput.value = si
+  form.value = { name: sp.name, type: sp.type, quantity: sp.quantity, min_quantity: sp.min_quantity ?? 0, location: sp.location, vendor: sp.vendor }
+  specsText.value = sp.specs || ''
+  // 解析后端 tech_docs (JSON 字段)
+  techDocs.value = Array.isArray(sp.tech_docs) ? sp.tech_docs : []
   dialogVisible.value = true
 }
 
@@ -427,19 +552,7 @@ function handleTypeBlur() {
   if (form.value.type) addSparepartType(form.value.type)
 }
 
-function buildSpecs(): string {
-  const parts: string[] = []
-  if (specsInput.value.voltage.checked && specsInput.value.voltage.value) parts.push('电压:' + specsInput.value.voltage.value)
-  if (specsInput.value.current.checked && specsInput.value.current.value) parts.push('电流:' + specsInput.value.current.value)
-  if (specsInput.value.power.checked && specsInput.value.power.value) parts.push('功率:' + specsInput.value.power.value)
-  if (specsInput.value.pipeDiameter.checked && specsInput.value.pipeDiameter.value) parts.push('管径:' + specsInput.value.pipeDiameter.value)
-  if (specsInput.value.thread.checked && specsInput.value.thread.value) parts.push('螺纹:' + specsInput.value.thread.value)
-  if (specsInput.value.length.checked && specsInput.value.length.value) parts.push('长度:' + specsInput.value.length.value)
-  if (specsInput.value.extra) parts.push('其他:' + specsInput.value.extra)
-  return parts.join(',')
-}
-
-function saveSparepart() {
+async function saveSparepart() {
   if (!form.value.name || !form.value.type) {
     alert('请填写必填项')
     return
@@ -448,16 +561,22 @@ function saveSparepart() {
     name: form.value.name,
     type: form.value.type,
     quantity: form.value.quantity ?? 0,
+    min_quantity: form.value.min_quantity ?? 0,
     location: form.value.location,
     vendor: form.value.vendor,
-    specs: buildSpecs()
+    specs: specsText.value,
+    tech_docs: techDocs.value
   }
-  if (editingSp.value) {
-    updateSparepart(editingSp.value.id, record)
-  } else {
-    addSparepart(record)
+  try {
+    if (editingSp.value) {
+      await updateSparepart(editingSp.value.id, record)
+    } else {
+      await addSparepart(record)
+    }
+    dialogVisible.value = false
+  } catch (err) {
+    alert('保存失败：' + (err instanceof Error ? err.message : String(err)))
   }
-  dialogVisible.value = false
 }
 
 // ============ 出入仓弹窗 ============
@@ -475,18 +594,29 @@ function openInoutDialog(sp: Sparepart, action: '出仓' | '入仓') {
   inoutDialogVisible.value = true
 }
 
-function confirmInout() {
+async function confirmInout() {
   if (!inoutQuantity.value || inoutQuantity.value <= 0) {
     inoutError.value = '请输入有效数量'
     return
   }
   if (!inoutTarget.value) return
-  const result = inoutSparepart(inoutTarget.value.id, inoutAction.value, inoutQuantity.value)
+  const result = await inoutSparepart(inoutTarget.value.id, inoutAction.value, inoutQuantity.value)
   if (!result.success) {
     inoutError.value = result.error || '操作失败'
     return
   }
   inoutDialogVisible.value = false
+}
+
+// ============ 删除备件 (仅系统管理人) ============
+async function confirmDeleteSparepart(sp: Sparepart) {
+  if (currentUser.value?.role !== '系统管理人') return
+  if (!confirm(`确定要删除备件「${sp.name}」吗？此操作不可恢复。`)) return
+  try {
+    await deleteSparepart(sp.id)
+  } catch (err) {
+    alert('删除失败：' + (err instanceof Error ? err.message : String(err)))
+  }
 }
 
 // ============ 导出 ============
@@ -604,6 +734,75 @@ function downloadBlob(content: string, filename: string, mime: string) {
 .low-stock-icon { font-size: 18px; }
 .low-stock-text { flex: 1; }
 .low-stock-name { color: #fecaca; margin: 0 2px; }
+.threshold-mark { color: rgba(255,255,255,0.5); font-size: 11px; margin-left: 2px; }
+.name-link { color: #ffffff; text-decoration: none; cursor: pointer; font-weight: 500; }
+.name-link:hover { color: #2dd4bf; text-decoration: underline; }
+.dm-dialog input:disabled,
+.dm-dialog input[disabled] { background: rgba(255,255,255,0.05); color: rgba(255,255,255,0.7); cursor: not-allowed; opacity: 0.85; }
+.specs-textarea {
+  width: 100%;
+  padding: 8px 10px;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 4px;
+  color: rgba(255,255,255,0.85);
+  font-family: ui-monospace, monospace;
+  font-size: 13px;
+  resize: vertical;
+}
+.specs-edit-wrap { display: flex; flex-direction: column; gap: 8px; }
+.specs-tip { font-size: 11px; color: rgba(255,255,255,0.4); margin-top: 2px; }
+.tech-docs-list, .tech-docs-edit { display: flex; flex-direction: column; gap: 6px; }
+.tech-docs-empty { color: rgba(255,255,255,0.4); font-size: 12px; font-style: italic; padding: 4px 0; }
+.tech-doc-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 4px;
+  color: rgba(255,255,255,0.85);
+  text-decoration: none;
+  font-size: 13px;
+  transition: background 0.15s;
+}
+a.tech-doc-item:hover, .tech-doc-item-editable:hover { background: rgba(45, 212, 191, 0.1); }
+.doc-icon { font-size: 16px; }
+.doc-name { flex: 1; color: #60a5fa; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tech-doc-item-editable .doc-name { color: #60a5fa; }
+a.tech-doc-item:hover .doc-name { color: #93c5fd; text-decoration: underline; }
+.doc-size { color: rgba(255,255,255,0.5); font-size: 11px; font-family: ui-monospace, monospace; }
+.doc-action { color: #2dd4bf; font-size: 11px; }
+.doc-remove {
+  width: 22px; height: 22px;
+  border: none; border-radius: 50%;
+  background: rgba(239, 68, 68, 0.2);
+  color: #ef4444;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  display: flex; align-items: center; justify-content: center;
+}
+.doc-remove:hover { background: rgba(239, 68, 68, 0.4); }
+.tech-docs-upload {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 12px;
+  background: rgba(45, 212, 191, 0.1);
+  color: #2dd4bf;
+  border: 1px dashed rgba(45, 212, 191, 0.4);
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  margin-top: 4px;
+}
+.tech-docs-upload:hover { background: rgba(45, 212, 191, 0.18); }
+.tech-docs-upload input[type=file] { display: none; }
+.tech-docs-upload:has(input:disabled) { opacity: 0.5; cursor: not-allowed; }
+.readonly-body .required { display: none; }
+.dm-table td.low-stock { color: #ef4444; font-weight: 600; }
+.threshold-hint { color: rgba(255,255,255,0.4); font-size: 12px; margin-left: 4px; cursor: help; }
 
 .sp-header {
   display: flex;
@@ -983,21 +1182,26 @@ function downloadBlob(content: string, filename: string, mime: string) {
 
 /* 参数勾选 */
 .params-checkboxes {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 12px;
   align-items: center;
+}
+.preset-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .param-check {
   display: flex;
   align-items: center;
   gap: 2px;
-  font-size: 27px;
+  font-size: 13px;
   color: rgba(255,255,255,0.85);
   cursor: pointer;
   white-space: nowrap;
-  padding: 4px 8px;
+  padding: 2px 6px;
   border-radius: 4px;
   transition: background 0.15s;
 }
@@ -1014,14 +1218,14 @@ function downloadBlob(content: string, filename: string, mime: string) {
   flex-shrink: 0;
 }
 
-.param-input {
+.form-row .param-input {
   background: rgba(255,255,255,0.06);
   border: 1px solid rgba(45, 212, 191, 0.3);
   border-radius: 4px;
   color: rgba(255,255,255,0.85);
-  padding: 6px 10px;
-  font-size: 20px;
-  width: 120px;
+  padding: 4px 6px;
+  font-size: 13px;
+  width: 90px;
 }
 
 /* 导出下拉 */
