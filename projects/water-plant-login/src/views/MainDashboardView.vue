@@ -7,7 +7,7 @@ import WorkOrderDetailPanel from '../components/WorkOrderDetailPanel.vue'
 import { deviceStats, deviceListWithStatus, deviceChangeLog, currentUser, currentShiftContext, setCurrentShiftContext, loadDevicesFromDB, authHeader } from '../composables/useDeviceStore'
 import { usePermission } from '../composables/usePermission'
 import { useSSE } from '../composables/useSSE'
-import { spareparts } from '../composables/useSparepartStore'
+import { spareparts, loadSpareparts } from '../composables/useSparepartStore'
 import { maintenanceOrders, loadAllWorkOrders } from '../composables/useWorkOrderStore'
 
 const API_BASE = '/api/inspection'
@@ -126,16 +126,14 @@ function goToExecute(item: any) {
   }
   showExecuteDialog.value = true
   currentTaskForDialog.value = task
-  // pending 任务可预填上次的检查结果; 已完成/异常任务不预填 (历史结果只是只读参考, 避免误以为用户当时勾了)
-  if (!task.is_completed) {
-    if (task.results) {
-      try { checkedItems.value = JSON.parse(task.results) } catch { checkedItems.value = [] }
-    } else {
-      checkedItems.value = []
-    }
+  // 预填上次的检查结果 (包括已完成的) - 已完成会显示勾上但 disabled
+  if (task.results) {
+    try { checkedItems.value = JSON.parse(task.results) } catch { checkedItems.value = [] }
   } else {
     checkedItems.value = []
   }
+  // 预填备注
+  executeRemark.value = task.remark || ''
 }
 
 // 设备 Modal
@@ -199,6 +197,45 @@ function onWorkOrderUpdated() {
 const noticeDetail = ref<any>(null)
 const showNoticeDialog = ref(false)
 function openNoticeDetail(notif: any) {
+  // 备件低库存（具体备件）: 跳详情弹窗(带备件信息、颜色、触发时间)
+  if (notif._category === 'low_stock' && notif.sparepart) {
+    noticeDetail.value = notif
+    showNoticeDialog.value = true
+    return
+  }
+  // 设备告警/维修中: 优先跳工单详情弹窗（设备是告警/维修原因），找不到工单则兑底设备详情
+  if (notif._category === 'device_alert') {
+    if (notif.workOrder) {
+      openWorkOrderDetail(notif.workOrder)
+      return
+    }
+    if (notif.device) {
+      openDeviceDetail(notif.device)
+      return
+    }
+  }
+  // 工单具体记录: 跳工单详情弹窗
+  if (notif._category === 'workorder' && notif.workOrder) {
+    openWorkOrderDetail(notif.workOrder)
+    return
+  }
+  // 巡检超时: 跳巡检页（让用户能看到具体超时任务）
+  if (notif._category === 'inspection') {
+    router.push('/inspection')
+    return
+  }
+  // 备件低库存汇总（无具体备件）: 弹汇总弹窗展示所有低库存备件，不跳路由
+  if (notif._category === 'sparepart') {
+    noticeDetail.value = { _category: 'low_stock_summary', type: 'warning', content: notif.content, time: notif.time }
+    showNoticeDialog.value = true
+    return
+  }
+  // 工单 SLA 汇总（没绑定具体工单）: 跳工单列表
+  if (notif._category === 'workorder') {
+    router.push('/workorder')
+    return
+  }
+  // 其他: 默认弹窗
   noticeDetail.value = notif
   showNoticeDialog.value = true
 }
@@ -209,6 +246,57 @@ function closeNoticeDetail() {
 function noticeTypeLabel(type: string): string {
   const map: Record<string, string> = { warning: '告警', info: '提示', success: '成功', error: '错误' }
   return map[type] || type
+}
+// 低库存专用: 完整时间格式（年月日 时分秒）
+function formatSparepartTime(t: any): string {
+  if (!t) return '未记录'
+  const d = new Date(t)
+  if (isNaN(d.getTime())) return '未记录'
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+}
+
+// 低库存汇总弹窗使用: 从 spareparts 中过滤出低库存备件
+// 修复: 用 quantity < min_quantity（与后端 spareparts.js /low-stock-list 一致）, 不再硬编码 < 5
+// 注意: 不过滤 lowStockExcludes（电机/水泵/阀门/仪表），汇总弹窗需与后端低库存计数完全对齐
+const lowStockSummaryList = computed(() => {
+  return spareparts.value
+    .filter(sp => {
+      const min = Number(sp.min_quantity) || 0
+      return min > 0 && Number(sp.quantity) < min
+    })
+    .sort((a, b) => {
+      // 按缺货严重度倒序
+      const sa = (a.min_quantity || 5) - a.quantity
+      const sb = (b.min_quantity || 5) - b.quantity
+      return sb - sa
+    })
+})
+const sparepartsInDialog = computed(() => {
+  // 兼容点击弹窗时都拿同一份列表
+  if (noticeDetail.value?._category === 'low_stock_summary') return lowStockSummaryList.value
+  return []
+})
+
+// 从低库存汇总列表点击某条备件 → 进入具体备件详情弹窗
+function openLowStockDetail(sp: any) {
+  noticeDetail.value = {
+    id: sp.id,
+    type: 'warning',
+    _category: 'low_stock',
+    content: `备件「${sp.name}」库存不足，仅剩 ${sp.quantity} 件`,
+    time: sp.last_low_stock_at ? new Date(sp.last_low_stock_at).toLocaleString('zh-CN', { hour: '2-digit', minute: '2-digit', month: '2-digit', day: '2-digit' }) : '未记录',
+    sparepart: {
+      id: sp.id,
+      name: sp.name,
+      type: sp.type,
+      quantity: sp.quantity,
+      min_quantity: sp.min_quantity || 5,
+      location: sp.location,
+      vendor: sp.vendor,
+      last_low_stock_at: sp.last_low_stock_at
+    }
+  }
 }
 
 // 重置所有巡检相关状态
@@ -343,6 +431,8 @@ onMounted(async () => {
   loadInspectionTasks()
   await loadDevicesFromDB()
   await loadTodayWorkOrders()
+  // 加载备件列表（供低库存汇总弹窗过滤本地使用，后端通知只给数量）
+  loadSpareparts()
   await loadNotifications()
   loadLeaderShift()
   loadShiftFromAPI()
@@ -457,7 +547,7 @@ const navItems = ref([
   { name: '驾驶舱',   path: '/main',         icon: '🚀', permission: 'menu:dashboard' },
   { name: '设备管理', path: '/device/inuse', icon: '🖥️', permission: 'menu:device' },
   { name: '巡检保养', path: '/inspection',   icon: '🔍', permission: 'menu:inspection' },
-  { name: '备件仓库', path: '/spareparts',   icon: '📦', permission: 'menu:spareparts', roles: ['系统管理人', '带班', '维修组'] /* 值班岗位不需备件仓库 */ },
+  { name: '备件仓库', path: '/spareparts',   icon: '📦', permission: 'menu:spareparts', roles: ['系统管理人', '维修组'] /* 带班、值班岗位不需备件仓库 */ },
   { name: '班组交接', path: '/handover',     icon: '🔄', permission: 'menu:handover' },
   { name: '维修工单', path: '/workorder',    icon: '🔧', permission: 'menu:workorder' },
   { name: '统计分析', path: '/asset',        icon: '💰', roles: ['系统管理人', '厂长'] /* 仅系统管理人+厂长可见 */ },
@@ -566,6 +656,7 @@ function mapWorkOrder(o: any, type: 'problem' | 'maintenance') {
   return {
     id: type === 'problem' ? `PO-${o.id}` : `WO-${o.id}`,
     _type: type,
+    _deviceId: o.device_id,  // 供通知公告通过设备 ID 查找对应工单
     _createdAtMs: new Date(o.created_at).getTime(),
     title: (o.content || '工单').slice(0, 30),
     device: deviceName(o.device_id),
@@ -609,22 +700,61 @@ async function loadNotifications() {
     const list: any[] = []
     let nid = 1
     const a = d.real_time_alerts || {}
-    // 设备告警
+    // 维修组只看到维修工单，问题工单对维修组隐藏
+    const onlyMaintenance = currentUser.value.role === '维修组'
+    // 设备告警 — 为每条设备告警/维修中查找对应的进行中工单
+    const findOrderForDevice = (deviceId: any, preferType?: 'problem' | 'maintenance') => {
+      const did = String(deviceId ?? '')
+      // 优先选指定类型，其次按时间倒序
+      const candidates = workOrders.value.filter(o => {
+        if (String(o._deviceId ?? '') !== did) return false
+        if (onlyMaintenance && o._type !== 'maintenance') return false
+        return true
+      })
+      if (preferType) {
+        const matched = candidates.find(o => o._type === preferType)
+        if (matched) return matched
+      }
+      return candidates[0] || null
+    }
+    // 维修组能看到的工单池（仅维修工单）
+    const workOrderPool = onlyMaintenance ? workOrders.value.filter(o => o._type === 'maintenance') : workOrders.value
     const warningDevices = deviceListWithStatus.value.filter(x => x.status === '告警')
-    warningDevices.forEach(dev => list.push({ id: nid++, type: 'warning', content: `设备「${dev.name}」告警，请检查`, time }))
-    // 设备维修中
+    warningDevices.forEach(dev => list.push({
+      id: nid++,
+      type: 'warning',
+      _category: 'device_alert',
+      device: dev,
+      workOrder: findOrderForDevice(dev.id, 'problem'),  // 告警设备优先关联问题工单
+      content: `设备「${dev.name}」告警，请检查`,
+      time
+    }))
+    // 设备维修中 - 优先关联维修工单
     const maintDevices = deviceListWithStatus.value.filter(x => x.status === '维修中')
-    maintDevices.forEach(dev => list.push({ id: nid++, type: 'warning', content: `设备「${dev.name}」维修中`, time }))
-    // 工单 SLA 超时
-    if (a.workorder_sla_breached) list.push({ id: nid++, type: 'warning', content: `工单 SLA 超时 ${a.workorder_sla_breached} 个`, time })
-    if (a.workorder_sla_warning) list.push({ id: nid++, type: 'info', content: `工单 SLA 即将超时 ${a.workorder_sla_warning} 个`, time })
-    // 巡检超时
-    if (a.inspection_overdue) list.push({ id: nid++, type: 'warning', content: `巡检任务超时 ${a.inspection_overdue} 个`, time })
-    // 备件低库存
-    if (a.sparepart_low_stock) list.push({ id: nid++, type: 'warning', content: `备件低库存 ${a.sparepart_low_stock} 种`, time })
-    // 插入今日工单已完成的消息
-    const done = workOrders.value.filter(o => o.status === '已完成' || o.status === '已闭环' || o.status === '已自处理')
-    done.slice(0, 3).forEach(o => list.push({ id: nid++, type: 'success', content: `工单「${o.title}」已处理完成`, time: o.createTime }))
+    maintDevices.forEach(dev => list.push({
+      id: nid++,
+      type: 'warning',
+      _category: 'device_alert',
+      device: dev,
+      workOrder: findOrderForDevice(dev.id, 'maintenance'),
+      content: `设备「${dev.name}」维修中`,
+      time
+    }))
+    // 工单 SLA 超时 - 找一张示例工单弹详情（维修组只看维修工单）
+    if (a.workorder_sla_breached) {
+      const sampleOrder = workOrderPool.find(o => o._type === 'maintenance' && o.status === 'delay') || workOrderPool[0]
+      list.push({ id: nid++, type: 'warning', _category: 'workorder', workOrder: sampleOrder, content: `工单 SLA 超时 ${a.workorder_sla_breached} 个`, time })
+    }
+    if (a.workorder_sla_warning) list.push({ id: nid++, type: 'info', _category: 'workorder', workOrder: workOrderPool[0], content: `工单 SLA 即将超时 ${a.workorder_sla_warning} 个`, time })
+    // 巡检超时 - 跳 /inspection
+    if (a.inspection_overdue) list.push({ id: nid++, type: 'warning', _category: 'inspection', content: `巡检任务超时 ${a.inspection_overdue} 个`, time })
+    // 备件低库存汇总 - 只对系统管理人 / 维修组可见
+    if (['系统管理人', '维修组'].includes(currentUser.value.role) && a.sparepart_low_stock) {
+      list.push({ id: nid++, type: 'warning', _category: 'sparepart', content: `备件低库存 ${a.sparepart_low_stock} 种`, time })
+    }
+    // 插入今日工单已完成的消息（维修组只看维修工单）
+    const done = workOrderPool.filter(o => o.status === '已完成' || o.status === '已闭环' || o.status === '已自处理')
+    done.slice(0, 3).forEach(o => list.push({ id: nid++, type: 'success', _category: 'workorder', workOrder: o, content: `工单「${o.title}」已处理完成`, time: o.createTime }))
     notifications.value = list
   } catch (err) {
     console.error('加载通知公告失败', err)
@@ -632,16 +762,35 @@ async function loadNotifications() {
 }
 
 // 低库存备件提醒（排除电机、水泵、阀门、仪表）
-const lowStockExcludes = ['电机', '水泵', '阀门', '仪表']
+// 低库存备件类别过滤（电机/水泵/阀门/仪表）。统一不再过滤，避免与后端不一致
+const lowStockExcludes: string[] = []
 const lowStockNotifs = computed(() => {
-  if (currentUser.value.role !== '系统管理人') return []
+  // 备件低库存只对系统管理人 / 维修组可见
+  if (!['系统管理人', '维修组'].includes(currentUser.value.role)) return []
   return spareparts.value
-    .filter(sp => !lowStockExcludes.some(e => sp.type.includes(e)) && sp.quantity < 5)
+    // 修复: 用 quantity < min_quantity（与后端一致）, 硬编码 < 5 会漏掉 min_quantity>5 的备件
+    .filter(sp => {
+      if (lowStockExcludes.some(e => sp.type?.includes(e))) return false
+      const min = Number(sp.min_quantity) || 0
+      return min > 0 && Number(sp.quantity) < min
+    })
     .map(sp => ({
       id: sp.id,
       type: 'warning' as const,
+      _category: 'low_stock' as const,
       content: `备件「${sp.name}」库存不足，仅剩 ${sp.quantity} 件`,
-      time: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+      time: sp.last_low_stock_at ? new Date(sp.last_low_stock_at).toLocaleString('zh-CN', { hour: '2-digit', minute: '2-digit', month: '2-digit', day: '2-digit' }) : '未记录',
+      // 备件详情弹窗需要的额外字段
+      sparepart: {
+        id: sp.id,
+        name: sp.name,
+        type: sp.type,
+        quantity: sp.quantity,
+        min_quantity: sp.min_quantity || 5,
+        location: sp.location,
+        vendor: sp.vendor,
+        last_low_stock_at: sp.last_low_stock_at
+      }
     }))
 })
 
@@ -653,8 +802,10 @@ const delayNotifs = computed(() => {
     .map(o => ({
       id: o.id,
       type: 'warning' as const,
-      content: `维修工单「${o.id}」申请延时：${o.delayReason}`,
-      time: ''
+      _category: 'workorder' as const,
+      workOrder: o,
+      content: `维修工单「${o.id}」申请延时：${o.delayReason || '未填写原因'}`,
+      time: o.lastActionAt || ''
     }))
 })
 const allNotifs = computed(() => [...delayNotifs.value, ...lowStockNotifs.value, ...notifications.value])
@@ -662,6 +813,15 @@ const visibleNotifs = computed(() => allNotifs.value.slice(0, 4))
 const expandedNotifs = computed(() => allNotifs.value.slice(0, 10))
 
 const showAllNotifs = ref(false)
+
+// 记录通知卡片的原始宽度，hover 展开时使用，保持宽度不变化
+const notifCardStyle = ref<Record<string, string>>({})
+function onNotifCardEnter(e: MouseEvent) {
+  const el = e.currentTarget as HTMLElement
+  // 此时还未应用 expanded class, offsetWidth 为静态宽度
+  notifCardStyle.value = { '--notif-w': el.offsetWidth + 'px' }
+  showAllNotifs.value = true
+}
 
 const getStatusClass = (status: string) => {
   const map: Record<string, string> = {
@@ -755,23 +915,115 @@ const getLevelClass = (level: string) => {
 
     <!-- 公告详情弹窗 -->
     <div v-if="showNoticeDialog && noticeDetail" class="dialog-overlay" @click.self="closeNoticeDetail">
-      <div class="dialog dialog-notice-detail">
+      <div class="dialog dialog-notice-detail" :class="{ 'dialog-low-stock': noticeDetail._category === 'low_stock', 'dialog-low-stock-summary': noticeDetail._category === 'low_stock_summary' }">
         <div class="dialog-header">
           <h3>
             <span class="notif-type-badge" :class="`badge-${noticeDetail.type}`">{{ noticeTypeLabel(noticeDetail.type) }}</span>
-            公告详情
+            <span v-if="noticeDetail._category === 'low_stock'">备件低库存详情</span>
+            <span v-else-if="noticeDetail._category === 'low_stock_summary'">备件低库存汇总</span>
+            <span v-else>公告详情</span>
           </h3>
           <button class="dialog-close" @click="closeNoticeDetail">×</button>
         </div>
         <div class="dialog-body">
-          <div class="notice-detail-content">{{ noticeDetail.content }}</div>
-          <div class="notice-detail-meta">
-            <span class="notice-detail-time">🕐 {{ noticeDetail.time }}</span>
-            <span v-if="noticeDetail.id" class="notice-detail-id">编号: {{ noticeDetail.id }}</span>
-          </div>
+          <!-- 低库存专用模板: 具体某条备件的详情 -->
+          <template v-if="noticeDetail._category === 'low_stock' && noticeDetail.sparepart">
+            <div class="lowstock-hero">
+              <div class="lowstock-icon">📦</div>
+              <div class="lowstock-hero-text">
+                <div class="lowstock-name">{{ noticeDetail.sparepart.name }}</div>
+                <div class="lowstock-type">{{ noticeDetail.sparepart.type || '未分类' }}</div>
+              </div>
+            </div>
+
+            <div class="lowstock-grid">
+              <div class="lowstock-stat highlight-danger">
+                <div class="lowstock-stat-label">当前存量</div>
+                <div class="lowstock-stat-value">
+                  <span class="big-num">{{ noticeDetail.sparepart.quantity }}</span>
+                  <span class="unit">件</span>
+                </div>
+              </div>
+              <div class="lowstock-stat">
+                <div class="lowstock-stat-label">最低库存</div>
+                <div class="lowstock-stat-value">
+                  <span class="big-num">{{ noticeDetail.sparepart.min_quantity }}</span>
+                  <span class="unit">件</span>
+                </div>
+              </div>
+              <div class="lowstock-stat highlight-warn">
+                <div class="lowstock-stat-label">缺口数量</div>
+                <div class="lowstock-stat-value">
+                  <span class="big-num">{{ Math.max(0, (noticeDetail.sparepart.min_quantity || 0) - (noticeDetail.sparepart.quantity || 0)) }}</span>
+                  <span class="unit">件</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="lowstock-info-list">
+              <div class="lowstock-info-row">
+                <span class="lowstock-info-key">存放位置</span>
+                <span class="lowstock-info-val">{{ noticeDetail.sparepart.location || '未指定' }}</span>
+              </div>
+              <div class="lowstock-info-row">
+                <span class="lowstock-info-key">供应商</span>
+                <span class="lowstock-info-val">{{ noticeDetail.sparepart.vendor || '未指定' }}</span>
+              </div>
+              <div class="lowstock-info-row">
+                <span class="lowstock-info-key">备件编号</span>
+                <span class="lowstock-info-val">#{{ noticeDetail.sparepart.id }}</span>
+              </div>
+              <div class="lowstock-info-row">
+                <span class="lowstock-info-key">🚨 触发报警时间</span>
+                <span class="lowstock-info-val highlight-warn-text">{{ formatSparepartTime(noticeDetail.sparepart.last_low_stock_at) }}</span>
+              </div>
+            </div>
+
+            <div class="lowstock-tip">
+              建议及时补充库存或联系采购，避免影响维修响应。
+            </div>
+          </template>
+
+          <!-- 低库存汇总模板: 展示所有低库存备件列表，点击进入详情 -->
+          <template v-else-if="noticeDetail._category === 'low_stock_summary'">
+            <div class="lowstock-summary-header">
+              <span class="lowstock-summary-icon">📦</span>
+              <span class="lowstock-summary-text">当前共有 <b class="highlight-warn-text">{{ sparepartsInDialog.length }}</b> 种备件低于安全库存</span>
+            </div>
+            <div class="lowstock-summary-list">
+              <div
+                v-for="sp in sparepartsInDialog"
+                :key="sp.id"
+                class="lowstock-summary-row"
+                @click="openLowStockDetail(sp)"
+              >
+                <div class="lowstock-summary-left">
+                  <div class="lowstock-summary-name">{{ sp.name }}</div>
+                  <div class="lowstock-summary-meta">
+                    <span>当前: <b class="highlight-danger">{{ sp.quantity }}</b> 件</span>
+                    <span class="dot-sep">·</span>
+                    <span>阈值: {{ sp.min_quantity }}</span>
+                    <span class="dot-sep">·</span>
+                    <span>🚨 {{ formatSparepartTime(sp.last_low_stock_at) }}</span>
+                  </div>
+                </div>
+                <div class="lowstock-summary-arrow">查看详情 →</div>
+              </div>
+              <div v-if="sparepartsInDialog.length === 0" class="lowstock-summary-empty">暂无低库存备件</div>
+            </div>
+          </template>
+
+          <!-- 通用模板: 其他类型公告 -->
+          <template v-else>
+            <div class="notice-detail-content">{{ noticeDetail.content }}</div>
+            <div class="notice-detail-meta">
+              <span class="notice-detail-time">🕐 {{ noticeDetail.time }}</span>
+              <span v-if="noticeDetail.id" class="notice-detail-id">编号: {{ noticeDetail.id }}</span>
+            </div>
+          </template>
         </div>
         <div class="dialog-footer">
-          <button class="btn-confirm" @click="closeNoticeDetail">关闭</button>
+          <button class="btn-cancel" @click="closeNoticeDetail">关闭</button>
         </div>
       </div>
     </div>
@@ -811,7 +1063,7 @@ const getLevelClass = (level: string) => {
         <!-- 备注 -->
         <div class="execute-remark">
           <label class="remark-label">备注 (可选)</label>
-          <textarea v-model="executeRemark" placeholder="如有需要请填写..." rows="2" class="remark-textarea" />
+          <textarea v-model="executeRemark" placeholder="如有需要请填写..." rows="2" class="remark-textarea" :disabled="currentTaskForDialog?.is_completed" />
         </div>
 
         <!-- 历史异常 (只读, 重新打开已异常的任务时显示) -->
@@ -958,7 +1210,8 @@ const getLevelClass = (level: string) => {
       <div
         class="notif-card"
         :class="{ expanded: showAllNotifs }"
-        @mouseenter="showAllNotifs = true"
+        :style="notifCardStyle"
+        @mouseenter="onNotifCardEnter"
         @mouseleave="showAllNotifs = false"
       >
         <div class="notif-header">
@@ -1088,14 +1341,14 @@ const getLevelClass = (level: string) => {
       <p>© 2024 广州市番禺水务股份有限公司</p>
     </footer>
 
-    <!-- 设备详情弹窗 -->
+    <!-- 设备详情弹窗 (加宽+加高, 让关联工单区能完整显示, 尽量不滚动) -->
     <n-modal
       v-model:show="showDeviceModal"
       :mask-closable="true"
       :on-after-leave="onModalAfterLeave"
       title="设备详情"
       class="detail-modal-shell"
-      style="width: 680px;"
+      style="width: 900px; max-width: 95vw; max-height: 92vh;"
       :bordered="false"
       size="huge"
     >
@@ -1720,14 +1973,20 @@ const getLevelClass = (level: string) => {
 }
 
 .notif-card.expanded {
+  /* 绝对定位脱离文档流：卡片在原位浮起来覆盖下方面板，不撑高 .info-row，不推下方的设备概况下移 */
   position: absolute;
+  /* 跟 .info-row 的 padding (top:8px right:24px) 对齐，贴合原位 */
+  top: 8px;
   right: 24px;
-  top: 0;
-  width: 490px;
-  background: rgba(15, 50, 80, 0.9);
-  border-color: rgba(45, 212, 191, 0.4);
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
-  z-index: 100;
+  /* 宽度保持静态原值（mouseenter 时记录到 CSS 变量），不会随 hover 变化 */
+  width: var(--notif-w, 480px);
+  height: auto;
+  max-height: 360px;
+  overflow-y: auto;
+  background: rgba(15, 50, 80, 0.95);
+  border-color: rgba(45, 212, 191, 0.5);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+  z-index: 50;          /* 高过 .main-content (z:5) */
 }
 
 .notif-header {
@@ -2432,6 +2691,195 @@ const getLevelClass = (level: string) => {
   overflow-y: auto;
 }
 .dialog-notice-detail { width: 480px; }
+.dialog-low-stock { width: 560px; max-width: 95vw; }
+.dialog-low-stock-summary { width: 600px; max-width: 95vw; }
+
+/* ===== 低库存弹窗专用样式 ===== */
+.lowstock-hero {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 16px;
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.18), rgba(245, 158, 11, 0.12));
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  border-radius: 10px;
+  margin-bottom: 18px;
+}
+.lowstock-icon { font-size: 36px; line-height: 1; }
+.lowstock-hero-text { flex: 1; min-width: 0; }
+.lowstock-name {
+  font-size: 20px;
+  font-weight: 700;
+  color: #fff;
+  word-break: break-all;
+  line-height: 1.3;
+}
+.lowstock-type {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.55);
+  margin-top: 4px;
+}
+
+.lowstock-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-bottom: 18px;
+}
+.lowstock-stat {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 12px 8px;
+  text-align: center;
+}
+.lowstock-stat.highlight-danger {
+  background: rgba(239, 68, 68, 0.15);
+  border-color: rgba(239, 68, 68, 0.5);
+}
+.lowstock-stat.highlight-warn {
+  background: rgba(245, 158, 11, 0.15);
+  border-color: rgba(245, 158, 11, 0.45);
+}
+.lowstock-stat-label {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.55);
+  margin-bottom: 6px;
+}
+.lowstock-stat-value {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 3px;
+}
+.lowstock-stat-value .big-num {
+  font-size: 26px;
+  font-weight: 700;
+  line-height: 1;
+  color: #fff;
+}
+.lowstock-stat.highlight-danger .big-num { color: #FCA5A5; }
+.lowstock-stat.highlight-warn .big-num { color: #FCD34D; }
+.lowstock-stat-value .unit {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.lowstock-info-list {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+  padding: 4px 12px;
+  margin-bottom: 14px;
+}
+.lowstock-info-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 9px 0;
+  border-bottom: 1px dashed rgba(255, 255, 255, 0.06);
+  font-size: 13px;
+}
+.lowstock-info-row:last-child { border-bottom: none; }
+.lowstock-info-key {
+  color: rgba(255, 255, 255, 0.55);
+}
+.lowstock-info-val {
+  color: rgba(255, 255, 255, 0.85);
+  text-align: right;
+  word-break: break-all;
+}
+.highlight-warn-text {
+  color: #FCD34D !important;
+  font-weight: 600;
+}
+
+.lowstock-tip {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.55);
+  background: rgba(45, 212, 191, 0.08);
+  border-left: 3px solid #2DD4BF;
+  padding: 8px 12px;
+  border-radius: 4px;
+  line-height: 1.6;
+}
+
+/* ===== 低库存汇总弹窗样式 ===== */
+.lowstock-summary-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  border-radius: 8px;
+  margin-bottom: 12px;
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.85);
+}
+.lowstock-summary-icon { font-size: 22px; }
+.lowstock-summary-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 360px;
+  overflow-y: auto;
+  /* 细滚动条，避免遮挡视觉 */
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
+}
+.lowstock-summary-list::-webkit-scrollbar { width: 6px; }
+.lowstock-summary-list::-webkit-scrollbar-track { background: transparent; }
+.lowstock-summary-list::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.15); border-radius: 3px; }
+.lowstock-summary-list::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.3); }
+.lowstock-summary-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, transform 0.1s;
+}
+.lowstock-summary-row:hover {
+  background: rgba(239, 68, 68, 0.1);
+  border-color: rgba(239, 68, 68, 0.5);
+  /* 不用 transform 避免整体内容偏移 */
+}
+.lowstock-summary-row:active { /* noop */ }
+.lowstock-summary-left { flex: 1; min-width: 0; }
+.lowstock-summary-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: #fff;
+  margin-bottom: 4px;
+  word-break: break-all;
+}
+.lowstock-summary-meta {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.55);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+.lowstock-summary-meta b.highlight-danger { color: #FCA5A5; }
+.dot-sep { color: rgba(255, 255, 255, 0.3); margin: 0 2px; }
+.lowstock-summary-arrow {
+  font-size: 13px;
+  color: #2DD4BF;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.lowstock-summary-empty {
+  text-align: center;
+  padding: 24px;
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 13px;
+}
 .notif-type-badge {
   display: inline-block;
   padding: 2px 10px;
@@ -2539,6 +2987,7 @@ const getLevelClass = (level: string) => {
 .check-row-disabled { opacity: 0.5; cursor: not-allowed; }
 .check-row-disabled .check-input { cursor: not-allowed; }
 .check-row-disabled .check-label { cursor: not-allowed; }
+.remark-textarea:disabled { background: rgba(0, 0, 0, 0.15); color: rgba(255, 255, 255, 0.55); cursor: not-allowed; border-color: rgba(45, 212, 191, 0.1); }
 .history-images { display: flex; flex-wrap: wrap; gap: 6px; max-height: 200px; overflow-y: auto; }
 /* 异常记录区 (修复: 之前仅 .history-images 有样式, .execute-history/.history-title/.history-desc 三个类都漏了) */
 .execute-history { margin-top: 14px; padding: 12px; background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.25); border-radius: 6px; }

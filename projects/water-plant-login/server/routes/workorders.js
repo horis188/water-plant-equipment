@@ -335,24 +335,24 @@ router.get('/stats', async (req, res) => {
          (SELECT COUNT(*) FROM maintenance_orders WHERE closed_at >= ?) AS cnt`,
       [todayStart, todayStart]
     )
-    // 总未闭环
+    // 总未闭环（修复: 维修工单统计排除 problem_order_id IS NOT NULL，避免与问题工单"转维修"重复计数）
     const [openCount] = await pool.query(
       `SELECT
          (SELECT COUNT(*) FROM problem_orders WHERE status NOT IN ('closed', 'self_resolved')) +
-         (SELECT COUNT(*) FROM maintenance_orders WHERE status NOT IN ('completed', 'closed')) AS cnt`
+         (SELECT COUNT(*) FROM maintenance_orders WHERE status NOT IN ('completed', 'closed') AND problem_order_id IS NULL) AS cnt`
     )
     // 超 SLA 数 (未关闭且已超时)
     const [slaBreached] = await pool.query(
       `SELECT
          (SELECT COUNT(*) FROM problem_orders WHERE sla_due_at < NOW() AND status NOT IN ('closed', 'self_resolved')) +
-         (SELECT COUNT(*) FROM maintenance_orders WHERE sla_due_at < NOW() AND status NOT IN ('completed', 'closed')) AS cnt`
+         (SELECT COUNT(*) FROM maintenance_orders WHERE sla_due_at < NOW() AND status NOT IN ('completed', 'closed') AND problem_order_id IS NULL) AS cnt`
     )
     // 即将超时 (2h 内未关闭)
     const twoHoursLater = new Date(Date.now() + 2 * 3600 * 1000)
     const [slaWarning] = await pool.query(
       `SELECT
          (SELECT COUNT(*) FROM problem_orders WHERE sla_due_at BETWEEN NOW() AND ? AND status NOT IN ('closed', 'self_resolved')) +
-         (SELECT COUNT(*) FROM maintenance_orders WHERE sla_due_at BETWEEN NOW() AND ? AND status NOT IN ('completed', 'closed')) AS cnt`,
+         (SELECT COUNT(*) FROM maintenance_orders WHERE sla_due_at BETWEEN NOW() AND ? AND status NOT IN ('completed', 'closed') AND problem_order_id IS NULL) AS cnt`,
       [twoHoursLater, twoHoursLater]
     )
     // 平均处理时长 (分钟, 仅已闭环)

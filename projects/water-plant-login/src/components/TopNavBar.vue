@@ -85,7 +85,7 @@ const navItems = ref([
   { name: '驾驶舱',   path: '/main',           icon: '🚀', permission: 'menu:dashboard' },
   { name: '设备管理', path: '/device/inuse',   icon: '🖥️', permission: 'menu:device' },
   { name: '巡检保养', path: '/inspection',     icon: '🔍', permission: 'menu:inspection' },
-  { name: '备件仓库', path: '/spareparts',     icon: '📦', permission: 'menu:spareparts', roles: ['系统管理人', '带班', '维修组'] /* 值班岗位不需备件仓库 */ },
+  { name: '备件仓库', path: '/spareparts',     icon: '📦', permission: 'menu:spareparts', roles: ['系统管理人', '维修组'] /* 带班、值班岗位不需备件仓库 */ },
   { name: '班组交接', path: '/handover',       icon: '🔄', permission: 'menu:handover' },
   { name: '维修工单', path: '/workorder',      icon: '🔧', permission: 'menu:workorder' },
   { name: '统计分析', path: '/asset',          icon: '💰', roles: ['系统管理人', '厂长'] /* 仅系统管理人+厂长可见 */ },

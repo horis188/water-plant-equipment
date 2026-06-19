@@ -19,6 +19,7 @@ export interface Sparepart {
   tech_docs?: TechDoc[]  // 技术文档文件列表
   created_at?: string
   updated_at?: string
+  last_low_stock_at?: string  // 首次触发低库存告警的时间 (后端 spareparts.js 写入)
 }
 
 export interface TechDoc {

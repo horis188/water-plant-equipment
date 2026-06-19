@@ -20,6 +20,10 @@ async function checkAndEmitLowStock(sparepart) {
   const wasNotified = lowStockNotified.has(sparepart.id)
   if (isLow && !wasNotified) {
     lowStockNotified.add(sparepart.id)
+    // 记录首次触发低库存的时间
+    try {
+      await pool.query('UPDATE spareparts SET last_low_stock_at = NOW() WHERE id = ?', [sparepart.id])
+    } catch (e) { console.error('更新 last_low_stock_at 失败', e) }
     sseEmit('sparepart-low-stock', {
       sparepart_id: sparepart.id,
       name: sparepart.name,

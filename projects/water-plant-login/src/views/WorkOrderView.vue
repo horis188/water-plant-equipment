@@ -35,22 +35,22 @@
         <h2 v-if="['值班岗位', '带班', '系统管理人', '厂长'].includes(currentUser.role)">{{ activeTab === 'maintenance' ? '维修工单' : '问题工单' }}</h2>
         <h2 v-else>维修工单</h2>
         <span v-if="currentUser.role === '维修组'" class="wo-stat">
-          未接单 {{ maintenanceOrders.filter(o => o.status === 'pending').length }}
+          未接单 {{ maintenanceOrders.filter(o => !o.problemOrderId && o.status === 'pending').length }}
         </span>
         <span v-if="currentUser.role === '维修组'" class="wo-stat">
-          进行中 {{ maintenanceOrders.filter(o => o.status === 'processing' || o.status === 'delay' || o.status === 'returned').length }}
+          进行中 {{ maintenanceOrders.filter(o => !o.problemOrderId && (o.status === 'processing' || o.status === 'delay' || o.status === 'returned')).length }}
         </span>
         <span v-if="currentUser.role === '维修组'" class="wo-stat">
-          已完成 {{ maintenanceOrders.filter(o => o.status === 'completed' || o.status === 'closed').length }}
+          已完成 {{ maintenanceOrders.filter(o => !o.problemOrderId && (o.status === 'completed' || o.status === 'closed')).length }}
         </span>
         <span v-if="['值班岗位', '带班', '系统管理人', '厂长'].includes(currentUser.role) && activeTab === 'maintenance'" class="wo-stat">
-          未接单 {{ maintenanceOrders.filter(o => o.status === 'pending').length }}
+          未接单 {{ maintenanceOrders.filter(o => !o.problemOrderId && o.status === 'pending').length }}
         </span>
         <span v-if="['值班岗位', '带班', '系统管理人', '厂长'].includes(currentUser.role) && activeTab === 'maintenance'" class="wo-stat">
-          进行中 {{ maintenanceOrders.filter(o => o.status === 'processing' || o.status === 'delay' || o.status === 'returned').length }}
+          进行中 {{ maintenanceOrders.filter(o => !o.problemOrderId && (o.status === 'processing' || o.status === 'delay' || o.status === 'returned')).length }}
         </span>
         <span v-if="['值班岗位', '带班', '系统管理人', '厂长'].includes(currentUser.role) && activeTab === 'maintenance'" class="wo-stat">
-          已完成 {{ maintenanceOrders.filter(o => o.status === 'completed' || o.status === 'closed').length }}
+          已完成 {{ maintenanceOrders.filter(o => !o.problemOrderId && (o.status === 'completed' || o.status === 'closed')).length }}
         </span>
         <span v-if="['值班岗位', '带班', '系统管理人', '厂长'].includes(currentUser.role) && activeTab === 'problem'" class="wo-stat">
           未处理 {{ problemOrders.filter(o => o.status === 'pending').length }}

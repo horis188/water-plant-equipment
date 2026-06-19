@@ -207,6 +207,7 @@ function mapMaintenanceOrder(o: any) {
     problemOrderId: o.problem_order_id || null,
     participants: Array.isArray(o.participants) ? o.participants : [],
     delayImages: Array.isArray(o.delay_images) ? o.delay_images : [],
+    delayReason: o.delay_reason || '',  // 修复: 后端返回 delay_reason, 前端需要驼峰映射
     sparepartUsage: Array.isArray(o.sparepart_usage) ? o.sparepart_usage : [],
     returnImages: Array.isArray(o.return_images) ? o.return_images : [],
     completionImages: Array.isArray(o.completion_images) ? o.completion_images : [],

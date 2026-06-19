@@ -524,7 +524,7 @@ async function doDelete() {
   display: flex;
   flex-direction: column;
   gap: 20px;
-  max-height: 65vh;
+  max-height: 75vh;
   overflow-y: auto;
 }
 

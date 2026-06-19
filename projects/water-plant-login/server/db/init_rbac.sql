@@ -108,7 +108,8 @@ ON DUPLICATE KEY UPDATE name = VALUES(name), module = VALUES(module), type = VAL
 INSERT IGNORE INTO role_permissions (role_id, permission_id)
 SELECT r.id, p.id FROM roles r, permissions p WHERE r.code = '系统管理人';
 
--- 带班: 全部菜单 + 工单相关按钮(审核/创建/编辑) + 巡检创建 + 设备编辑 + 系统管理(不含角色权限)
+-- 带班: 全部菜单 + 工单(创建/审核) + 巡检创建 + 设备编辑 + 系统管理(不含角色权限)
+-- 注意: 带班不拥有工单的编辑、删除、退回、完成权限（这些是维修组的操作）
 INSERT IGNORE INTO role_permissions (role_id, permission_id)
 SELECT r.id, p.id FROM roles r, permissions p
 WHERE r.code = '带班'
@@ -117,7 +118,6 @@ WHERE r.code = '带班'
     OR p.code IN (
       'btn:handover_submit',
       'btn:wo_create_problem', 'btn:wo_create_maintenance', 'btn:wo_review',
-      'btn:wo_edit', 'btn:wo_delete_problem', 'btn:wo_delete_maintenance',
       'btn:inspection_create',
       'btn:device_edit', 'btn:device_delete',
       'btn:user_create', 'btn:user_edit', 'btn:user_reset'
@@ -138,7 +138,8 @@ WHERE r.code = '值班岗位'
     )
   );
 
--- 维修组: 工单(维修相关) + 巡检 + 设备 + 主面板 + 备件
+-- 维修组: 工单(维修相关 - 创建/接单/完成/问题工单闭环) + 巡检 + 设备 + 主面板 + 备件
+-- 注意: 维修组不拥有工单编辑、删除、退回权限（这些都是带班/系统管理人的操作）
 INSERT IGNORE INTO role_permissions (role_id, permission_id)
 SELECT r.id, p.id FROM roles r, permissions p
 WHERE r.code = '维修组'
@@ -146,7 +147,7 @@ WHERE r.code = '维修组'
     p.code IN (
       'menu:dashboard','menu:workorder','menu:inspection',
       'menu:maintenance','menu:device','menu:spareparts',
-      'btn:wo_create_maintenance','btn:wo_complete','btn:wo_close_problem','btn:wo_edit'
+      'btn:wo_create_maintenance','btn:wo_complete','btn:wo_close_problem'
     )
   );
 
