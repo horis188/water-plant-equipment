@@ -1,0 +1,144 @@
+============================================================
+供水厂设备管理平台 — 部署清单(从 0 到 1)
+============================================================
+最后更新: 2026-06-22
+对应 commit: c40897d
+详细文档:   DEPLOY.md
+产品规格:   SPEC.md
+
+
+############################################################
+# 速查路径
+############################################################
+代码仓库:    https://github.com/horis188/water-plant-equipment
+部署路径:    /home/<user>/water-plant-equipment  (建议家目录下)
+后端端口:    3000
+前端端口:    5175
+数据库名:    water_plant
+数据库账号:  swsc@localhost
+
+
+############################################################
+# 完整 8 步(预计 30-60 分钟,★ = 必须手操作)
+############################################################
+
+[1/8] 装环境 (root,新机器)
+      apt update && apt install -y nodejs npm mysql-server git
+      systemctl enable --now mysql
+      mysql_secure_installation         # 设 root 密码
+
+[2/8] 建 MySQL 账号 + 空库
+      sudo mysql -u root -p <<'SQL'
+      CREATE USER 'swsc'@'localhost' IDENTIFIED BY '<强密码>';
+      CREATE DATABASE water_plant DEFAULT CHARSET utf8mb4;
+      GRANT ALL ON water_plant.* TO 'swsc'@'localhost';
+      FLUSH PRIVILEGES;
+      SQL
+
+[3/8] ★★★ 必做:从 dev 库导 schema (在 DEV 库机器执行) ★★★
+      # 如果没有 dev 库,跳过此步,但系统跑不起来(缺 16 张表 + 1 视图)
+      mysqldump -h <dev-host> -u swsc -p \
+        --no-data --skip-comments --skip-add-drop-table \
+        water_plant \
+        users spareparts sparepart_logs \
+        inspection_plans inspection_items inspection_records inspection_task_records \
+        maintenance_orders maintenance_items maintenance_plans maintenance_records \
+        shift_teams shift_config locations position_dict problem_orders \
+        v_inspection_user_tasks \
+        > core_schema.sql
+      scp core_schema.sql <user>@<新机器>:/tmp/
+
+[4/8] 部署代码 (在新机器)
+      cd /home/<user>
+      git clone https://github.com/horis188/water-plant-equipment.git
+      cd water-plant-equipment
+      npm install
+      cp .env.example .env && vim .env   # 必改: MYSQL_PASSWORD / JWT_SECRET
+      mv /tmp/core_schema.sql server/db/
+
+[5/8] 初始化数据库 (自动)
+      bash server/db/init_db.sh
+      # 按提示输入 MySQL root 密码
+      # 脚本依次执行:建库 → core_schema.sql → init_handover.sql → init_rbac.sql → init_workorder_templates.sql
+
+[6/8] ★★★ 必做:插种子数据 (admin 账号 + 基础字典) ★★★
+      (a) 生成 admin 密码哈希 (默认密码 admin123,登录后立刻改):
+          node -e "console.log(require('bcryptjs').hashSync('admin123', 10))"
+      (b) 插入管理员:
+          mysql -u swsc -p water_plant
+          INSERT INTO users (username, name, role, password, created_at, updated_at)
+          VALUES ('admin', '系统管理员', 'admin', '<上面哈希>', NOW(), NOW());
+      (c) 插入基础字典 (按现场实际调整):
+          INSERT INTO locations (name, code, sort, created_at) VALUES
+            ('一厂', 'PLANT_1', 1, NOW()),
+            ('二厂', 'PLANT_2', 2, NOW());
+          INSERT INTO position_dict (name, code, sort, created_at) VALUES
+            ('厂长', 'FACTORY_HEAD', 1, NOW()),
+            ('副厂长', 'DEPUTY_HEAD', 2, NOW()),
+            ('运行班长', 'SHIFT_LEADER', 3, NOW()),
+            ('运行员', 'OPERATOR', 4, NOW()),
+            ('维修工', 'MAINTENANCE', 5, NOW());
+      (d) 班次/班组/角色权限数据,根据 init_rbac.sql 默认值和现场需要补充
+
+[7/8] 配 systemd
+      mkdir -p ~/.config/systemd/user
+      cp systemd/water-plant-backend.service  ~/.config/systemd/user/
+      cp systemd/water-plant-frontend.service ~/.config/systemd/user/
+      # 改 service 文件里的 User / WorkingDirectory / EnvironmentFile 路径
+      vim ~/.config/systemd/user/water-plant-backend.service
+      vim ~/.config/systemd/user/water-plant-frontend.service
+      systemctl --user daemon-reload
+      systemctl --user enable --now water-plant-backend
+      systemctl --user enable --now water-plant-frontend
+      sudo loginctl enable-linger <user>      # 允许用户未登录时继续跑
+
+[8/8] 验证
+      curl http://localhost:3000/api/health
+      # 期望: {"status":"ok","timestamp":"..."}
+      # 浏览器打开 http://localhost:5175/login, admin/admin123 登录
+
+
+############################################################
+# 常用服务命令
+############################################################
+后端状态:    systemctl --user status water-plant-backend
+后端重启:    systemctl --user restart water-plant-backend
+后端日志:    journalctl --user -u water-plant-backend -f
+前端状态:    systemctl --user status water-plant-frontend
+前端日志:    journalctl --user -u water-plant-frontend -f
+看 .env 加载: systemctl --user show water-plant-backend -p Environment
+
+
+############################################################
+# 备份
+############################################################
+上传文件备份:  bash scripts/backup-uploads.sh
+              # 输出: backups/uploads-YYYYMMDD.tar.gz
+
+
+############################################################
+# 回滚
+############################################################
+# 仓库重构前的备份 tag(2026-06-22 之前的状态):
+git checkout backup-before-restructure
+
+# 或回滚到任意 commit:
+git reset --hard <commit-hash>
+
+
+############################################################
+# 故障排查入口
+############################################################
+后端起不来:     journalctl --user -u water-plant-backend -n 100
+API 404:       检查 .env 的 VITE_API_BASE 和后端 PORT 是否匹配
+DB 拒绝连接:   检查 .env 的 MYSQL_USER / MYSQL_PASSWORD,以及 §[2/8] 的 GRANT
+上传 404:      mkdir -p server/uploads && chmod 755 server/uploads
+前端 build 报错: rm -rf node_modules .vite && npm install
+端口占用:      ss -tlnp | grep <端口>  # 找到进程,kill 或改 .env
+
+
+============================================================
+记得改默认 admin 密码!
+记得从 dev 库导 core_schema.sql (没有就跑不起来)!
+记得改 .env 的 MYSQL_PASSWORD 和 JWT_SECRET!
+============================================================
