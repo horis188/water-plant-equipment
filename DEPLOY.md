@@ -61,7 +61,7 @@ EXIT;
 在 **dev 库所在机器** 执行：
 
 ```bash
-# 导出缺失的 16 张核心表结构(无数据,只有 CREATE TABLE)
+# 导出缺失的 16 张核心表结构 + 1 个视图(无数据)
 mysqldump -h <dev-host> -u swsc -p \
   --no-data --skip-comments --skip-add-drop-table \
   water_plant \
@@ -69,11 +69,16 @@ mysqldump -h <dev-host> -u swsc -p \
   inspection_plans inspection_items inspection_records inspection_task_records \
   maintenance_orders maintenance_items maintenance_plans maintenance_records \
   shift_teams shift_config locations position_dict problem_orders \
+  v_inspection_user_tasks \
   > core_schema.sql
 
 # 把 core_schema.sql 放到目标机器的 server/db/ 目录下
 scp core_schema.sql user@<server>:/path/to/project/server/db/
 ```
+
+> ⚠️ `v_inspection_user_tasks` 是 **视图**（代码里 dashboard 巡检模块会查），不在表列表里但必须一起导出，否则查询会报"视图不存在"。
+> 
+> 如果还有其它视图/触发器/存储过程，也用 `mysqldump --no-data --routines --triggers` 单独导一份。
 
 > 💡 如果你想**连数据一起迁**，去掉 `--no-data`：
 > ```bash
