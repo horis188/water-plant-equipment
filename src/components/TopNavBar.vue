@@ -17,7 +17,7 @@
       <!-- 功能导航菜单 -->
       <nav class="menu-nav">
         <div
-          v-for="item in navItems"
+          v-for="item in visibleNavItems"
           :key="item.name"
           class="menu-item"
           :class="{ active: activeNav === item.name }"
@@ -33,10 +33,12 @@
     <div class="nav-right">
       <!-- 用户信息 -->
       <div class="user-info">
-        <div class="user-avatar">{{ currentUser.avatar }}</div>
+        <div class="user-avatar" :title="'当前班次岗位: ' + (currentShiftContext?.member_name || currentUser.member_name || '未知') + (currentShiftContext?.team ? ' · ' + currentShiftContext.team : '')">
+          {{ currentShiftContext?.member_name || currentUser.member_name || currentUser.avatar }}
+        </div>
         <div class="user-detail">
           <span class="user-name">{{ currentUser.name }}</span>
-          <span class="user-role">{{ currentUser.role }}</span>
+          <span class="user-role">{{ currentShiftContext?.team ? currentShiftContext.team + ' · ' + currentShiftContext.shift_type : currentUser.role }}</span>
         </div>
       </div>
 
@@ -49,25 +51,65 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, computed, onMounted, watch } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
+import { currentUser, currentShiftContext } from '../composables/useDeviceStore'
+import { usePermission } from '../composables/usePermission'
+
+// P0-5: 权限钩子
+const { has } = usePermission()
+
+// 班组人员配置（从数据库加载）
+const teamMembers = ref<Record<string, { member_name: string; leader_name: string }>>({})
+
+async function loadTeamMembers() {
+  try {
+    const res = await fetch('/api/shift-teams')
+    const data = await res.json()
+    const map: Record<string, { member_name: string; leader_name: string }> = {}
+    for (const t of data) {
+      map[t.team_name] = { member_name: t.member_name, leader_name: t.leader_name }
+    }
+    teamMembers.value = map
+  } catch (err) {
+    console.error('加载班组信息失败', err)
+  }
+}
 
 const router = useRouter()
+const route = useRoute()
 
-const currentUser = ref({ name: '张明', role: '运行班长', avatar: '张' })
+// currentUser 来自 useDeviceStore，登录时由 LoginView 调用 setCurrentUser 更新
 
 const navItems = ref([
-  { name: '驾驶舱', path: '/main', icon: '🚀' },
-  { name: '设备管理', path: '/device/inuse', icon: '🖥️' },
-  { name: '设备巡检', path: '/inspection', icon: '🔍' },
-  { name: '备件仓库', path: '/spareparts', icon: '📦' },
-  { name: '带班交接', path: '/handover', icon: '🔄' },
-  { name: '维修工单', path: '/workorder', icon: '🔧' },
-  { name: '设备价值', path: '/asset', icon: '💰' },
-  { name: '系统管理', path: '/admin', icon: '⚙️' }
+  { name: '驾驶舱',   path: '/main',           icon: '🚀', permission: 'menu:dashboard' },
+  { name: '设备管理', path: '/device/inuse',   icon: '🖥️', permission: 'menu:device' },
+  { name: '巡检保养', path: '/inspection',     icon: '🔍', permission: 'menu:inspection' },
+  { name: '备件仓库', path: '/spareparts',     icon: '📦', permission: 'menu:spareparts', roles: ['系统管理人', '维修组'] /* 带班、值班岗位不需备件仓库 */ },
+  { name: '班组交接', path: '/handover',       icon: '🔄', permission: 'menu:handover' },
+  { name: '维修工单', path: '/workorder',      icon: '🔧', permission: 'menu:workorder' },
+  { name: '统计分析', path: '/asset',          icon: '💰', roles: ['系统管理人', '厂长'] /* 仅系统管理人+厂长可见 */ },
+  { name: '系统管理', path: '/admin',          icon: '⚙️', permission: 'menu:admin', roles: ['系统管理人'] /* 仅系统管理人可见, 防误入 */ }
 ])
 
-const activeNav = ref('设备管理')
+// 根据当前用户权限码过滤可见的菜单 (P0-5: 取代旧的 hideFor/roles 字符串判断)
+const visibleNavItems = computed(() => navItems.value.filter(item => {
+  if (item.permission && !has(item.permission)) return false
+  if (item.roles && !item.roles.includes(currentUser.value?.role)) return false
+  return true
+}))
+
+const activeNav = ref('')
+
+// 根据当前路由 path, 从 visibleNavItems 里找最长前缀匹配的菜单项高亮
+function updateActiveNav() {
+  const match = visibleNavItems.value
+    .filter(item => route.path === item.path || route.path.startsWith(item.path + '/'))
+    .sort((a, b) => b.path.length - a.path.length)[0]
+  activeNav.value = match?.name || ''
+}
+
+watch(() => route.path, updateActiveNav, { immediate: true })
 
 function handleNavClick(item: any) {
   activeNav.value = item.name
@@ -77,6 +119,10 @@ function handleNavClick(item: any) {
 function handleLogout() {
   router.push('/')
 }
+
+onMounted(() => {
+  loadTeamMembers()
+})
 </script>
 
 <style scoped>
@@ -86,7 +132,8 @@ function handleLogout() {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 0 24px;
+  width: 100%;
+  padding: 0;
   height: 64px;
   background: rgba(15, 50, 80, 0.9);
   backdrop-filter: blur(12px);
@@ -136,6 +183,12 @@ function handleLogout() {
   align-items: center;
   gap: 4px;
   height: 64px;
+  overflow-x: auto;
+  flex-shrink: 0;
+}
+
+.menu-nav::-webkit-scrollbar {
+  height: 0;
 }
 
 .menu-item {
@@ -177,10 +230,14 @@ function handleLogout() {
 
 .menu-icon {
   font-size: 15px;
+  line-height: 1;
+  vertical-align: middle;
 }
 
 .menu-text {
   white-space: nowrap;
+  line-height: 1;
+  vertical-align: middle;
 }
 
 .user-info {
@@ -190,8 +247,8 @@ function handleLogout() {
 }
 
 .user-avatar {
-  width: 32px;
-  height: 32px;
+  width: 44px;
+  height: 44px;
   border-radius: 50%;
   background: rgba(45, 212, 191, 0.25);
   color: #2DD4BF;
@@ -200,6 +257,9 @@ function handleLogout() {
   justify-content: center;
   font-size: 13px;
   font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .user-detail {

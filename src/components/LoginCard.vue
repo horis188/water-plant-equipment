@@ -5,7 +5,7 @@ import WaterButton from './WaterButton.vue'
 import VerifyCode from './VerifyCode.vue'
 
 const emit = defineEmits<{
-  login: [data: { username: string; password: string; verifyCode: string }]
+  login: [user: { id: number; username: string; name: string; role: string; team?: string; member_name?: string; avatar?: string; verifyCode: string }]
 }>()
 
 // Form data
@@ -29,18 +29,12 @@ const validate = () => {
   if (!username.value) {
     usernameError.value = '请输入账号'
     valid = false
-  } else if (username.value.length < 4) {
-    usernameError.value = '账号至少4个字符'
-    valid = false
   } else {
     usernameError.value = ''
   }
 
   if (!password.value) {
     passwordError.value = '请输入密码'
-    valid = false
-  } else if (password.value.length < 6) {
-    passwordError.value = '密码至少6个字符'
     valid = false
   } else {
     passwordError.value = ''
@@ -67,16 +61,23 @@ const handleSubmit = async () => {
 
   await new Promise(resolve => setTimeout(resolve, 1500))
 
-  const mockSuccess = username.value === 'admin' && password.value === 'admin123'
-
-  if (mockSuccess) {
-    emit('login', {
-      username: username.value,
-      password: password.value,
-      verifyCode: verifyCode.value
+  // 调后端 /api/auth/login 验证
+  try {
+    const res = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: username.value, password: password.value })
     })
-  } else {
-    verifyCodeError.value = '验证码错误'
+    if (res.ok) {
+      const user = await res.json()
+      emit('login', { ...user, verifyCode: verifyCode.value })
+    } else {
+      const err = await res.json().catch(() => ({}))
+      verifyCodeError.value = err.error || '登录失败'
+      verifyCode.value = ''
+    }
+  } catch (e) {
+    verifyCodeError.value = '网络错误, 请重试'
     verifyCode.value = ''
   }
 
@@ -119,6 +120,7 @@ const handleSubmit = async () => {
         placeholder="请输入账号"
         icon="user"
         :error="usernameError"
+        :minlength="1"
       />
 
       <!-- Password -->
@@ -128,6 +130,7 @@ const handleSubmit = async () => {
         placeholder="请输入密码"
         icon="lock"
         :error="passwordError"
+        :minlength="1"
       />
 
       <!-- Verify code row -->

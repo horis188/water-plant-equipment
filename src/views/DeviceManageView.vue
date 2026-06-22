@@ -7,12 +7,20 @@
         <span class="dm-count">共 {{ filteredDevices.length }} 台设备</span>
       </div>
       <div class="dm-actions">
-        <button class="dm-btn dm-btn-primary" @click="openAddDialog">
+        <button v-if="canEditDevice" class="dm-btn dm-btn-primary" @click="openAddDialog">
           <span>+</span> 新增设备
         </button>
-        <button class="dm-btn dm-btn-export" @click="exportSelected" :disabled="selectedIds.length === 0">
-          📥 批量导出 ({{ selectedIds.length }})
-        </button>
+        <div class="export-dropdown">
+          <button class="dm-btn dm-btn-export" @click="toggleExportMenu" :disabled="selectedIds.length === 0">
+            📥 批量导出 ({{ selectedIds.length }}) ▾
+          </button>
+          <div v-if="showExportMenu" class="export-menu">
+            <div class="export-item" @click="doExport('txt')">📄 Text 文本</div>
+            <div class="export-item" @click="doExport('csv')">📊 Excel (CSV)</div>
+            <div class="export-item" @click="doExport('doc')">📝 Word (DOC)</div>
+            <div class="export-item" @click="doExport('print')">🖨️ 打印</div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -51,12 +59,12 @@
         <thead>
           <tr>
             <th class="col-check"><input type="checkbox" @change="toggleSelectAll" :checked="isAllSelected" /></th>
-            <th>设备名称</th>
-            <th>类型</th>
-            <th>型号</th>
-            <th>安装地点</th>
+            <th class="sortable" :class="{ active: sortField === 'name' }" @click="toggleSort('name')">设备名称 <span class="sort-icon">{{ sortField === 'name' ? (sortDir === 'asc' ? '▲' : '▼') : '△' }}</span></th>
+            <th class="sortable" :class="{ active: sortField === 'type' }" @click="toggleSort('type')">类型 <span class="sort-icon">{{ sortField === 'type' ? (sortDir === 'asc' ? '▲' : '▼') : '△' }}</span></th>
+            <th class="sortable" :class="{ active: sortField === 'model' }" @click="toggleSort('model')">型号 <span class="sort-icon">{{ sortField === 'model' ? (sortDir === 'asc' ? '▲' : '▼') : '△' }}</span></th>
+            <th class="sortable" :class="{ active: sortField === 'location' }" @click="toggleSort('location')">安装地点 <span class="sort-icon">{{ sortField === 'location' ? (sortDir === 'asc' ? '▲' : '▼') : '△' }}</span></th>
             <th>参数</th>
-            <th>状态</th>
+            <th class="sortable" :class="{ active: sortField === 'status' }" @click="toggleSort('status')">状态 <span class="sort-icon">{{ sortField === 'status' ? (sortDir === 'asc' ? '▲' : '▼') : '△' }}</span></th>
             <th>操作</th>
           </tr>
         </thead>
@@ -70,8 +78,8 @@
             <td>{{ device.params || '-' }}</td>
             <td><span class="status-badge" :class="`status-${device.status}`">{{ device.status }}</span></td>
             <td class="col-actions">
-              <button class="action-btn" @click="openEditDialog(device)">✏️ 编辑</button>
-              <button class="action-btn action-btn-danger" @click="confirmDelete(device)">🗑️ 删除</button>
+              <button v-if="canEditDevice" class="action-btn" @click="openEditDialog(device)">✏️ 编辑</button>
+              <button v-if="canDeleteDevice" class="action-btn action-btn-danger" @click="confirmDelete(device)">🗑️ 删除</button>
             </td>
           </tr>
           <tr v-if="paginatedDevices.length === 0">
@@ -123,6 +131,7 @@
       <span>共 {{ filteredDevices.length }} 条，每页显示</span>
       <select v-model="pageSize" @change="currentPage = 1">
         <option value="10">10</option>
+        <option value="15">15</option>
         <option value="20">20</option>
         <option value="50">50</option>
       </select>
@@ -179,27 +188,44 @@
           </div>
           <div class="form-row">
             <label>参数</label>
-            <div class="params-checkboxes">
-              <label class="param-check"><input type="checkbox" v-model="paramsInput.voltage.checked" />电压</label>
-              <input v-if="paramsInput.voltage.checked" v-model="paramsInput.voltage.value" type="text" placeholder="如 380V" class="param-input" />
-              <label class="param-check"><input type="checkbox" v-model="paramsInput.current.checked" />电流</label>
-              <input v-if="paramsInput.current.checked" v-model="paramsInput.current.value" type="text" placeholder="如 30A" class="param-input" />
-              <label class="param-check"><input type="checkbox" v-model="paramsInput.power.checked" />功率</label>
-              <input v-if="paramsInput.power.checked" v-model="paramsInput.power.value" type="text" placeholder="如 15kW" class="param-input" />
-              <label class="param-check"><input type="checkbox" v-model="paramsInput.pipeDiameter.checked" />管径</label>
-              <input v-if="paramsInput.pipeDiameter.checked" v-model="paramsInput.pipeDiameter.value" type="text" placeholder="如 DN100" class="param-input" />
+            <div class="params-edit-wrap">
+              <textarea v-model="paramsText" class="specs-textarea" rows="3" placeholder="直接编辑参数，如: 电压:380V, 电流:30A, 功率:15kW。勾选下方选项会快速添加对应字段。"></textarea>
+              <div class="params-checkboxes">
+                <div class="preset-item">
+                  <label class="param-check"><input type="checkbox" @change="onPresetCheck('电压', paramsInput.voltage, $event)" />电压</label>
+                  <input v-model="paramsInput.voltage.value" type="text" placeholder="如 380V" class="param-input" />
+                </div>
+                <div class="preset-item">
+                  <label class="param-check"><input type="checkbox" @change="onPresetCheck('电流', paramsInput.current, $event)" />电流</label>
+                  <input v-model="paramsInput.current.value" type="text" placeholder="如 30A" class="param-input" />
+                </div>
+                <div class="preset-item">
+                  <label class="param-check"><input type="checkbox" @change="onPresetCheck('功率', paramsInput.power, $event)" />功率</label>
+                  <input v-model="paramsInput.power.value" type="text" placeholder="如 15kW" class="param-input" />
+                </div>
+                <div class="preset-item">
+                  <label class="param-check"><input type="checkbox" @change="onPresetCheck('管径', paramsInput.pipeDiameter, $event)" />管径</label>
+                  <input v-model="paramsInput.pipeDiameter.value" type="text" placeholder="如 DN100" class="param-input" />
+                </div>
+              </div>
             </div>
           </div>
-          <div class="form-row">
-            <label>其他参数</label>
-            <input v-model="paramsInput.extra" type="text" placeholder="输入其他参数说明" />
-          </div>
+          <!-- 技术文档 -->
           <div class="form-row">
             <label>技术文档</label>
-            <div class="file-upload">
-              <input type="file" accept=".doc,.docx,.pdf" @change="handleFileChange" ref="fileInput" />
-              <div v-if="form.doc" class="file-name">📄 {{ form.doc }}</div>
-              <div v-else class="file-hint">支持 .doc .docx .pdf 格式</div>
+            <div class="tech-docs-edit">
+              <div v-if="techDocs.length === 0" class="tech-docs-empty">未上传技术文档 (PDF / Word / Excel / 图片等)</div>
+              <div v-for="(doc, idx) in techDocs" :key="idx" class="tech-doc-item tech-doc-item-editable">
+                <span class="doc-icon">📄</span>
+                <a :href="doc.url" target="_blank" class="doc-name" :title="`点击打开: ${doc.name}`">{{ doc.name }}</a>
+                <span class="doc-size">{{ formatSize(doc.size) }}</span>
+                <button type="button" class="doc-remove" @click="removeTechDoc(idx)" title="移除">×</button>
+              </div>
+              <label class="tech-docs-upload">
+                <input type="file" multiple @change="onUploadTechDoc" :disabled="uploading" accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip,.rar,.7z,.dwg,.jpg,.jpeg,.png,.gif,.webp,.bmp" />
+                <span v-if="!uploading">📎 上传技术文档 (可多个)</span>
+                <span v-else>上传中...</span>
+              </label>
             </div>
           </div>
         </div>
@@ -230,14 +256,44 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import TopNavBar from '../components/TopNavBar.vue'
-import { deviceListWithStatus, addDevice, updateDevice, deleteDevice, currentUser, deviceChangeLog } from '../composables/useDeviceStore'
+import { deviceListWithStatus, addDevice, updateDevice, deleteDevice, currentUser, authHeader, deviceChangeLog, loadDevicesFromDB } from '../composables/useDeviceStore'
 
 const route = useRoute()
 const router = useRouter()
 
+let syncTimer: ReturnType<typeof setInterval> | null = null
+
+onMounted(() => {
+  loadDevicesFromDB()
+  syncTimer = setInterval(() => {
+    loadDevicesFromDB()
+  }, 5000)
+
+  // 监听设备状态变化事件，实时刷新
+  const deviceES = new EventSource('http://localhost:3000/api/events')
+  deviceES.addEventListener('device-status-change', () => {
+    loadDevicesFromDB()
+  })
+  deviceES.addEventListener('workorder-update', () => {
+    loadDevicesFromDB()
+  })
+  deviceES.onerror = () => { deviceES.close() }
+
+  // @ts-ignore
+  window.__deviceES = deviceES
+})
+onUnmounted(() => {
+  if (syncTimer) clearInterval(syncTimer)
+  // @ts-ignore
+  if (window.__deviceES) { // @ts-ignore
+    window.__deviceES.close()
+    // @ts-ignore
+    window.__deviceES = null
+  }
+})
 
 // 页面标题
 const pageTitle = computed(() => {
@@ -252,6 +308,18 @@ const pageTitle = computed(() => {
 
 // 设备数据
 const allDevices = deviceListWithStatus
+
+// 是否有设备编辑权限（维修组或系统管理人）
+const canEditDevice = computed(() => {
+  const role = currentUser.value?.role
+  return role === '维修组' || role === '系统管理人'
+})
+
+// 是否有设备删除权限（仅系统管理人）
+const canDeleteDevice = computed(() => {
+  return currentUser.value?.role === '系统管理人'
+})
+
 const searchName = ref('')
 const searchType = ref('')
 const searchModel = ref('')
@@ -272,18 +340,85 @@ const editingDevice = ref<any>(null)
 const deletingDevice = ref<any>(null)
 const fileInput = ref<any>(null)
 
+// 技术文档文件列表
+const techDocs = ref<{ url: string; name: string; size: number; uploaded_at?: string; uploaded_by?: string }[]>([])
+// 上传中状态
+const uploading = ref(false)
+// 参数文本 (textarea 双向绑定)
+const paramsText = ref('')
+
 // 表单（不含status，由store计算）
 const form = ref({
-  name: '', type: '', model: '', vendor: '', location: '', value: null as number | null, remark: '', doc: null as string | null, params: ''
+  name: '', type: '', model: '', vendor: '', location: '', value: null as number | null, remark: '', params: ''
 })
+
+// 格式化文件大小
+function formatSize(bytes: number): string {
+  if (bytes < 1024) return bytes + ' B'
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
+  if (bytes < 1024 * 1024 * 1024) return (bytes / 1024 / 1024).toFixed(1) + ' MB'
+  return (bytes / 1024 / 1024 / 1024).toFixed(1) + ' GB'
+}
+
+// 上传技术文档
+async function onUploadTechDoc(ev: Event) {
+  const input = ev.target as HTMLInputElement
+  const files = input.files
+  if (!files || files.length === 0) return
+  uploading.value = true
+  try {
+    const formData = new FormData()
+    for (let i = 0; i < files.length; i++) {
+      formData.append('files', files[i])
+    }
+    const r = await fetch('/api/upload/', {
+      method: 'POST',
+      headers: authHeader(),
+      body: formData
+    })
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}))
+      throw new Error(err.error || `HTTP ${r.status}`)
+    }
+    const data = await r.json()
+    const newItems = (data.items || []).map((it: any) => ({
+      url: it.url,
+      name: it.name,
+      size: it.size,
+      uploaded_at: new Date().toISOString(),
+      uploaded_by: currentUser.value?.name || '未知'
+    }))
+    techDocs.value = [...techDocs.value, ...newItems]
+  } catch (err) {
+    alert('上传失败：' + (err instanceof Error ? err.message : String(err)))
+  } finally {
+    uploading.value = false
+    input.value = ''
+  }
+}
+
+// 移除技术文档
+function removeTechDoc(idx: number) {
+  techDocs.value.splice(idx, 1)
+}
+
+// 快捷键追加参数 (勾选 checkbox 时把「字段名:值」追加到 paramsText)
+function onPresetCheck(label: string, slot: { checked: boolean; value: string }, ev: Event) {
+  const checked = (ev.target as HTMLInputElement).checked
+  if (!checked) return
+  const kv = label + ':' + (slot.value || '')
+  if (paramsText.value && !paramsText.value.trimEnd().endsWith(',')) {
+    paramsText.value = paramsText.value.trimEnd() + ','
+  }
+  paramsText.value = paramsText.value + kv
+}
 
 // 参数勾选输入
 const paramsInput = ref({
   voltage: { checked: false, value: '' },
   current: { checked: false, value: '' },
   power: { checked: false, value: '' },
-  pipeDiameter: { checked: false, value: '' },
-  extra: ''
+  pipeDiameter: { checked: false, value: '' }
 })
 
 // 分页
@@ -292,6 +427,34 @@ const pageSize = ref(10)
 
 // 选中
 const selectedIds = ref<string[]>([])
+const sortField = ref('name')
+const sortDir = ref('asc')
+function toggleSort(field: string) {
+  if (sortField.value === field) {
+    sortDir.value = sortDir.value === 'asc' ? 'desc' : 'asc'
+  } else {
+    sortField.value = field
+    sortDir.value = 'asc'
+  }
+  currentPage.value = 1
+}
+const showExportMenu = ref(false)
+function toggleExportMenu() { showExportMenu.value = !showExportMenu.value }
+
+// 点击空白处关闭导出下拉框
+function handleClickOutside(e: MouseEvent) {
+  const target = e.target as HTMLElement
+  if (!target.closest('.export-dropdown')) {
+    showExportMenu.value = false
+  }
+}
+watch(showExportMenu, (val) => {
+  if (val) {
+    setTimeout(() => document.addEventListener('click', handleClickOutside), 0)
+  } else {
+    document.removeEventListener('click', handleClickOutside)
+  }
+})
 
 // Tab状态
 const activeTab = ref(route.path === '/device/changes' ? 'changes' : 'list')
@@ -301,6 +464,13 @@ watch(() => route.query.status, (newStatus) => {
   activeSearchStatus.value = s
   searchStatus.value = s
 }, { immediate: true })
+
+const sortOrder = ref<string[]>([])
+watch(() => route.query.sort, (newSort) => {
+  sortOrder.value = (newSort as string || '').split(',').filter(Boolean)
+  currentPage.value = 1
+}, { immediate: true })
+
 const expandedChangeId = ref<string | null>(null)
 
 function toggleChangeDetail(id: string) {
@@ -311,7 +481,7 @@ function toggleChangeDetail(id: string) {
 
 // 过滤后设备
 const filteredDevices = computed(() => {
-  return allDevices.value.filter(d => {
+  const list = allDevices.value.filter(d => {
     const matchName = !activeSearchName.value || d.name.includes(activeSearchName.value)
     const matchType = !activeSearchType.value || d.type === activeSearchType.value
     const matchModel = !activeSearchModel.value || d.model.includes(activeSearchModel.value)
@@ -319,6 +489,24 @@ const filteredDevices = computed(() => {
     const matchStatus = !activeSearchStatus.value || d.status === activeSearchStatus.value
     return matchName && matchType && matchModel && matchLocation && matchStatus
   })
+  // URL优先级排序
+  let result = [...list]
+  if (sortOrder.value.length > 0) {
+    const orderMap: Record<string, number> = {}
+    sortOrder.value.forEach((v, i) => { orderMap[v] = i })
+    result = result.sort((a, b) => (orderMap[a.status] ?? 99) - (orderMap[b.status] ?? 99))
+  }
+  // 列排序（无URL排序时才生效，避免优先级被覆盖）
+  if (sortOrder.value.length === 0 && sortField.value) {
+    const field = sortField.value as keyof typeof allDevices.value[0]
+    const dir = sortDir.value === 'asc' ? 1 : -1
+    result.sort((a, b) => {
+      const va = String(a[field] ?? '')
+      const vb = String(b[field] ?? '')
+      return va.localeCompare(vb, 'zh-CN') * dir
+    })
+  }
+  return result
 })
 
 // 分页数据
@@ -358,8 +546,10 @@ function resetSearch() {
 // 新增
 function openAddDialog() {
   editingDevice.value = null
-  form.value = { name: '', type: '', model: '', vendor: '', location: '', value: null, remark: '', doc: null, params: '' }
-  paramsInput.value = { voltage: { checked: false, value: '' }, current: { checked: false, value: '' }, power: { checked: false, value: '' }, pipeDiameter: { checked: false, value: '' }, extra: '' }
+  form.value = { name: '', type: '', model: '', vendor: '', location: '', value: null, remark: '', params: '' }
+  paramsInput.value = { voltage: { checked: false, value: '' }, current: { checked: false, value: '' }, power: { checked: false, value: '' }, pipeDiameter: { checked: false, value: '' } }
+  paramsText.value = ''
+  techDocs.value = []
   dialogVisible.value = true
 }
 
@@ -367,21 +557,9 @@ function openAddDialog() {
 function openEditDialog(device: any) {
   editingDevice.value = device
   form.value = { ...device, params: device.params || '' }
-  const saved = (device.params || '') as string
-  const pi = { voltage: { checked: false, value: '' }, current: { checked: false, value: '' }, power: { checked: false, value: '' }, pipeDiameter: { checked: false, value: '' }, extra: '' }
-  saved.split(',').forEach(p => {
-    const colonIdx = p.indexOf(':')
-    if (colonIdx > 0) {
-      const k = p.substring(0, colonIdx).trim()
-      const v = p.substring(colonIdx + 1).trim()
-      if (k === '电压') { pi.voltage.checked = true; pi.voltage.value = v }
-      else if (k === '电流') { pi.current.checked = true; pi.current.value = v }
-      else if (k === '功率') { pi.power.checked = true; pi.power.value = v }
-      else if (k === '管径') { pi.pipeDiameter.checked = true; pi.pipeDiameter.value = v }
-      else if (k === '其他') { pi.extra = v }
-    }
-  })
-  paramsInput.value = pi
+  paramsInput.value = { voltage: { checked: false, value: '' }, current: { checked: false, value: '' }, power: { checked: false, value: '' }, pipeDiameter: { checked: false, value: '' } }
+  paramsText.value = device.params || ''
+  techDocs.value = Array.isArray(device.tech_docs) ? device.tech_docs : []
   dialogVisible.value = true
 }
 
@@ -399,16 +577,8 @@ function saveDevice() {
     location: form.value.location,
     value: form.value.value ?? 0,
     remark: form.value.remark,
-    doc: form.value.doc,
-    params: (() => {
-      const parts: string[] = []
-      if (paramsInput.value.voltage.checked && paramsInput.value.voltage.value) parts.push('电压:' + paramsInput.value.voltage.value)
-      if (paramsInput.value.current.checked && paramsInput.value.current.value) parts.push('电流:' + paramsInput.value.current.value)
-      if (paramsInput.value.power.checked && paramsInput.value.power.value) parts.push('功率:' + paramsInput.value.power.value)
-      if (paramsInput.value.pipeDiameter.checked && paramsInput.value.pipeDiameter.value) parts.push('管径:' + paramsInput.value.pipeDiameter.value)
-      if (paramsInput.value.extra) parts.push('其他:' + paramsInput.value.extra)
-      return parts.join(',')
-    })()
+    params: paramsText.value,
+    tech_docs: techDocs.value
   }
   if (editingDevice.value) {
     updateDevice(editingDevice.value.id, record, currentUser.value.name)
@@ -440,30 +610,23 @@ function toggleSelectAll(e: any) {
 }
 
 // 文件上传
-function handleFileChange(e: any) {
-  const file = e.target.files[0]
-  if (file) {
-    form.value.doc = file.name
-  }
-}
-
-// 下载文档
-
 function goDetail(device: any) {
   router.push(`/device/detail/${device.id}`)
 }
 
-// 导出单个
-
 // 批量导出
-function exportSelected() {
-  const devices = allDevices.value.filter(d => selectedIds.value.includes(d.id))
-  const content = devices.map(generateDoc).join('\n---\n')
-  downloadFile(content, `设备资料_批量导出.txt`)
+function doExport(format: string) {
+  showExportMenu.value = false
+  const devs = allDevices.value.filter(d => selectedIds.value.includes(d.id))
+  if (devs.length === 0) return
+  if (format === 'txt') exportTxt(devs)
+  else if (format === 'csv') exportCsv(devs)
+  else if (format === 'doc') exportDoc(devs)
+  else if (format === 'print') exportPrint(devs)
 }
 
-function generateDoc(d: any) {
-  return `设备名称: ${d.name}
+function exportTxt(devs: any[]) {
+  const content = devs.map(d => `设备名称: ${d.name}
 设备类型: ${d.type}
 型号: ${d.model}
 厂家: ${d.vendor}
@@ -471,11 +634,38 @@ function generateDoc(d: any) {
 价值金额: ${d.value?.toLocaleString() ?? '-'} 元
 状态: ${d.status}
 备注: ${d.remark || '无'}
-技术文档: ${d.doc || '无'}`
+技术文档: ${d.doc || '无'}
+参数: ${d.params || '无'}`).join('\n\n==========\n\n')
+  downloadBlob(content, `设备资料_${formatDate()}.txt`, 'text/plain')
 }
 
-function downloadFile(content: string, filename: string) {
-  const blob = new Blob([content], { type: 'text/plain;charset=utf-8' })
+function exportCsv(devs: any[]) {
+  const header = ['设备编号','设备名称','类型','型号','厂家','安装地点','价值(元)','状态','备注','参数']
+  const rows = devs.map(d => [d.id, d.name, d.type, d.model, d.vendor, d.location, d.value, d.status, d.remark || '', d.params || ''])
+  const csv = [header, ...rows].map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n')
+  downloadBlob(csv, `设备资料_${formatDate()}.csv`, 'text/csv')
+}
+
+function exportDoc(devs: any[]) {
+  const rows = devs.map(d => `<tr><td>${d.id}</td><td>${d.name}</td><td>${d.type}</td><td>${d.model}</td><td>${d.vendor}</td><td>${d.location}</td><td>${d.value?.toLocaleString() ?? '-'}</td><td>${d.status}</td><td>${d.remark || ''}</td><td>${d.params || ''}</td></tr>`).join('')
+  const html = `<html><head><meta charset='utf-8'></head><body><h1>设备资料导出</h1><table border='1' cellpadding='8' style='border-collapse:collapse;width:100%'><thead><tr><th>编号</th><th>名称</th><th>类型</th><th>型号</th><th>厂家</th><th>地点</th><th>价值</th><th>状态</th><th>备注</th><th>参数</th></tr></thead><tbody>${rows}</tbody></table></body></html>`
+  downloadBlob(html, `设备资料_${formatDate()}.doc`, 'application/msword')
+}
+
+function exportPrint(devs: any[]) {
+  const rows = devs.map(d => `<tr><td>${d.id}</td><td>${d.name}</td><td>${d.type}</td><td>${d.model}</td><td>${d.vendor}</td><td>${d.location}</td><td>${d.value}</td><td>${d.status}</td></tr>`).join('')
+  const html = `<html><head><meta charset='utf-8'><style>body{font-family:SimSun;font-size:12px;margin:20px}h1{text-align:center}table{border-collapse:collapse;width:100%}th,td{border:1px solid #333;padding:6px;text-align:left}</style></head><body><h1>设备资料导出</h1><table><thead><tr><th>编号</th><th>名称</th><th>类型</th><th>型号</th><th>厂家</th><th>地点</th><th>价值</th><th>状态</th></tr></thead><tbody>${rows}</tbody></table></body></html>`
+  const win = window.open('', '_blank')
+  if (win) { win.document.write(html); win.document.close(); win.print() }
+}
+
+function formatDate() {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
+}
+
+function downloadBlob(content: string, filename: string, mime: string) {
+  const blob = new Blob([content], { type: mime + ';charset=utf-8' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
@@ -490,11 +680,14 @@ function downloadFile(content: string, filename: string) {
   position: relative;
   min-height: 100vh;
   background: #0f2d4a;
-  padding: 0 20px 20px;
+  padding: 0 0 20px;
 }
 
 .device-manage {
-  padding: 0;
+  padding: 24px 32px 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
 }
 
 /* 顶部操作栏 */
@@ -516,8 +709,10 @@ function downloadFile(content: string, filename: string) {
 
 .dm-title h2 {
   color: #fff;
-  font-size: 20px;
+  font-size: 22px;
+  font-weight: 600;
   margin: 0;
+  letter-spacing: 1px;
 }
 
 .dm-count {
@@ -535,8 +730,8 @@ function downloadFile(content: string, filename: string) {
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid rgba(45, 212, 191, 0.1);
   border-radius: 8px;
-  padding: 10px 14px;
-  margin-bottom: 12px;
+  padding: 16px 20px;
+  margin-bottom: 16px;
   display: flex;
   gap: 10px;
   flex-wrap: wrap;
@@ -586,7 +781,7 @@ function downloadFile(content: string, filename: string) {
 .dm-tabs {
   display: flex;
   gap: 4px;
-  margin-bottom: 12px;
+  padding: 0 32px 16px;
 }
 
 .dm-tab {
@@ -622,16 +817,26 @@ function downloadFile(content: string, filename: string) {
 .param-check {
   display: flex;
   align-items: center;
-  gap: 4px;
-  font-size: 13px;
-  color: rgba(255, 255, 255, 0.75);
+  gap: 2px;
+  font-size: 27px;
+  color: rgba(255, 255, 255, 0.85);
   cursor: pointer;
   white-space: nowrap;
+  padding: 4px 8px;
+  border-radius: 4px;
+  transition: background 0.15s;
+}
+
+.param-check:hover {
+  background: rgba(255, 255, 255, 0.05);
 }
 
 .param-check input[type="checkbox"] {
   cursor: pointer;
   accent-color: #2DD4BF;
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
 }
 
 .param-input {
@@ -639,9 +844,9 @@ function downloadFile(content: string, filename: string) {
   border: 1px solid rgba(45, 212, 191, 0.3);
   border-radius: 4px;
   color: rgba(255, 255, 255, 0.85);
-  padding: 4px 8px;
-  font-size: 13px;
-  width: 90px;
+  padding: 6px 10px;
+  font-size: 17px;
+  width: 120px;
 }
 
 /* 按钮 */
@@ -684,6 +889,37 @@ function downloadFile(content: string, filename: string) {
   color: rgba(255, 255, 255, 0.7);
 }
 
+.export-dropdown {
+  position: relative;
+}
+
+.export-menu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 4px;
+  background: #1a3a5c;
+  border: 1px solid rgba(45, 212, 191, 0.3);
+  border-radius: 6px;
+  overflow: hidden;
+  z-index: 100;
+  min-width: 150px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.export-item {
+  padding: 9px 14px;
+  cursor: pointer;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.8);
+  transition: background 0.15s;
+}
+
+.export-item:hover {
+  background: rgba(45, 212, 191, 0.15);
+  color: #2DD4BF;
+}
+
 .dm-btn-search {
   background: rgba(45, 212, 191, 0.15);
   border-color: rgba(45, 212, 191, 0.3);
@@ -714,7 +950,7 @@ function downloadFile(content: string, filename: string) {
   border: 1px solid rgba(45, 212, 191, 0.15);
   border-radius: 10px;
   overflow: hidden;
-  margin-bottom: 8px;
+  margin: 0 32px 16px;
 }
 
 .dm-table {
@@ -724,21 +960,47 @@ function downloadFile(content: string, filename: string) {
 
 .dm-table thead tr {
   background: rgba(45, 212, 191, 0.08);
+  line-height: 1.2;
 }
 
 .dm-table th {
-  padding: 10px 12px;
+  padding: 12px 14px;
   color: rgba(255, 255, 255, 0.55);
-  font-size: 12px;
+  font-size: 15px;
   font-weight: 500;
   text-align: left;
   border-bottom: 1px solid rgba(45, 212, 191, 0.1);
 }
 
+.dm-table th.sortable {
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.dm-table th.sortable:hover {
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.dm-table th.sortable.active {
+  color: #2DD4BF;
+}
+
+.sort-icon {
+  font-size: 12px;
+  margin-left: 4px;
+  opacity: 0.6;
+}
+
+.dm-table th.sortable.active .sort-icon {
+  opacity: 1;
+}
+
 .dm-table td {
-  padding: 9px 12px;
+  padding: 8px 14px;
   color: rgba(255, 255, 255, 0.8);
-  font-size: 13px;
+  font-size: 15px;
+  line-height: 1.4;
   border-bottom: 1px solid rgba(255, 255, 255, 0.04);
 }
 
@@ -747,7 +1009,7 @@ function downloadFile(content: string, filename: string) {
 }
 
 .col-check { width: 36px; text-align: center; }
-.col-actions { width: 120px; }
+.col-actions { width: 160px; white-space: nowrap; }
 
 .device-name-link {
   color: #2DD4BF;
@@ -830,11 +1092,16 @@ function downloadFile(content: string, filename: string) {
 }
 
 .dm-pagination select {
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(45, 212, 191, 0.2);
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(45, 212, 191, 0.3);
   border-radius: 4px;
-  color: rgba(255, 255, 255, 0.7);
+  color: rgba(255, 255, 255, 0.85);
   padding: 4px 8px;
+}
+
+.dm-pagination select option {
+  color: #1a1a1a;
+  background: #c8eef5;
 }
 
 .page-btn {
@@ -980,6 +1247,7 @@ function downloadFile(content: string, filename: string) {
   padding: 20px;
   max-height: 65vh;
   overflow-y: auto;
+  color: #fff;
 }
 
 .dialog-footer {
@@ -1067,4 +1335,81 @@ function downloadFile(content: string, filename: string) {
   font-size: 11px;
   margin-top: 4px;
 }
+
+/* 参数文本框 (与备件规格一致) */
+.params-edit-wrap { display: flex; flex-direction: column; gap: 8px; }
+.form-row .param-input {
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(45, 212, 191, 0.3);
+  border-radius: 4px;
+  color: rgba(255,255,255,0.85);
+  padding: 4px 6px;
+  font-size: 13px;
+  width: 90px;
+}
+.preset-item { display: flex; align-items: center; gap: 6px; }
+.params-checkboxes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 12px;
+  align-items: center;
+}
+.specs-textarea {
+  width: 100%;
+  padding: 8px 10px;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 4px;
+  color: rgba(255,255,255,0.85);
+  font-family: ui-monospace, monospace;
+  font-size: 13px;
+  resize: vertical;
+}
+
+/* 技术文档列表 (与备件一致) */
+.tech-docs-list, .tech-docs-edit { display: flex; flex-direction: column; gap: 6px; }
+.tech-docs-empty { color: rgba(255,255,255,0.4); font-size: 12px; font-style: italic; padding: 4px 0; }
+.tech-doc-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 4px;
+  color: rgba(255,255,255,0.85);
+  font-size: 13px;
+}
+.tech-doc-item:hover { background: rgba(45, 212, 191, 0.1); }
+.doc-icon { font-size: 16px; }
+.doc-name { flex: 1; color: #60a5fa; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tech-doc-item-editable .doc-name { color: #60a5fa; cursor: pointer; }
+.doc-name:hover { color: #93c5fd; text-decoration: underline; }
+.doc-size { color: rgba(255,255,255,0.5); font-size: 11px; font-family: ui-monospace, monospace; }
+.doc-remove {
+  width: 22px; height: 22px;
+  border: none; border-radius: 50%;
+  background: rgba(239, 68, 68, 0.2);
+  color: #ef4444;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  display: flex; align-items: center; justify-content: center;
+}
+.doc-remove:hover { background: rgba(239, 68, 68, 0.4); }
+.tech-docs-upload {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 12px;
+  background: rgba(45, 212, 191, 0.1);
+  color: #2dd4bf;
+  border: 1px dashed rgba(45, 212, 191, 0.4);
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  margin-top: 4px;
+}
+.tech-docs-upload:hover { background: rgba(45, 212, 191, 0.18); }
+.tech-docs-upload input[type=file] { display: none; }
+.tech-docs-upload:has(input:disabled) { opacity: 0.5; cursor: not-allowed; }
 </style>

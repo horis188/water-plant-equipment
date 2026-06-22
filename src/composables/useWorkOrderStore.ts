@@ -4,23 +4,26 @@ import { currentUser, devices, updateDeviceStatusByOrder } from './useDeviceStor
 // ============ 设备关键词匹配 ============
 export function matchDeviceByContent(content: string): string | null {
   const keywordMap: Record<string, string> = {
-    '1号取水泵': 'D-001',
-    '2号取水泵': 'D-002',
-    '3号取水泵': 'D-005',
-    '1号送水泵': 'D-003',
-    '2号送水泵': 'D-004',
-    '取水泵': 'D-001',
-    '送水泵': 'D-003',
-    '滤池风机': 'D-006',
-    '1号滤池': 'D-006',
-    '水质监测仪': 'D-007',
-    '1号配电柜': 'D-008',
-    '加药计量泵': 'D-009',
-    '污泥脱水机': 'D-010',
-    '脱水机': 'D-010',
-    '二氧化氯发生器': 'D-011',
-    '中控室工控机': 'D-012',
-    '工控机': 'D-012',
+    '7#低压取水泵': '8',
+    '1号取水泵': '1',
+    '2号取水泵': '2',
+    '3号取水泵': '5',
+    '1#送水泵': '7',
+    '2号送水泵': '4',
+    '1号送水泵': '3',
+    '取水泵': '1',
+    '送水泵': '3',
+    '滤池风机': '6',
+    '1号滤池': '6',
+    '水质监测仪': '5',
+    '水质监测站': '5',
+    '1号配电柜': '8',
+    '加药计量泵': '9',
+    '污泥脱水机': '10',
+    '脱水机': '10',
+    '二氧化氯发生器': '11',
+    '中控室工控机': '12',
+    '工控机': '12',
   }
   for (const [keyword, deviceId] of Object.entries(keywordMap)) {
     if (content.includes(keyword)) return deviceId
@@ -30,12 +33,17 @@ export function matchDeviceByContent(content: string): string | null {
 
 // 初始化设备状态（根据已有工单数据）
 // 优先级：维修中 > 告警 > 在用
-export function initDeviceStatusFromWorkOrders() {
-  // 收集所有设备的工单状态
+// 计算完后批量写DB，确保刷新后状态不丢失
+export async function initDeviceStatusFromWorkOrders() {
+  console.log('[DEBUG] initDeviceStatusFromWorkOrders called')
+  console.log('[DEBUG] devices:', devices.value.map(d => ({ id: d.id, name: d.name, statusValue: d.statusValue })))
+  console.log('[DEBUG] problemOrders:', problemOrders.value.map(o => ({ id: o.id, content: o.content, status: o.status, deviceId: o.deviceId })))
   const deviceStatusMap: Record<string, number> = {} // 0=在用, 1=告警, 2=维修中
-  
-  // 处理维修工单：有维修工单(任意状态) -> 维修中（最高优先级）
+  const statusLabels: Record<number, string> = { 0: '在用', 1: '告警', 2: '维修中' }
+
+  // 处理维修工单：有未闭环维修工单(任意状态) -> 维修中
   for (const order of maintenanceOrders.value) {
+    if (order.status === 'closed' || order.status === 'completed') continue
     let deviceId: string | null = null
     if (order.problemOrderId) {
       const po = problemOrders.value.find(p => p.id === order.problemOrderId)
@@ -47,21 +55,46 @@ export function initDeviceStatusFromWorkOrders() {
       deviceStatusMap[deviceId] = 2 // 维修中
     }
   }
-  
-  // 处理问题工单：pending状态 -> 告警（只有设备还不是维修中时才设置）
+
+  // 处理问题工单：pending状态 -> 告警
   for (const order of problemOrders.value) {
     if (order.status === 'pending' && order.deviceId) {
-      if (!deviceStatusMap[order.deviceId]) { // 只有在没有更高优先级状态时才设置
+      if (!deviceStatusMap[order.deviceId]) {
         deviceStatusMap[order.deviceId] = 1 // 告警
       }
     }
   }
-  
-  // 应用到设备
-  for (const [deviceId, status] of Object.entries(deviceStatusMap)) {
-    const device = devices.value.find(d => d.id === deviceId)
-    if (device) {
-      device.statusValue = status
+  console.log('[DEBUG] deviceStatusMap:', deviceStatusMap)
+
+  // 应用到设备：工单涉及的设备按规则算，其他设备默认在用
+  const updates: { id: string; status: string }[] = []
+  for (const device of devices.value) {
+    if (deviceStatusMap[device.id] !== undefined) {
+      // 有工单的设备按规则
+      if (device.statusValue !== deviceStatusMap[device.id]) {
+        device.statusValue = deviceStatusMap[device.id]
+        updates.push({ id: device.id, status: statusLabels[deviceStatusMap[device.id]] })
+      }
+    } else {
+      // 没有活跃工单的设备 -> 在用
+      if (device.statusValue !== 0) {
+        device.statusValue = 0
+        updates.push({ id: device.id, status: '在用' })
+      }
+    }
+  }
+  console.log('[DEBUG] after apply:', devices.value.filter(d => d.statusValue !== 0).map(d => ({ id: d.id, name: d.name, statusValue: d.statusValue })))
+
+  // 批量写DB
+  if (updates.length > 0) {
+    try {
+      await fetch('/api/devices/batch-status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ updates })
+      })
+    } catch (err) {
+      console.error('[DEBUG] batch-status写DB失败', err)
     }
   }
 }
@@ -91,12 +124,19 @@ export interface ProblemWorkOrder {
   resolution?: string
   resolutionImages?: string[]
   createdAt: string
+  team?: string
+  role?: string
+  memberName?: string
+  member_name?: string
   closedAt?: string
+  lastActionAt?: string
+  sla_due_at?: string  // P1: SLA 截止时间
+  sla_hours?: number   // P1: SLA 时长
 }
 
 export interface MaintenanceWorkOrder {
   id: string
-  problemOrderId?: string
+  problemOrderId?: string | null
   content?: string
   level: OrderLevel
   assignerId: string
@@ -107,14 +147,23 @@ export interface MaintenanceWorkOrder {
   status: MaintenanceStatus
   delayReason?: string
   delayDays: number
+  delayImages?: string[]
   sparepartUsage: SparepartUsage[]
   completionImages?: string[]
   completionNote?: string
   returnReason?: string
   returnImages?: string[]
+  sla_due_at?: string  // P1: SLA 截止时间
+  sla_hours?: number   // P1: SLA 时长
   createdAt: string
   completedAt?: string
   closedAt?: string
+  team?: string
+  role?: string
+  user_name?: string
+  reporterName?: string
+  memberName?: string
+  lastActionAt?: string
 }
 
 export interface WorkOrderLog {
@@ -128,96 +177,63 @@ export interface WorkOrderLog {
   createdAt: string
 }
 
-// ============ 问题工单 Mock 数据 ============
-export const problemOrders = ref<ProblemWorkOrder[]>([
-  {
-    id: 'PWO-001',
-    deviceId: 'D-002',
-    reporterId: 'wxz',
-    reporterName: '维修组',
-    shiftId: 'SHIFT-001',
-    content: '2号取水泵运行时异响，轴承可能损坏',
-    images: [],
-    videos: [],
-    status: 'pending',
-    createdAt: '2026-04-22 09:00'
-  },
-  {
-    id: 'PWO-002',
-    reporterId: 'zy',
-    reporterName: '张远',
-    shiftId: 'SHIFT-001',
-    content: '加药间液位计读数偏低',
-    images: [],
-    videos: [],
-    status: 'to_maintenance',
-    createdAt: '2026-04-21 16:20'
-  },
-  {
-    id: 'PWO-003',
-    deviceId: 'D-006',
-    reporterId: 'yqzs',
-    reporterName: '一期制水',
-    shiftId: 'SHIFT-002',
-    content: '滤池1号阀门操作卡顿',
-    images: [],
-    videos: [],
-    status: 'self_resolved',
-    resolution: '已清理阀门轴承杂物，调试后正常',
-    resolutionImages: [],
-    createdAt: '2026-04-20 14:30',
-    closedAt: '2026-04-20 15:45'
-  }
-])
+// ============ 问题工单（从数据库同步）============
+export const problemOrders = ref<ProblemWorkOrder[]>([])
 
-// ============ 维修工单 Mock 数据 ============
-export const maintenanceOrders = ref<MaintenanceWorkOrder[]>([
-  {
-    id: 'MWO-001',
-    problemOrderId: 'PWO-002',
-    content: '加药间液位计故障检修',
-    level: 'medium',
-    assignerId: 'zy',
-    assignerName: '张远',
-    handlerId: 'wxz',
-    handlerName: '维修组',
-    participants: [],
-    status: 'completed',
-    delayDays: 0,
-    sparepartUsage: [],
-    createdAt: '2026-04-21 16:30'
-  },
-  {
-    id: 'MWO-002',
-    problemOrderId: 'PWO-001',
-    content: '2号取水泵轴承损坏，需要更换维修',
-    level: 'heavy',
-    assignerId: 'zy',
-    assignerName: '张远',
-    handlerId: undefined,
-    handlerName: undefined,
-    participants: [],
-    status: 'pending',
-    delayDays: 0,
-    sparepartUsage: [],
-    createdAt: '2026-04-22 09:15'
-  },
-  {
-    id: 'MWO-003',
-    content: '3号取水泵电机温度异常，需要检修',
-    level: 'light',
-    assignerId: 'admin',
-    assignerName: '管理员',
-    handlerId: 'wxz',
-    handlerName: '维修组',
-    participants: ['李师傅', '王师傅'],
-    status: 'delay',
-    delayReason: '需要等待备件轴承到货',
-    delayDays: 2,
-    sparepartUsage: [{ name: '轴承 7310B', quantity: 2, specs: '哈尔滨轴承' }],
-    createdAt: '2026-04-20 10:00'
+// ============ 维修工单（从数据库同步）============
+export const maintenanceOrders = ref<MaintenanceWorkOrder[]>([])
+
+// 一次性从后端拉全量工单到 store (供 dashboard 弹窗/详情页使用)
+// 后端返回 snake_case 字段, 这里转换为 camelCase 以匹配 WorkOrder 接口和模板
+function mapProblemOrder(o: any) {
+  return {
+    ...o,
+    reporterName: o.reporter_name || '',
+    memberName: o.member_name || '',
+    images: Array.isArray(o.images) ? o.images : [],
+    videos: Array.isArray(o.videos) ? o.videos : [],
+    resolutionImages: Array.isArray(o.resolution_images) ? o.resolution_images : [],
+    createdAt: o.created_at ? new Date(o.created_at).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }) : '',
+    lastActionAt: o.last_action_at ? new Date(o.last_action_at).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }) : '',
+    closedAt: o.closed_at ? new Date(o.closed_at).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }) : ''
   }
-])
+}
+function mapMaintenanceOrder(o: any) {
+  return {
+    ...o,
+    id: String(o.id),
+    assignerName: o.assigner_name || '',
+    handlerName: o.handler_name || '',
+    problemOrderId: o.problem_order_id || null,
+    participants: Array.isArray(o.participants) ? o.participants : [],
+    delayImages: Array.isArray(o.delay_images) ? o.delay_images : [],
+    delayReason: o.delay_reason || '',  // 修复: 后端返回 delay_reason, 前端需要驼峰映射
+    sparepartUsage: Array.isArray(o.sparepart_usage) ? o.sparepart_usage : [],
+    returnImages: Array.isArray(o.return_images) ? o.return_images : [],
+    completionImages: Array.isArray(o.completion_images) ? o.completion_images : [],
+    reporterName: o.reporter_name || '',
+    memberName: o.member_name || '',
+    createdAt: o.created_at ? new Date(o.created_at).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }) : '',
+    lastActionAt: o.last_action_at ? new Date(o.last_action_at).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }) : '',
+    closedAt: o.closed_at ? new Date(o.closed_at).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }) : ''
+  }
+}
+
+export async function loadAllWorkOrders(headers: Record<string, string> = {}) {
+  try {
+    const [probRes, maintRes] = await Promise.all([
+      fetch('/api/workorders/problem', { headers }),
+      fetch('/api/workorders/maintenance', { headers })
+    ])
+    const [probs, maints] = await Promise.all([probRes.json(), maintRes.json()])
+    problemOrders.value = Array.isArray(probs) ? probs.map(mapProblemOrder) : []
+    maintenanceOrders.value = Array.isArray(maints) ? maints.map(mapMaintenanceOrder) : []
+    return { probs: problemOrders.value, maints: maintenanceOrders.value }
+  } catch (err) {
+    console.error('加载工单到 store 失败', err)
+    return { probs: [], maints: [] }
+  }
+}
 
 // ============ 操作日志 ============
 export const workOrderLogs = ref<WorkOrderLog[]>([])
@@ -227,13 +243,14 @@ export const workOrderLogs = ref<WorkOrderLog[]>([])
 export function addProblemOrder(order: Omit<ProblemWorkOrder, 'id' | 'createdAt'>) {
   const id = `PWO-${String(problemOrders.value.length + 1).padStart(3, '0')}`
   
-  // 从内容中匹配设备
-  const deviceId = matchDeviceByContent(order.content)
+  // 优先用表单传入的deviceId，否则从内容中匹配
+  const matchedDeviceId = matchDeviceByContent(order.content)
+  const deviceId = order.deviceId || matchedDeviceId || undefined
   
   const newOrder: ProblemWorkOrder = {
     ...order,
     id,
-    deviceId: deviceId || undefined,
+    deviceId,
     createdAt: new Date().toLocaleString('zh-CN')
   }
   problemOrders.value.push(newOrder)
@@ -251,23 +268,114 @@ export function addProblemOrder(order: Omit<ProblemWorkOrder, 'id' | 'createdAt'
     operatorName: order.reporterName,
     content: order.content
   })
+  
+  // 同步到后端
+  fetch('/api/workorders/problem', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      content: order.content,
+      reporter_name: order.reporterName,
+      images: order.images,
+      videos: order.videos,
+      deviceId: order.deviceId || null,
+      team: order.team || null,
+      role: order.role || null,
+      member_name: order.member_name || null
+    })
+  }).catch(err => console.error('同步问题工单失败', err))
+  
   return id
 }
 
-export function updateProblemOrder(id: string, data: Partial<ProblemWorkOrder>) {
-  const idx = problemOrders.value.findIndex(o => o.id === id)
-  if (idx !== -1) {
-    problemOrders.value[idx] = { ...problemOrders.value[idx], ...data }
+export async function recreateProblemFromMaintenance(problemOrderId: string) {
+  try {
+    const res = await fetch('/api/workorders/recreate-problem', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ problem_order_id: problemOrderId })
+    })
+    if (!res.ok) throw new Error('重建问题工单失败')
+    const data = await res.json()
+    // 从原问题工单复制内容新建本地记录
+    const orig = problemOrders.value.find(p => String(p.id) === String(problemOrderId))
+    if (orig) {
+      problemOrders.value.push({
+        id: String(data.id),
+        reporterId: orig.reporterId,
+        reporterName: orig.reporterName,
+        content: orig.content + ' [退回重开]',
+        status: 'pending',
+        shiftId: '',
+        deviceId: orig.deviceId,
+        images: [],
+        videos: [],
+        createdAt: new Date().toLocaleString('zh-CN'),
+        resolution: ''
+      })
+    }
+  } catch (err) {
+    console.error('重建问题工单失败', err)
   }
 }
 
-export function addMaintenanceOrder(order: Omit<MaintenanceWorkOrder, 'id' | 'createdAt'>) {
+export async function updateProblemOrder(id: string, data: Partial<ProblemWorkOrder>) {
+  const updateData: Record<string, any> = {}
+  if (data.content !== undefined) updateData.content = data.content
+  if (data.status !== undefined) updateData.status = data.status
+  if (data.resolution !== undefined) updateData.resolution = data.resolution
+  if (data.resolutionImages !== undefined) updateData.resolutionImages = data.resolutionImages
+  if (data.closedAt !== undefined) updateData.closedAt = data.closedAt
+  if (data.deviceId !== undefined) updateData.deviceId = data.deviceId
+  if (Object.keys(updateData).length === 0) return
+  try {
+    const res = await fetch(`/api/workorders/problem/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updateData)
+    })
+    if (!res.ok) throw new Error('API失败')
+    // API成功后再更新本地
+    const idx = problemOrders.value.findIndex(o => o.id === id)
+    if (idx !== -1) {
+      problemOrders.value[idx] = { ...problemOrders.value[idx], ...data }
+    }
+  } catch (err) {
+    console.error('同步问题工单失败', err)
+  }
+}
+
+export async function addMaintenanceOrder(order: Omit<MaintenanceWorkOrder, 'id' | 'createdAt'>) {
   const id = `MWO-${String(maintenanceOrders.value.length + 1).padStart(3, '0')}`
-  maintenanceOrders.value.push({
+  const newOrder = {
     ...order,
     id,
     createdAt: new Date().toLocaleString('zh-CN')
-  })
+  }
+  try {
+    const res = await fetch('/api/workorders/maintenance', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        content: order.content,
+        level: order.level,
+        status: order.status,
+        assigner_name: order.assignerName,
+        handler_name: order.handlerName || null,
+        problem_order_id: order.problemOrderId || null,
+        team: order.team || null,
+        role: order.role || null,
+        user_name: order.user_name || order.assignerName,
+        reporter_name: (order as any).reporterName || null,
+        member_name: (order as any).memberName || null
+      })
+    })
+    if (!res.ok) throw new Error('API失败')
+    // API成功后再写入本地
+    maintenanceOrders.value.push(newOrder)
+  } catch (err) {
+    console.error('同步维修工单失败', err)
+  }
   addLog({
     orderId: id,
     orderType: 'maintenance',
@@ -279,10 +387,58 @@ export function addMaintenanceOrder(order: Omit<MaintenanceWorkOrder, 'id' | 'cr
   return id
 }
 
-export function updateMaintenanceOrder(id: string, data: Partial<MaintenanceWorkOrder>) {
-  const idx = maintenanceOrders.value.findIndex(o => o.id === id)
-  if (idx !== -1) {
-    maintenanceOrders.value[idx] = { ...maintenanceOrders.value[idx], ...data }
+export async function updateMaintenanceOrder(id: string, data: Partial<MaintenanceWorkOrder>) {
+  // 同步到数据库，只同步有值的字段
+  const updateData: Record<string, any> = {}
+  if (data.content !== undefined) updateData.content = data.content
+  if (data.level !== undefined) updateData.level = data.level
+  if (data.status !== undefined) updateData.status = data.status
+  if (data.handlerName !== undefined) updateData.handler_name = data.handlerName
+  if (data.returnReason !== undefined) updateData.return_reason = data.returnReason
+  if (data.returnImages !== undefined) updateData.return_images = data.returnImages
+  if (data.participants !== undefined) updateData.participants = data.participants
+  if (data.completionNote !== undefined) updateData.completion_note = data.completionNote
+  if (data.completionImages !== undefined) updateData.completion_images = data.completionImages
+  if (data.sparepartUsage !== undefined) updateData.sparepart_usage = data.sparepartUsage
+  if (data.delayImages !== undefined) updateData.delay_images = data.delayImages
+  if (data.delayReason !== undefined) updateData.delay_reason = data.delayReason
+  if (data.delayDays !== undefined) updateData.delay_days = data.delayDays
+  if (data.completedAt !== undefined) updateData.completed_at = data.completedAt
+  if (data.problemOrderId !== undefined) updateData.problem_order_id = data.problemOrderId
+  if (data.closedAt !== undefined) updateData.closed_at = data.closedAt  // 修复: 闭环时同步 closed_at
+  if (Object.keys(updateData).length === 0) return
+  try {
+    const res = await fetch(`/api/workorders/maintenance/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updateData)
+    })
+    if (!res.ok) throw new Error('API失败')
+    // API成功后再更新本地
+    const idx = maintenanceOrders.value.findIndex(o => o.id === id)
+    if (idx !== -1) {
+      maintenanceOrders.value[idx] = { ...maintenanceOrders.value[idx], ...data }
+    }
+  } catch (err) {
+    console.error('同步维修工单失败', err)
+  }
+}
+
+export async function deleteProblemOrder(id: string) {
+  problemOrders.value = problemOrders.value.filter(o => o.id !== id)
+  try {
+    await fetch(`/api/workorders/problem/${id}`, { method: 'DELETE' })
+  } catch (err) {
+    console.error('删除问题工单失败', err)
+  }
+}
+
+export async function deleteMaintenanceOrder(id: string) {
+  maintenanceOrders.value = maintenanceOrders.value.filter(o => o.id !== id)
+  try {
+    await fetch(`/api/workorders/maintenance/${id}`, { method: 'DELETE' })
+  } catch (err) {
+    console.error('删除维修工单失败', err)
   }
 }
 

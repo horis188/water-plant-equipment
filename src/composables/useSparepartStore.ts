@@ -1,37 +1,53 @@
 import { ref } from 'vue'
-import { currentUser } from './useDeviceStore'
+import { currentUser, authHeader } from './useDeviceStore'
 
 // ============ 备件类型（全局共享）============
 export const sparepartTypes = ref<string[]>([
   '水泵配件', '电气元件', '阀门配件', '管道配件', '仪表配件', '机械密封', '轴承', '其他'
 ])
 
-// ============ 备件数据 ============
+// ============ 备件数据（从后端加载, 不再硬编码）============
 export interface Sparepart {
-  id: string
+  id: number
   name: string
   type: string
   quantity: number
+  min_quantity: number   // 报警阈值: 库存低于此值触发低库存告警
   location: string
   vendor: string
-  specs: string // 格式同设备参数：电压:220V,电流:10A...
+  specs: string
+  tech_docs?: TechDoc[]  // 技术文档文件列表
+  created_at?: string
+  updated_at?: string
+  last_low_stock_at?: string  // 首次触发低库存告警的时间 (后端 spareparts.js 写入)
 }
 
-export const spareparts = ref<Sparepart[]>([
-  { id: 'SP-001', name: '1号取水泵机械密封', type: '机械密封', quantity: 8, location: 'A区-03-02', vendor: '上海机械密封厂', specs: '电压:-,电流:-,功率:-,管径:DN100,螺纹:-,长度:-' },
-  { id: 'SP-002', name: '轴承 7310B', type: '轴承', quantity: 20, location: 'A区-03-05', vendor: '哈尔滨轴承', specs: '电压:-,电流:-,功率:-,管径:-,螺纹:-,长度:-' },
-  { id: 'SP-003', name: '电磁流量计探头', type: '仪表配件', quantity: 5, location: 'B区-01-08', vendor: '哈希中国', specs: '电压:24V,电流:4-20mA,功率:-,管径:DN50,螺纹:-,长度:-' },
-  { id: 'SP-004', name: '止回阀阀芯', type: '阀门配件', quantity: 12, location: 'B区-02-01', vendor: '上海阀门厂', specs: '电压:-,电流:-,功率:-,管径:DN80,螺纹:-,长度:-' },
-  { id: 'SP-005', name: '水泵轴承组件', type: '水泵配件', quantity: 6, location: 'A区-04-03', vendor: '上海泵业', specs: '电压:-,电流:-,功率:15kW,管径:DN100,螺纹:-,长度:-' },
-  { id: 'SP-006', name: '变频器模块', type: '电气元件', quantity: 3, location: 'C区-02-01', vendor: '西门子', specs: '电压:380V,电流:-,功率:15kW,管径:-,螺纹:-,长度:-' },
-  { id: 'SP-007', name: 'pH传感器探头', type: '仪表配件', quantity: 4, location: 'B区-01-12', vendor: '哈希中国', specs: '电压:220V,电流:-,功率:-,管径:-,螺纹:-,长度:-' },
-  { id: 'SP-008', name: '管道法兰垫片', type: '管道配件', quantity: 100, location: 'D区-01-15', vendor: '广州密封件厂', specs: '电压:-,电流:-,功率:-,管径:DN100,螺纹:-,长度:3mm' }
-])
+export interface TechDoc {
+  url: string
+  name: string
+  size: number
+  uploaded_at?: string
+  uploaded_by?: string
+}
+
+// 初始为空, 由 loadSpareparts() 拉取
+export const spareparts = ref<Sparepart[]>([])
+
+// ============ 加载备件列表（从后端）============
+export async function loadSpareparts() {
+  try {
+    const r = await fetch('/api/spareparts/', { headers: authHeader() })
+    if (!r.ok) return
+    spareparts.value = await r.json()
+  } catch (err) {
+    console.error('加载备件失败', err)
+  }
+}
 
 // ============ 出入仓记录 ============
 export interface SparepartLog {
-  id: string
-  sparepartId: string
+  id: number | string
+  sparepartId: number | string
   sparepartName: string
   action: '出仓' | '入仓'
   quantity: number
@@ -41,52 +57,109 @@ export interface SparepartLog {
 
 export const sparepartLogs = ref<SparepartLog[]>([])
 
-// ============ 出入仓操作 ============
-export function inoutSparepart(
-  sparepartId: string,
+// 加载出入仓记录
+export async function loadSparepartLogs() {
+  try {
+    const r = await fetch('/api/spareparts/logs', { headers: authHeader() })
+    if (!r.ok) return
+    sparepartLogs.value = await r.json()
+  } catch (err) {
+    console.error('加载出入仓记录失败', err)
+  }
+}
+
+// ============ 出入仓操作（后端 API）============
+export async function inoutSparepart(
+  sparepartId: number,
   action: '出仓' | '入仓',
   quantity: number
-): { success: boolean; error?: string } {
-  const idx = spareparts.value.findIndex(s => s.id === sparepartId)
-  if (idx === -1) return { success: false, error: '备件不存在' }
-
-  const sp = spareparts.value[idx]
-  if (action === '出仓') {
-    if (sp.quantity < quantity) return { success: false, error: '库存不足' }
-    sp.quantity -= quantity
-  } else {
-    sp.quantity += quantity
+): Promise<{ success: boolean; error?: string }> {
+  const sp = spareparts.value.find(s => s.id === sparepartId)
+  if (!sp) return { success: false, error: '备件不存在' }
+  if (action === '出仓' && sp.quantity < quantity) {
+    return { success: false, error: '库存不足' }
   }
-
-  const now = new Date()
-  const timeStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`
-  sparepartLogs.value.unshift({
-    id: 'LOG-' + Date.now(),
-    sparepartId,
-    sparepartName: sp.name,
-    action,
-    quantity,
-    operator: currentUser.value.name,
-    time: timeStr
-  })
-
-  return { success: true }
+  try {
+    // 1. 写日志
+    const r = await fetch('/api/spareparts/logs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeader() },
+      body: JSON.stringify({
+        sparepart_id: sparepartId,
+        action,
+        quantity,
+        operator: currentUser.value?.name || '未知'
+      })
+    })
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}))
+      return { success: false, error: err.error || `HTTP ${r.status}` }
+    }
+    // 2. 更新库存数量
+    const newQty = action === '出仓' ? sp.quantity - quantity : sp.quantity + quantity
+    await updateSparepart(sparepartId, { quantity: newQty })
+    return { success: true }
+  } catch (err) {
+    return { success: false, error: String(err) }
+  }
 }
 
-// ============ 备件 CRUD ============
-export function addSparepart(data: Omit<Sparepart, 'id'>) {
-  const id = 'SP-' + String(Date.now()).slice(-6)
-  spareparts.value.push({ ...data, id })
-  return id
+// ============ 备件 CRUD（后端 API）============
+export async function addSparepart(data: Omit<Sparepart, 'id' | 'created_at' | 'updated_at'>) {
+  try {
+    const r = await fetch('/api/spareparts/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeader() },
+      body: JSON.stringify(data)
+    })
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}))
+      throw new Error(err.error || `HTTP ${r.status}`)
+    }
+    await loadSpareparts()  // 重新拉取列表
+    return true
+  } catch (err) {
+    console.error('新增备件失败:', err)
+    throw err
+  }
 }
 
-export function updateSparepart(id: string, data: Partial<Sparepart>) {
-  const idx = spareparts.value.findIndex(s => s.id === id)
-  if (idx !== -1) spareparts.value[idx] = { ...spareparts.value[idx], ...data }
+export async function updateSparepart(id: number, data: Partial<Sparepart>) {
+  try {
+    const r = await fetch(`/api/spareparts/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', ...authHeader() },
+      body: JSON.stringify(data)
+    })
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}))
+      throw new Error(err.error || `HTTP ${r.status}`)
+    }
+    // 局部更新避免重拉
+    const idx = spareparts.value.findIndex(s => s.id === id)
+    if (idx !== -1) spareparts.value[idx] = { ...spareparts.value[idx], ...data }
+    return true
+  } catch (err) {
+    console.error('更新备件失败:', err)
+    throw err
+  }
 }
 
-export function deleteSparepart(id: string) {
-  spareparts.value = spareparts.value.filter(s => s.id !== id)
+export async function deleteSparepart(id: number) {
+  try {
+    const r = await fetch(`/api/spareparts/${id}`, {
+      method: 'DELETE',
+      headers: authHeader()
+    })
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}))
+      throw new Error(err.error || `HTTP ${r.status}`)
+    }
+    spareparts.value = spareparts.value.filter(s => s.id !== id)
+  } catch (err) {
+    console.error('删除备件失败:', err)
+    throw err
+  }
 }
 
 export function addSparepartType(type: string) {

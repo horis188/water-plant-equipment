@@ -1,0 +1,24 @@
+# ====================================================================
+# 供水厂设备管理平台 - 前端 systemd service (Vite dev server)
+# 生产环境建议改用 nginx 反向代理 + 静态构建产物 (npm run build)
+# 安装: cp systemd/water-plant-frontend.service ~/.config/systemd/user/
+#       systemctl --user daemon-reload
+#       systemctl --user enable --now water-plant-frontend
+# ====================================================================
+
+[Unit]
+Description=Water Plant Frontend (Vite Dev Server)
+After=network.target
+
+[Service]
+Type=simple
+User=hzh
+WorkingDirectory=/home/hzh/文档/project
+EnvironmentFile=/home/hzh/文档/project/.env
+Environment=NODE_ENV=development
+ExecStart=/usr/bin/npm run dev
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

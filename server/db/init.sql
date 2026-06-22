@@ -1,0 +1,48 @@
+-- ====================================================================
+-- 供水厂设备管理平台 - 数据库初始化总入口(文档/索引文件)
+-- 此文件不直接执行,实际执行请使用同目录的 init_db.sh
+-- ====================================================================
+
+-- ## 完整表结构来源
+-- 代码引用了 27 张业务表,当前仓库 SQL 文件覆盖 10 张:
+--   ✓ server/db/init_handover.sql           6 张
+--       devices, device_changes, shift_team_members,
+--       handover_records, duty_notes, handover_shifts
+--   ✓ server/db/init_rbac.sql              3 张
+--       roles, permissions, role_permissions
+--   ✓ server/db/init_workorder_templates.sql 1 张
+--       workorder_templates
+
+-- ## 缺失 16 张表(必须从已有 dev 库导出,补充方式见下)
+--   1. users
+--   2. spareparts, sparepart_logs
+--   3. inspection_plans, inspection_items,
+--      inspection_records, inspection_task_records
+--   4. maintenance_orders, maintenance_items,
+--      maintenance_plans, maintenance_records
+--   5. shift_teams, shift_config
+--   6. locations
+--   7. position_dict
+--   8. problem_orders
+--   视图: v_inspection_user_tasks
+
+-- ## 导出缺失表结构的命令(在 dev 库所在机器执行)
+--   mysqldump -h <dev-host> -u swsc -p \
+--     --no-data --skip-comments --skip-add-drop-table \
+--     water_plant \
+--     users spareparts sparepart_logs \
+--     inspection_plans inspection_items inspection_records inspection_task_records \
+--     maintenance_orders maintenance_items maintenance_plans maintenance_records \
+--     shift_teams shift_config locations position_dict problem_orders \
+--     > core_schema.sql
+--
+-- 然后将 core_schema.sql 内容追加到本 init.sql 末尾,或单独保留为文件由 init_db.sh 加载.
+
+-- ## 完整执行顺序(由 init_db.sh 自动处理):
+--   1.  CREATE DATABASE IF NOT EXISTS water_plant DEFAULT CHARSET utf8mb4;
+--   2.  USE water_plant;
+--   3.  (用户提供的) core_schema.sql          ← 16 张核心表
+--   4.  init_handover.sql
+--   5.  init_rbac.sql
+--   6.  init_workorder_templates.sql
+--   7.  (可选) 种子数据 / 默认管理员账号

@@ -1,42 +1,70 @@
 <template>
   <div class="wo-page">
     <TopNavBar />
+
+    <!-- P1: 工单统计面板 (P2.1 工单 P1) -->
+    <div v-if="stats" class="wo-stats-bar">
+      <div class="stat-card">
+        <div class="stat-label">今日新建</div>
+        <div class="stat-value" style="color:#22c55e;">{{ stats.today.new }}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">今日闭环</div>
+        <div class="stat-value" style="color:#3b82f6;">{{ stats.today.closed }}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">未闭环</div>
+        <div class="stat-value" style="color:#fbbf24;">{{ stats.open }}</div>
+      </div>
+      <div class="stat-card" :class="{ alert: stats.sla.breached > 0 }">
+        <div class="stat-label">SLA 超时</div>
+        <div class="stat-value" :style="{ color: stats.sla.breached > 0 ? '#ef4444' : '#94a3b8' }">{{ stats.sla.breached }}</div>
+      </div>
+      <div class="stat-card" :class="{ alert: stats.sla.warning_2h > 0 }">
+        <div class="stat-label">即将超时 (2h)</div>
+        <div class="stat-value" :style="{ color: stats.sla.warning_2h > 0 ? '#fb923c' : '#94a3b8' }">{{ stats.sla.warning_2h }}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">平均处理时长</div>
+        <div class="stat-value-sm">{{ stats.avg_minutes.overall ? formatMinutes(stats.avg_minutes.overall) : '—' }}</div>
+      </div>
+    </div>
+
     <div class="wo-header">
       <div class="wo-title">
-        <h2 v-if="currentUser.role === '值班岗位' || currentUser.role === '带班' || currentUser.role === '系统管理人'">{{ activeTab === 'maintenance' ? '维修工单' : '问题工单' }}</h2>
+        <h2 v-if="['值班岗位', '带班', '系统管理人', '厂长'].includes(currentUser.role)">{{ activeTab === 'maintenance' ? '维修工单' : '问题工单' }}</h2>
         <h2 v-else>维修工单</h2>
         <span v-if="currentUser.role === '维修组'" class="wo-stat">
-          未接单 {{ maintenanceOrders.filter(o => o.status === 'pending').length }}
+          未接单 {{ maintenanceOrders.filter(o => !o.problemOrderId && o.status === 'pending').length }}
         </span>
         <span v-if="currentUser.role === '维修组'" class="wo-stat">
-          进行中 {{ maintenanceOrders.filter(o => o.status === 'processing' || o.status === 'delay').length }}
+          进行中 {{ maintenanceOrders.filter(o => !o.problemOrderId && (o.status === 'processing' || o.status === 'delay' || o.status === 'returned')).length }}
         </span>
         <span v-if="currentUser.role === '维修组'" class="wo-stat">
-          已完成 {{ maintenanceOrders.filter(o => o.status === 'completed' || o.status === 'closed').length }}
+          已完成 {{ maintenanceOrders.filter(o => !o.problemOrderId && (o.status === 'completed' || o.status === 'closed')).length }}
         </span>
-        <span v-if="(currentUser.role === '值班岗位' || currentUser.role === '带班' || currentUser.role === '系统管理人') && activeTab === 'maintenance'" class="wo-stat">
-          未接单 {{ maintenanceOrders.filter(o => o.status === 'pending').length }}
+        <span v-if="['值班岗位', '带班', '系统管理人', '厂长'].includes(currentUser.role) && activeTab === 'maintenance'" class="wo-stat">
+          未接单 {{ maintenanceOrders.filter(o => !o.problemOrderId && o.status === 'pending').length }}
         </span>
-        <span v-if="(currentUser.role === '值班岗位' || currentUser.role === '带班' || currentUser.role === '系统管理人') && activeTab === 'maintenance'" class="wo-stat">
-          进行中 {{ maintenanceOrders.filter(o => o.status === 'processing' || o.status === 'delay').length }}
+        <span v-if="['值班岗位', '带班', '系统管理人', '厂长'].includes(currentUser.role) && activeTab === 'maintenance'" class="wo-stat">
+          进行中 {{ maintenanceOrders.filter(o => !o.problemOrderId && (o.status === 'processing' || o.status === 'delay' || o.status === 'returned')).length }}
         </span>
-        <span v-if="(currentUser.role === '值班岗位' || currentUser.role === '带班' || currentUser.role === '系统管理人') && activeTab === 'maintenance'" class="wo-stat">
-          已完成 {{ maintenanceOrders.filter(o => o.status === 'completed' || o.status === 'closed').length }}
+        <span v-if="['值班岗位', '带班', '系统管理人', '厂长'].includes(currentUser.role) && activeTab === 'maintenance'" class="wo-stat">
+          已完成 {{ maintenanceOrders.filter(o => !o.problemOrderId && (o.status === 'completed' || o.status === 'closed')).length }}
         </span>
-        <span v-if="(currentUser.role === '值班岗位' || currentUser.role === '带班' || currentUser.role === '系统管理人') && activeTab === 'problem'" class="wo-stat">
+        <span v-if="['值班岗位', '带班', '系统管理人', '厂长'].includes(currentUser.role) && activeTab === 'problem'" class="wo-stat">
           未处理 {{ problemOrders.filter(o => o.status === 'pending').length }}
         </span>
-        <span v-if="(currentUser.role === '值班岗位' || currentUser.role === '带班' || currentUser.role === '系统管理人') && activeTab === 'problem'" class="wo-stat">
+        <span v-if="['值班岗位', '带班', '系统管理人', '厂长'].includes(currentUser.role) && activeTab === 'problem'" class="wo-stat">
           转维修 {{ problemOrders.filter(o => o.status === 'to_maintenance').length }}
         </span>
-        <span v-if="(currentUser.role === '值班岗位' || currentUser.role === '带班' || currentUser.role === '系统管理人') && activeTab === 'problem'" class="wo-stat">
+        <span v-if="['值班岗位', '带班', '系统管理人', '厂长'].includes(currentUser.role) && activeTab === 'problem'" class="wo-stat">
           已解决 {{ problemOrders.filter(o => o.status === 'self_resolved' && isRecentResolved(o)).length }}
         </span>
       </div>
-      <div v-if="currentUser.role !== '维修组'" class="wo-actions">
-        <button class="dm-btn dm-btn-primary" @click="currentUser.role === '带班' ? openCreateMaintenanceDialog() : openCreateDialog()">
-          {{ currentUser.role === '带班' ? '+ 新建维修工单' : '+ 新建问题工单' }}
-        </button>
+      <div v-if="wsAmIOnShift || hasAny(['btn:wo_create_problem', 'btn:wo_create_maintenance'])" class="wo-actions">
+        <button v-if="has('btn:wo_create_maintenance')" class="dm-btn dm-btn-primary" @click="openCreateMaintenanceDialog()">+ 新建维修工单</button>
+        <button v-if="has('btn:wo_create_problem')" class="dm-btn dm-btn-primary" @click="openCreateDialog()">+ 新建问题工单</button>
       </div>
     </div>
 
@@ -66,19 +94,33 @@
         <div class="wo-card-body">
           <p class="wo-content">{{ order.content }}</p>
           <div class="wo-meta">
-            <span>报告人：{{ order.reporterName }}</span>
-            <span>时间：{{ order.createdAt }}</span>
+            <span>{{ order.reporterName || order.memberName }}{{ order.team ? ' · ' + order.team : '' }}{{ order.memberName ? ' · ' + order.memberName : '' }}</span>
+            <span>创建:{{ order.createdAt }}</span>
+            <span v-if="order.lastActionAt && order.lastActionAt !== order.createdAt">最新处理:{{ order.lastActionAt }}</span>
+            <span v-if="order.closedAt" style="color:#16a34a;">闭环:{{ order.closedAt }}</span>
+            <!-- P1: SLA 倒计时 -->
+            <span v-if="order.sla_due_at && !['closed','completed','self_resolved'].includes(order.status)" :style="{ color: slaColor(order.sla_due_at, order.status), fontWeight: 600 }">
+              ⏱ {{ slaText(order.sla_due_at, order.status) }}
+            </span>
           </div>
-          <div v-if="order.images.length || ('videos' in order && order.videos?.length)" class="wo-attachments">
-            <span v-if="order.images.length">📷 {{ order.images.length }}</span>
-            <span v-if="'videos' in order && order.videos?.length">🎬 {{ order.videos.length }}</span>
+          <div v-if="(order.images && order.images.length) || ('videos' in order && order.videos?.length)" class="wo-attachments">
+            <div v-if="order.images && order.images.length" class="wo-thumbs">
+              <img v-for="(img, idx) in order.images.slice(0, 4)" :key="'img-'+idx" :src="img" class="wo-thumb" @click.stop="openImagePreview(order.images, idx)" />
+              <span v-if="order.images.length > 4" class="wo-thumb-more">+{{ order.images.length - 4 }}</span>
+            </div>
+            <span v-if="'videos' in order && order.videos.length" class="wo-video-badge">🎬 {{ order.videos.length }}</span>
           </div>
           <div v-if="order.resolution" class="wo-resolution">
-            <strong>处理结果：</strong>{{ order.resolution }}
+            <strong>处理结果:</strong>{{ order.resolution }}
+            <div v-if="order.resolutionImages && order.resolutionImages.length" class="wo-thumbs" style="margin-top:6px;">
+              <img v-for="(img, idx) in order.resolutionImages.slice(0, 4)" :key="'ri-'+idx" :src="img" class="wo-thumb" @click.stop="openImagePreview(order.resolutionImages, idx)" />
+              <span v-if="order.resolutionImages.length > 4" class="wo-thumb-more">+{{ order.resolutionImages.length - 4 }}</span>
+            </div>
           </div>
         </div>
         <div class="wo-card-actions">
           <button v-if="canHandleProblem(order)" class="action-btn" @click.stop="openProblemHandle(order)">处理</button>
+          <button v-if="has('btn:wo_delete_problem')" class="action-btn action-btn-danger" @click.stop="openProblemDelete(order)">删除</button>
         </div>
       </div>
       <div v-if="filteredProblemOrders.length === 0" class="empty-row">暂无问题工单</div>
@@ -95,23 +137,46 @@
         <div class="wo-card-body">
           <p class="wo-content">{{ order.content || '维修任务' }}</p>
           <div class="wo-meta">
-            <span>分派：{{ order.assignerName }}</span>
-            <span v-if="order.handlerName">接单：{{ order.handlerName }}</span>
-            <span>时间：{{ order.createdAt }}</span>
+            <span v-if="order.reporterName">{{ order.reporterName }}{{ order.team ? ' · ' + order.team : '' }}{{ order.memberName ? ' · ' + order.memberName : '' }}</span>
+            <span>分派:{{ order.assignerName }}</span>
+            <span v-if="order.handlerName">接单:{{ order.handlerName }}</span>
+            <span>创建:{{ order.createdAt }}</span>
+            <span v-if="order.lastActionAt && order.lastActionAt !== order.createdAt">最新处理:{{ order.lastActionAt }}</span>
+            <span v-if="order.closedAt" style="color:#16a34a;">闭环:{{ order.closedAt }}</span>
+            <!-- P1: SLA 倒计时 -->
+            <span v-if="order.sla_due_at && !['closed','completed'].includes(order.status)" :style="{ color: slaColor(order.sla_due_at, order.status), fontWeight: 600 }">
+              ⏱ {{ slaText(order.sla_due_at, order.status) }}
+            </span>
           </div>
           <div v-if="order.delayReason" class="wo-delay">
-            <strong>延时原因：</strong>{{ order.delayReason }}
+            <strong>延时原因:</strong>{{ order.delayReason }}
+            <div v-if="order.delayImages && order.delayImages.length" class="wo-thumbs" style="margin-top:6px;">
+              <img v-for="(img, idx) in order.delayImages.slice(0, 4)" :key="'di-'+idx" :src="img" class="wo-thumb" @click.stop="openImagePreview(order.delayImages, idx)" />
+              <span v-if="order.delayImages.length > 4" class="wo-thumb-more">+{{ order.delayImages.length - 4 }}</span>
+            </div>
           </div>
           <div v-if="order.returnReason" class="wo-return">
-            <strong>退回原因：</strong>{{ order.returnReason }}
+            <strong>退回原因:</strong>{{ order.returnReason }}
+            <div v-if="order.returnImages && order.returnImages.length" class="wo-thumbs" style="margin-top:6px;">
+              <img v-for="(img, idx) in order.returnImages.slice(0, 4)" :key="'ri-'+idx" :src="img" class="wo-thumb" @click.stop="openImagePreview(order.returnImages, idx)" />
+              <span v-if="order.returnImages.length > 4" class="wo-thumb-more">+{{ order.returnImages.length - 4 }}</span>
+            </div>
+          </div>
+          <div v-if="order.completionNote" class="wo-resolution">
+            <strong>完成说明:</strong>{{ order.completionNote }}
+            <div v-if="order.completionImages && order.completionImages.length" class="wo-thumbs" style="margin-top:6px;">
+              <img v-for="(img, idx) in order.completionImages.slice(0, 4)" :key="'ci-'+idx" :src="img" class="wo-thumb" @click.stop="openImagePreview(order.completionImages, idx)" />
+              <span v-if="order.completionImages.length > 4" class="wo-thumb-more">+{{ order.completionImages.length - 4 }}</span>
+            </div>
           </div>
         </div>
         <div class="wo-card-actions">
           <button v-if="canAcceptOrder(order)" class="action-btn" @click.stop="acceptOrder(order)">接单</button>
           <button v-if="canDelayOrder(order)" class="action-btn" @click.stop="openDelayDialog(order)">延时</button>
-          <button v-if="(currentUser.role === '维修组' || currentUser.role === '系统管理人') && (order.status === 'processing' || order.status === 'delay')" class="action-btn action-btn-primary" @click.stop="openCompleteDialog(order)">完成</button>
-          <button v-if="(currentUser.role === '维修组' || currentUser.role === '系统管理人') && order.status === 'processing'" class="action-btn action-btn-primary" @click.stop="openProblemCloseDialog(order)">问题工单闭环</button>
-          <button v-if="(currentUser.role === '带班' || currentUser.role === '系统管理人') && order.status === 'completed'" class="action-btn" @click.stop="openReviewDialog(order)">审核</button>
+          <button v-if="has('btn:wo_complete') && (order.status === 'processing' || order.status === 'delay' || order.status === 'returned')" class="action-btn action-btn-primary" @click.stop="openCompleteDialog(order)">完成</button>
+          <button v-if="has('btn:wo_close_problem') && order.status === 'processing'" class="action-btn action-btn-primary" @click.stop="openProblemCloseDialog(order)">问题工单闭环</button>
+          <button v-if="has('btn:wo_review') && order.status === 'completed'" class="action-btn" @click.stop="openReviewDialog(order)">审核</button>
+          <button v-if="has('btn:wo_delete_maintenance')" class="action-btn action-btn-danger" @click.stop="openMaintenanceDelete(order)">删除</button>
         </div>
       </div>
       <div v-if="filteredMaintenanceOrders.length === 0" class="empty-row">暂无维修工单</div>
@@ -125,9 +190,23 @@
           <button class="dialog-close" @click="createDialogVisible = false">×</button>
         </div>
         <div class="dialog-body">
+          <div class="form-row" v-if="problemTemplates.length">
+            <label>从模板创建</label>
+            <select :value="selectedProblemTplId" @change="e => applyTemplate('problem', (e.target as HTMLSelectElement).value)" class="tpl-select">
+              <option value="">-- 选模板自动填描述 --</option>
+              <option v-for="t in problemTemplates" :key="t.id" :value="t.id">{{ t.name }} {{ t.category ? `(${t.category})` : '' }}</option>
+            </select>
+          </div>
           <div class="form-row">
             <label>问题描述 <span class="required">*</span></label>
             <textarea v-model="createForm.content" placeholder="请描述发现的问题" rows="4"></textarea>
+          </div>
+          <div class="form-row">
+            <label>关联设备</label>
+            <select v-model="createForm.deviceId">
+              <option :value="null">-- 不关联设备 --</option>
+              <option v-for="d in devices" :key="d.id" :value="d.id">{{ d.name }} ({{ d.location }})</option>
+            </select>
           </div>
           <div class="form-row">
             <label>图片</label>
@@ -148,7 +227,7 @@
       </div>
     </div>
 
-    <!-- 新建维修工单弹窗（带班直接创建）-->
+    <!-- 新建维修工单弹窗(带班直接创建)-->
     <div v-if="createMaintenanceDialogVisible" class="dm-dialog-overlay" @click.self="createMaintenanceDialogVisible = false">
       <div class="dm-dialog">
         <div class="dialog-header">
@@ -156,6 +235,13 @@
           <button class="dialog-close" @click="createMaintenanceDialogVisible = false">×</button>
         </div>
         <div class="dialog-body">
+          <div class="form-row" v-if="maintenanceTemplates.length">
+            <label>从模板创建</label>
+            <select :value="selectedMaintenanceTplId" @change="e => applyTemplate('maintenance', (e.target as HTMLSelectElement).value)" class="tpl-select">
+              <option value="">-- 选模板自动填内容+等级 --</option>
+              <option v-for="t in maintenanceTemplates" :key="t.id" :value="t.id">{{ t.name }} {{ t.default_level ? `[${t.default_level}]` : '' }} {{ t.default_sla_hours ? `(${t.default_sla_hours}h)` : '' }}</option>
+            </select>
+          </div>
           <div class="form-row">
             <label>维修内容 <span class="required">*</span></label>
             <textarea v-model="createMaintenanceForm.content" placeholder="请描述维修内容" rows="4"></textarea>
@@ -176,7 +262,7 @@
       </div>
     </div>
 
-    <!-- 处理问题工单弹窗（自行解决） -->
+    <!-- 处理问题工单弹窗(自行解决) -->
     <div v-if="handleDialogVisible" class="dm-dialog-overlay" @click.self="handleDialogVisible = false">
       <div class="dm-dialog">
         <div class="dialog-header">
@@ -197,7 +283,10 @@
           </div>
           <div v-if="handleType === 'self'" class="form-row">
             <label>解决图片</label>
-            <input type="text" v-model="handleForm.resolutionImages" placeholder="图片URL，多个用逗号分隔" />
+            <input type="file" accept="image/*" multiple @change="e => handleImageUpload(e, handleForm)" />
+            <div v-if="handleForm.images" class="upload-preview">
+              <span v-for="(img, idx) in handleForm.images.split(',')" :key="idx" class="preview-item">{{ img.split('/').pop() }}</span>
+            </div>
           </div>
           <div v-if="handleType === 'maintenance'" class="form-row">
             <label>维修级别 <span class="required">*</span></label>
@@ -257,7 +346,7 @@
           </div>
           <div class="form-row">
             <label>参与人员</label>
-            <input type="text" v-model="completeForm.participants" placeholder="参与人员，多个用逗号分隔" />
+            <input type="text" v-model="completeForm.participants" placeholder="参与人员,多个用逗号分隔" />
           </div>
           <div class="form-row">
             <label>备件使用</label>
@@ -286,12 +375,15 @@
         </div>
         <div class="dialog-body">
           <div class="form-row">
-            <label>闭环原因（图文）<span class="required">*</span></label>
+            <label>闭环原因(图文)<span class="required">*</span></label>
             <textarea v-model="problemCloseForm.reason" placeholder="请说明发现的问题原因和解决方案" rows="4"></textarea>
           </div>
           <div class="form-row">
             <label>图片</label>
-            <input type="text" v-model="problemCloseForm.images" placeholder="图片URL，多个用逗号分隔" />
+            <input type="file" accept="image/*" multiple @change="e => handleImageUpload(e, problemCloseForm)" />
+            <div v-if="problemCloseForm.images" class="upload-preview">
+              <span v-for="(img, idx) in problemCloseForm.images.split(',')" :key="idx" class="preview-item">{{ img.split('/').pop() }}</span>
+            </div>
           </div>
         </div>
         <div class="dialog-footer">
@@ -322,7 +414,10 @@
           </div>
           <div v-if="reviewResult === 'reject'" class="form-row">
             <label>退回图片</label>
-            <input type="text" v-model="reviewForm.images" placeholder="图片URL，多个用逗号分隔" />
+            <input type="file" accept="image/*" multiple @change="e => handleImageUpload(e, reviewForm)" />
+            <div v-if="reviewForm.images" class="upload-preview">
+              <span v-for="(img, idx) in reviewForm.images.split(',')" :key="idx" class="preview-item">{{ img.split('/').pop() }}</span>
+            </div>
           </div>
         </div>
         <div class="dialog-footer">
@@ -332,30 +427,16 @@
       </div>
     </div>
 
-    <!-- 工单详情弹窗 -->
+    <!-- 工单详情弹窗 (沿用首页驾驶舱同款 WorkOrderDetailPanel, 完整显示问题/维修/闭环/延时/退回/备件/参与者) -->
     <div v-if="detailDialogVisible" class="dm-dialog-overlay" @click.self="detailDialogVisible = false">
-      <div class="dm-dialog">
-        <div class="dialog-header">
-          <h3>工单详情</h3>
-          <button class="dialog-close" @click="detailDialogVisible = false">×</button>
-        </div>
-        <div class="dialog-body">
-          <template v-if="detailOrder">
-            <div class="detail-row"><label>工单编号：</label><span>{{ detailOrder.id }}</span></div>
-            <div class="detail-row"><label>状态：</label><span :style="{ color: statusColor(detailOrder.status) }">{{ statusLabel(detailOrder.status) }}</span></div>
-            <div class="detail-row"><label>内容：</label><span>{{ detailOrder.content || '无' }}</span></div>
-            <div v-if="'handlerName' in detailOrder && detailOrder.handlerName" class="detail-row"><label>接单人：</label><span>{{ detailOrder.handlerName }}</span></div>
-            <div v-if="'sparepartUsage' in detailOrder && detailOrder.sparepartUsage.length" class="detail-row">
-              <label>备件使用：</label>
-              <div v-for="sp in detailOrder.sparepartUsage" :key="sp.name" class="sp-item">{{ sp.name }} × {{ sp.quantity }}</div>
-            </div>
-          </template>
-        </div>
-        <div class="dialog-footer">
-          <button v-if="currentUser.role === '系统管理人' && detailOrder && 'status' in detailOrder && !['closed', 'completed'].includes(detailOrder.status)" class="dm-btn" @click="openEditDialog(detailOrder)">编辑</button>
-          <button v-if="currentUser.role === '系统管理人' && detailOrder && 'status' in detailOrder && !['closed', 'completed'].includes(detailOrder.status)" class="dm-btn" @click="returnOrder(detailOrder)">退回</button>
-          <button class="dm-btn dm-btn-cancel" @click="detailDialogVisible = false">关闭</button>
-        </div>
+      <div class="dm-dialog dm-dialog-large">
+        <button class="dialog-close dialog-close-floating" @click="detailDialogVisible = false">×</button>
+        <WorkOrderDetailPanel
+          v-if="detailOrder"
+          :order-item="detailOrder"
+          @close="detailDialogVisible = false"
+          @updated="onDetailOrderUpdated"
+        />
       </div>
     </div>
 
@@ -386,30 +467,264 @@
         </div>
       </div>
     </div>
+
+    <!-- 删除问题工单弹窗 -->
+    <div v-if="problemDeleteVisible" class="dm-dialog-overlay" @click.self="problemDeleteVisible = false">
+      <div class="dm-dialog">
+        <div class="dialog-header">
+          <h3>删除问题工单</h3>
+          <button class="dialog-close" @click="problemDeleteVisible = false">×</button>
+        </div>
+        <div class="dialog-body">
+          <p>确定要删除问题工单 <strong>{{ deletingProblemOrder?.id }}</strong> 吗?此操作不可恢复。</p>
+        </div>
+        <div class="dialog-footer">
+          <button class="dm-btn dm-btn-cancel" @click="problemDeleteVisible = false">取消</button>
+          <button class="dm-btn dm-btn-danger" @click="confirmProblemDelete">确认删除</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 删除维修工单弹窗 -->
+    <div v-if="maintenanceDeleteVisible" class="dm-dialog-overlay" @click.self="maintenanceDeleteVisible = false">
+      <div class="dm-dialog">
+        <div class="dialog-header">
+          <h3>删除维修工单</h3>
+          <button class="dialog-close" @click="maintenanceDeleteVisible = false">×</button>
+        </div>
+        <div class="dialog-body">
+          <p>确定要删除维修工单 <strong>{{ deletingMaintenanceOrder?.id }}</strong> 吗?此操作不可恢复。</p>
+        </div>
+        <div class="dialog-footer">
+          <button class="dm-btn dm-btn-cancel" @click="maintenanceDeleteVisible = false">取消</button>
+          <button class="dm-btn dm-btn-danger" @click="confirmMaintenanceDelete">确认删除</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 图片预览弹窗 -->
+    <div v-if="previewImages.length > 0" class="image-preview-mask" @click.self="closeImagePreview">
+      <button class="image-preview-close" @click="closeImagePreview">×</button>
+      <button v-if="previewImages.length > 1" class="image-preview-nav left" :disabled="previewIndex === 0" @click="previewIndex = (previewIndex - 1 + previewImages.length) % previewImages.length">‹</button>
+      <div class="image-preview-content">
+        <img :src="previewImages[previewIndex]" />
+      </div>
+      <button v-if="previewImages.length > 1" class="image-preview-nav right" :disabled="previewIndex === previewImages.length - 1" @click="previewIndex = (previewIndex + 1) % previewImages.length">›</button>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+
+// 统一 API 调用: 自动加 Authorization, 401 跳登录页
+// 修复: 之前多个 fetch 漏带 Authorization, 后端返回 {error:'缺少 token'} (对象不是数组),
+//       遍历后全 undefined, 工单列表为空 → 空白页
+async function apiFetch(url: string, opts: RequestInit = {}): Promise<any> {
+  const r = await fetch(url, { ...opts, headers: { ...authHeader(), ...(opts.headers || {}) } })
+  if (r.status === 401) {
+    console.warn('[apiFetch] 401 unauthorized, 跳转登录', url)
+    sessionStorage.removeItem('currentUser')
+    sessionStorage.removeItem('authToken')
+    window.location.href = '/#/login'
+    return null
+  }
+  if (!r.ok) {
+    console.error('[apiFetch] 请求失败', url, r.status)
+    return null
+  }
+  return r.json()
+}
 import TopNavBar from '../components/TopNavBar.vue'
-import { currentUser, updateDeviceStatusByOrder } from '../composables/useDeviceStore'
+import WorkOrderDetailPanel from '../components/WorkOrderDetailPanel.vue'
+import { currentUser, updateDeviceStatusByOrder, isOnDuty, loadDevicesFromDB, devices, authHeader } from '../composables/useDeviceStore'
+import { usePermission } from '../composables/usePermission'
 import {
   matchDeviceByContent, problemOrders, maintenanceOrders,
   addProblemOrder, updateProblemOrder,
   addMaintenanceOrder, updateMaintenanceOrder,
+  deleteProblemOrder, deleteMaintenanceOrder, recreateProblemFromMaintenance,
   initDeviceStatusFromWorkOrders,
   statusLabel, statusColor, levelLabel,
   ProblemWorkOrder, MaintenanceWorkOrder
 } from '../composables/useWorkOrderStore'
 
-// 初始化设备状态（根据已有工单）
-initDeviceStatusFromWorkOrders()
+// P0-5: 权限钩子
+const { has, hasAny } = usePermission()
+
+// P1: SLA 跟踪 (P2.1 工单 P1)
+// 状态: normal (绿) / warning (黄, 2h 内) / urgent (橙色, 30min 内) / breached (红, 已超时)
+function slaStatus(sla_due_at: string, status: string): 'normal' | 'warning' | 'urgent' | 'breached' | 'none' {
+  if (!sla_due_at) return 'none'
+  if (['closed', 'completed', 'self_resolved'].includes(status)) return 'normal'
+  const ms = new Date(sla_due_at).getTime() - Date.now()
+  if (ms <= 0) return 'breached'
+  if (ms <= 30 * 60 * 1000) return 'urgent'
+  if (ms <= 2 * 3600 * 1000) return 'warning'
+  return 'normal'
+}
+function slaText(sla_due_at: string, status: string): string {
+  const s = slaStatus(sla_due_at, status)
+  if (s === 'none') return ''
+  if (s === 'breached') {
+    const overdueMin = Math.round((Date.now() - new Date(sla_due_at).getTime()) / 60000)
+    if (overdueMin < 60) return `SLA 超时 ${overdueMin} 分钟`
+    if (overdueMin < 60 * 24) return `SLA 超时 ${Math.floor(overdueMin / 60)} 小时 ${overdueMin % 60} 分`
+    return `SLA 超时 ${Math.floor(overdueMin / 60 / 24)} 天`
+  }
+  const remainMin = Math.round((new Date(sla_due_at).getTime() - Date.now()) / 60000)
+  if (remainMin < 60) return `SLA 剩余 ${remainMin} 分钟`
+  if (remainMin < 60 * 24) return `SLA 剩余 ${Math.floor(remainMin / 60)} 小时 ${remainMin % 60} 分`
+  return `SLA 剩余 ${Math.floor(remainMin / 60 / 24)} 天`
+}
+function slaColor(sla_due_at: string, status: string): string {
+  const s = slaStatus(sla_due_at, status)
+  if (s === 'breached') return '#ef4444'  // 红
+  if (s === 'urgent') return '#fb923c'    // 橙
+  if (s === 'warning') return '#facc15'   // 黄
+  return '#22c55e'                        // 绿
+}
+
+// P1: 工单统计面板 (P2.1)
+const stats = ref<any>(null)
+async function loadWorkorderStats() {
+  try {
+    const r = await fetch('/api/workorders/stats?days=7', { headers: authHeader() })
+    if (!r.ok) return
+    stats.value = await r.json()
+  } catch {}
+}
+function formatMinutes(min: number): string {
+  if (min < 60) return `${min} 分钟`
+  if (min < 60 * 24) return `${Math.floor(min / 60)} 小时 ${min % 60} 分`
+  return `${Math.floor(min / 60 / 24)} 天 ${Math.floor((min / 60) % 24)} 小时`
+}
+
+// 从数据库同步问题工单
+// 修复: 旧逻辑用 if (!exists) push + else 只更新 deviceId, 如果 store 里有占位空对象
+//       (来自 addProblemOrder / loadAllWorkOrders 错误数据), 同步后这些空字段不会被填上
+// 新逻辑: 直接完全替换 store, 避免被占位对象污染
+async function syncProblemOrdersFromDB() {
+  try {
+    const res = await fetch('/api/workorders/problem', { headers: authHeader() })
+    if (!res.ok) return
+    const dbOrders = await res.json()
+    if (!Array.isArray(dbOrders)) return
+    // 完全重置: 丢掉本地 store, 用数据库数据重建
+    problemOrders.value = dbOrders.map((o: any) => {
+      const dbDeviceId = o.device_id ? String(o.device_id) : null
+      return {
+        id: o.id,
+        reporterId: o.reporter_name || o.reporterId || '',
+        reporterName: o.reporter_name || '',
+        content: o.content,
+        status: o.status,
+        shiftId: '',
+        deviceId: dbDeviceId || matchDeviceByContent(o.content || '') || undefined,
+        images: Array.isArray(o.images) ? o.images : [],
+        videos: Array.isArray(o.videos) ? o.videos : [],
+        resolutionImages: Array.isArray(o.resolution_images) ? o.resolution_images : [],
+        createdAt: o.created_at ? new Date(o.created_at).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }) : '',
+        resolution: o.resolution,
+        role: o.role || '',
+        memberName: o.member_name || '',
+        team: o.team || '',
+        lastActionAt: o.last_action_at ? new Date(o.last_action_at).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }) : '',
+        closedAt: o.closed_at ? new Date(o.closed_at).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }) : '',
+        sla_due_at: o.sla_due_at,
+        sla_hours: o.sla_hours
+      }
+    })
+  } catch {}
+}
+
+async function syncMaintenanceOrdersFromDB() {
+  try {
+    const res = await fetch('/api/workorders/maintenance', { headers: authHeader() })
+    if (!res.ok) return
+    const dbOrders = await res.json()
+    if (!Array.isArray(dbOrders)) return
+    // 完全重置: 用数据库数据重建
+    maintenanceOrders.value = dbOrders.map((o: any) => ({
+      id: String(o.id),
+      content: o.content,
+      level: o.level || 'medium',
+      status: o.status,
+      assignerId: o.assigner_name || '',
+      assignerName: o.assigner_name || '',
+      handlerId: o.handler_name || '',
+      handlerName: o.handler_name || '',
+      problemOrderId: o.problem_order_id || null,
+      participants: Array.isArray(o.participants) ? o.participants : [],
+      delayDays: o.delay_days || 0,
+      delayReason: o.delay_reason || '',
+      delayImages: Array.isArray(o.delay_images) ? o.delay_images : [],
+      sparepartUsage: Array.isArray(o.sparepart_usage) ? o.sparepart_usage : [],
+      returnReason: o.return_reason || '',
+      returnImages: Array.isArray(o.return_images) ? o.return_images : [],
+      completionNote: o.completion_note || '',
+      completionImages: Array.isArray(o.completion_images) ? o.completion_images : [],
+      reporterName: o.reporter_name || '',
+      memberName: o.member_name || '',
+      role: o.role || '',
+      team: o.team || '',
+      createdAt: o.created_at ? new Date(o.created_at).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }) : '',
+      lastActionAt: o.last_action_at ? new Date(o.last_action_at).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }) : '',
+      closedAt: o.closed_at ? new Date(o.closed_at).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }) : '',
+      sla_due_at: o.sla_due_at,
+      sla_hours: o.sla_hours
+    }))
+  } catch {}
+}
+
+let syncTimer: any = null
+async function loadShiftStatus() {
+  if (!currentUser.value?.role) return
+  try {
+    const r = await fetch(`/api/handover/status?role=${encodeURIComponent(currentUser.value.role)}`, { headers: authHeader() })
+    if (!r.ok) return
+    const d = await r.json()
+    wsCurrentShift.value = d.currentShift || null
+  } catch(e) {}
+}
+onMounted(() => {
+  loadWorkorderTemplates()
+  loadWorkorderStats()
+  loadDevicesFromDB().then(() => {
+    syncProblemOrdersFromDB().then(() => {
+      syncMaintenanceOrdersFromDB().then(() => {
+        initDeviceStatusFromWorkOrders()
+        // 处理URL参数触发的弹窗
+        const action = route.query.action as string | undefined
+        if (action === 'createMaintenance') {
+          activeTab.value = 'maintenance'
+          createMaintenanceDialogVisible.value = true
+          createMaintenanceForm.value = { content: '', level: 'medium' }
+        } else if (action === 'createProblem') {
+          activeTab.value = 'problem'
+          createDialogVisible.value = true
+          createForm.value = { content: '', images: '', videos: '', deviceId: null }
+        }
+      })
+    })
+  })
+  loadShiftStatus()
+  syncTimer = setInterval(() => {
+    syncProblemOrdersFromDB()
+    syncMaintenanceOrdersFromDB().then(() => {
+      initDeviceStatusFromWorkOrders()
+    })
+  }, 5000)
+})
+onUnmounted(() => { if (syncTimer) clearInterval(syncTimer) })
 
 // Tab
 const activeTab = ref<'problem' | 'maintenance'>(currentUser.value.role === '维修组' ? 'maintenance' : 'problem')
 const searchStatus = ref('')
 
 // ============ 状态选项 ============
+const route = useRoute()
 const allStatusOptions = [
   { value: 'pending', label: '待确认' },
   { value: 'self_resolved', label: '已自行解决' },
@@ -470,7 +785,7 @@ const filteredMaintenanceOrders = computed(() => {
   return filtered.sort((a, b) => {
     const statusDiff = (statusOrder[a.status] || 99) - (statusOrder[b.status] || 99)
     if (statusDiff !== 0) return statusDiff
-    // 同状态按等级排序：重 > 中 > 轻
+    // 同状态按等级排序:重 > 中 > 轻
     return (levelOrder[a.level] || 99) - (levelOrder[b.level] || 99)
   })
 })
@@ -490,26 +805,129 @@ function canDelayOrder(order: MaintenanceWorkOrder) {
 
 // ============ 新建问题工单 ============
 const createDialogVisible = ref(false)
-const createForm = ref({ content: '', images: '', videos: '' })
+const createMaintenanceDialogVisible = ref(false)
+const wsCurrentShift = ref<any>(null)
+const wsAmIOnShift = computed(() => wsCurrentShift.value && wsCurrentShift.value.user_name === currentUser.value?.name)
+const createForm = ref<{ content: string; images: string; videos: string; deviceId: number | null }>({ content: '', images: '', videos: '', deviceId: null })
 
-function openCreateDialog() { createDialogVisible.value = true; createForm.value = { content: '', images: '', videos: '' } }
-
-function handleImageUpload(e: Event, form: { images?: string }) {
-  const files = (e.target as HTMLInputElement).files
-  if (!files) return
-  const urls = Array.from(files).map(f => URL.createObjectURL(f))
-  form.images = urls.join(',')
+// P2.1: 工单模板
+const problemTemplates = ref<any[]>([])
+const maintenanceTemplates = ref<any[]>([])
+const selectedProblemTplId = ref('')
+const selectedMaintenanceTplId = ref('')
+async function loadWorkorderTemplates() {
+  try {
+    const r = await fetch('/api/workorder-templates?type=problem', { headers: authHeader() })
+    const d = await r.json()
+    problemTemplates.value = d.rows || []
+  } catch {}
+  try {
+    const r = await fetch('/api/workorder-templates?type=maintenance', { headers: authHeader() })
+    const d = await r.json()
+    maintenanceTemplates.value = d.rows || []
+  } catch {}
+}
+function applyTemplate(type: 'problem' | 'maintenance', tplId: string) {
+  if (!tplId) return
+  const list = type === 'problem' ? problemTemplates.value : maintenanceTemplates.value
+  const t = list.find(x => String(x.id) === String(tplId))
+  if (!t) return
+  if (type === 'problem') {
+    createForm.value.content = t.default_content
+    selectedProblemTplId.value = tplId
+  } else {
+    createMaintenanceForm.value.content = t.default_content
+    if (t.default_level) {
+      const lv: 'medium' | 'heavy' | 'light' = t.default_level === '重' ? 'heavy' : t.default_level === '中' ? 'medium' : 'light'
+      createMaintenanceForm.value.level = lv
+    }
+    selectedMaintenanceTplId.value = tplId
+  }
 }
 
-function handleVideoUpload(e: Event, form: { videos?: string }) {
+function openCreateDialog() { if (!wsAmIOnShift.value && currentUser.value?.role !== '维修组') return; createDialogVisible.value = true; createForm.value = { content: '', images: '', videos: '', deviceId: null } }
+
+async function handleImageUpload(e: Event, form: any) {
   const files = (e.target as HTMLInputElement).files
-  if (!files) return
-  const urls = Array.from(files).map(f => URL.createObjectURL(f))
-  form.videos = urls.join(',')
+  if (!files || files.length === 0) {
+    form._uploadFailed = false
+    return
+  }
+  form._uploadFailed = false
+  const urls = await uploadFiles(Array.from(files))
+  if (urls.length === 0) {
+    // 上传失败:标记并在提交时拦截
+    form._uploadFailed = true
+    form.images = ''
+    alert(`图片上传失败(${files.length} 个文件),请检查网络后重试`)
+    return
+  }
+  form.images = (form.images ? form.images + ',' : '') + urls.join(',')
+  form._uploadFailed = false
+}
+
+async function handleVideoUpload(e: Event, form: any) {
+  const files = (e.target as HTMLInputElement).files
+  if (!files || files.length === 0) {
+    form._uploadFailed = false
+    return
+  }
+  form._uploadFailed = false
+  const urls = await uploadFiles(Array.from(files))
+  if (urls.length === 0) {
+    form._uploadFailed = true
+    form.videos = ''
+    alert(`视频上传失败(${files.length} 个文件),请检查网络后重试`)
+    return
+  }
+  form.videos = (form.videos ? form.videos + ',' : '') + urls.join(',')
+  form._uploadFailed = false
+}
+
+// 提交前检查:有文件被选中但上传失败则阻止提交
+function ensureUploadsOk(...forms: any[]): boolean {
+  for (const f of forms) {
+    if (f?._uploadFailed) {
+      alert('附件上传失败,请重新选择文件后提交')
+      return false
+    }
+  }
+  return true
+}
+
+async function uploadFiles(files: File[]): Promise<string[]> {
+  const fd = new FormData()
+  for (const f of files) fd.append('files', f)
+  try {
+    const res = await fetch('/api/upload', { method: 'POST', body: fd })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}))
+      alert('上传失败: ' + (err.error || res.status))
+      return []
+    }
+    const data = await res.json()
+    return data.urls || []
+  } catch (err: any) {
+    alert('上传失败: ' + err.message)
+    return []
+  }
+}
+
+// 图片预览
+const previewImages = ref<string[]>([])
+const previewIndex = ref(0)
+function openImagePreview(images: string[], idx: number) {
+  previewImages.value = images
+  previewIndex.value = idx
+}
+function closeImagePreview() {
+  previewImages.value = []
+  previewIndex.value = 0
 }
 
 function submitCreateProblem() {
   if (!createForm.value.content) return
+  if (!ensureUploadsOk(createForm.value)) return
   addProblemOrder({
     reporterId: currentUser.value.name,
     reporterName: currentUser.value.name,
@@ -517,16 +935,19 @@ function submitCreateProblem() {
     content: createForm.value.content,
     images: createForm.value.images ? createForm.value.images.split(',').map(s => s.trim()) : [],
     videos: createForm.value.videos ? createForm.value.videos.split(',').map(s => s.trim()) : [],
-    status: 'pending'
+    status: 'pending',
+    deviceId: createForm.value.deviceId ? String(createForm.value.deviceId) : undefined,
+    team: currentUser.value.team || 'A班',
+    role: wsCurrentShift.value?.role || currentUser.value.name || '值班岗位',
+    member_name: wsCurrentShift.value?.member_name || currentUser.value.member_name || ''
   })
   createDialogVisible.value = false
 }
 
-// ============ 新建维修工单（带班直接创建）===========
-const createMaintenanceDialogVisible = ref(false)
-const createMaintenanceForm = ref({ content: '', level: 'medium' as const })
+// ============ 新建维修工单(带班直接创建)===========
+const createMaintenanceForm = ref<{ content: string; level: 'medium' | 'heavy' | 'light' }>({ content: '', level: 'medium' })
 
-function openCreateMaintenanceDialog() {
+function openCreateMaintenanceDialog() { if (!wsAmIOnShift.value && currentUser.value?.role !== '维修组') return;
   createMaintenanceDialogVisible.value = true
   createMaintenanceForm.value = { content: '', level: 'medium' }
 }
@@ -541,7 +962,11 @@ function submitCreateMaintenance() {
     participants: [],
     status: 'pending',
     delayDays: 0,
-    sparepartUsage: []
+    sparepartUsage: [],
+    team: currentUser.value.team || 'A班',
+    role: wsCurrentShift.value?.role || currentUser.value.name || '值班岗位',
+    user_name: currentUser.value.name,
+    reporterName: currentUser.value.name
   })
   createMaintenanceDialogVisible.value = false
 }
@@ -549,34 +974,35 @@ function submitCreateMaintenance() {
 // ============ 处理问题工单 ============
 const handleDialogVisible = ref(false)
 const handleType = ref<'self' | 'maintenance'>('self')
-const handleForm = ref({ resolution: '', resolutionImages: '', level: 'medium' as const })
+const handleForm = ref({ resolution: '', images: '', level: 'medium' as const })
 const handlingOrder = ref<ProblemWorkOrder | null>(null)
 
 function openProblemHandle(order: ProblemWorkOrder) {
   handlingOrder.value = order
   handleType.value = 'self'
-  handleForm.value = { resolution: '', resolutionImages: '', level: 'medium' }
+  handleForm.value = { resolution: '', images: '', level: 'medium' }
   handleDialogVisible.value = true
 }
 
-function submitHandleProblem() {
+async function submitHandleProblem() {
   if (!handlingOrder.value) return
-  
+  if (!ensureUploadsOk(handleForm.value)) return
+
   // 获取关联的设备ID
   const getDeviceId = () => handlingOrder.value?.deviceId
-  
+
   if (handleType.value === 'self') {
     if (!handleForm.value.resolution) return
     updateProblemOrder(handlingOrder.value.id, {
       status: 'self_resolved',
       resolution: handleForm.value.resolution,
-      resolutionImages: handleForm.value.resolutionImages ? handleForm.value.resolutionImages.split(',').map(s => s.trim()) : [],
+      resolutionImages: handleForm.value.images ? handleForm.value.images.split(',').map(s => s.trim()) : [],
       closedAt: new Date().toLocaleString('zh-CN')
     })
     // 自行解决后设备恢复在用
     const deviceId = getDeviceId()
     if (deviceId) {
-      updateDeviceStatusByOrder(deviceId, '在用', currentUser.value.name)
+      await updateDeviceStatusByOrder(deviceId, '在用', currentUser.value.name)
     }
   } else {
     updateProblemOrder(handlingOrder.value.id, { status: 'to_maintenance' })
@@ -589,12 +1015,17 @@ function submitHandleProblem() {
       participants: [],
       status: 'pending',
       delayDays: 0,
-      sparepartUsage: []
+      sparepartUsage: [],
+      team: handlingOrder.value.team || currentUser.value.team || 'A班',
+      role: handlingOrder.value.role || currentUser.value.role || '值班岗位',
+      user_name: currentUser.value.name,
+      reporterName: handlingOrder.value.reporterName,
+      memberName: handlingOrder.value.memberName || ''
     })
-    // 问题工单转维修，设备状态变为维修中
+    // 问题工单转维修,设备状态变为维修中
     const deviceId = getDeviceId()
     if (deviceId) {
-      updateDeviceStatusByOrder(deviceId, '维修中', currentUser.value.name)
+      await updateDeviceStatusByOrder(deviceId, '维修中', currentUser.value.name)
     }
   }
   handleDialogVisible.value = false
@@ -613,10 +1044,12 @@ function openDelayDialog(order: MaintenanceWorkOrder) {
 
 function submitDelay() {
   if (!delayingOrder.value || !delayForm.value.reason) return
+  if (!ensureUploadsOk(delayForm.value)) return
   updateMaintenanceOrder(delayingOrder.value.id, {
     status: 'delay',
     delayReason: delayForm.value.reason,
-    delayDays: 1
+    delayDays: 1,
+    delayImages: delayForm.value.images ? delayForm.value.images.split(',').map(s => s.trim()).filter(Boolean) : []
   })
   delayDialogVisible.value = false
 }
@@ -632,9 +1065,10 @@ function openCompleteDialog(order: MaintenanceWorkOrder) {
   completeDialogVisible.value = true
 }
 
-function submitComplete() {
+async function submitComplete() {
   if (!completingOrder.value) return
-  updateMaintenanceOrder(completingOrder.value.id, {
+  if (!ensureUploadsOk(completeForm.value)) return
+  await updateMaintenanceOrder(completingOrder.value.id, {
     status: 'completed',
     completionNote: completeForm.value.note,
     completionImages: completeForm.value.images ? completeForm.value.images.split(',').map(s => s.trim()) : [],
@@ -642,17 +1076,17 @@ function submitComplete() {
     sparepartUsage: completeForm.value.spareparts.filter(sp => sp.name),
     completedAt: new Date().toLocaleString('zh-CN')
   })
-  // 完成维修后设备状态变为在用（等待审核）
+  // 完成维修后设备状态变为在用(等待审核),问题工单不动,等审核通过再删
   const order = completingOrder.value
   if (order.problemOrderId) {
     const problemOrder = problemOrders.value.find(p => p.id === order.problemOrderId)
     if (problemOrder?.deviceId) {
-      updateDeviceStatusByOrder(problemOrder.deviceId, '在用', currentUser.value.name)
+      await updateDeviceStatusByOrder(problemOrder.deviceId, '在用', currentUser.value.name)
     }
   } else {
     const deviceId = matchDeviceByContent(order.content || '')
     if (deviceId) {
-      updateDeviceStatusByOrder(deviceId, '在用', currentUser.value.name)
+      await updateDeviceStatusByOrder(deviceId, '在用', currentUser.value.name)
     }
   }
   completeDialogVisible.value = false
@@ -669,10 +1103,11 @@ function openProblemCloseDialog(order: MaintenanceWorkOrder) {
   problemCloseDialogVisible.value = true
 }
 
-function submitProblemClose() {
+async function submitProblemClose() {
   if (!closingOrder.value || !problemCloseForm.value.reason) return
+  if (!ensureUploadsOk(problemCloseForm.value)) return
   const order = closingOrder.value
-  
+
   // 获取关联的设备ID
   const getDeviceId = () => {
     if (order.problemOrderId) {
@@ -681,31 +1116,31 @@ function submitProblemClose() {
     }
     return matchDeviceByContent(order.content || '')
   }
-  
+
   // 关闭维修工单
-  updateMaintenanceOrder(order.id, {
+  await updateMaintenanceOrder(order.id, {
     status: 'closed',
     completionNote: problemCloseForm.value.reason,
     completionImages: problemCloseForm.value.images ? problemCloseForm.value.images.split(',').map(s => s.trim()) : [],
     closedAt: new Date().toLocaleString('zh-CN')
   })
-  
-  // 如果有来源问题工单，关闭它并记录原因
+
+  // 如果有来源问题工单,关闭它并记录原因
   if (order.problemOrderId) {
-    updateProblemOrder(order.problemOrderId, {
+    await updateProblemOrder(order.problemOrderId, {
       status: 'closed',
       resolution: problemCloseForm.value.reason,
       resolutionImages: problemCloseForm.value.images ? problemCloseForm.value.images.split(',').map(s => s.trim()) : [],
       closedAt: new Date().toLocaleString('zh-CN')
     })
   }
-  
+
   // 工单闭环后设备恢复在用
   const deviceId = getDeviceId()
   if (deviceId) {
-    updateDeviceStatusByOrder(deviceId, '在用', currentUser.value.name)
+    await updateDeviceStatusByOrder(deviceId, '在用', currentUser.value.name)
   }
-  
+
   problemCloseDialogVisible.value = false
 }
 
@@ -722,11 +1157,12 @@ function openReviewDialog(order: MaintenanceWorkOrder) {
   reviewDialogVisible.value = true
 }
 
-function submitReview() {
+async function submitReview() {
   if (!reviewingOrder.value) return
   if (reviewResult.value === 'reject' && !reviewForm.value.reason) return
+  if (reviewResult.value === 'reject' && !ensureUploadsOk(reviewForm.value)) return
   const order = reviewingOrder.value
-  
+
   // 获取关联的设备ID
   const getDeviceId = (o: typeof order) => {
     if (o.problemOrderId) {
@@ -735,27 +1171,32 @@ function submitReview() {
     }
     return matchDeviceByContent(o.content || '')
   }
-  
+
   if (reviewResult.value === 'pass') {
-    updateMaintenanceOrder(order.id, {
+    // 审核通过后删除关联的问题工单前,先清除维修工单的 problem_order_id 引用,避免孤儿工单丢失
+    if (order.problemOrderId) {
+      await updateMaintenanceOrder(order.id, { problemOrderId: null })
+      await deleteProblemOrder(order.problemOrderId)
+    }
+    await updateMaintenanceOrder(order.id, {
       status: 'closed',
       closedAt: new Date().toLocaleString('zh-CN')
     })
-    // 审核通过后设备恢复在用
+    // 设备恢复在用
     const deviceId = getDeviceId(order)
     if (deviceId) {
-      updateDeviceStatusByOrder(deviceId, '在用', currentUser.value.name)
+      await updateDeviceStatusByOrder(deviceId, '在用', currentUser.value.name)
     }
   } else {
-    updateMaintenanceOrder(order.id, {
+    await updateMaintenanceOrder(order.id, {
       status: 'returned',
       returnReason: reviewForm.value.reason,
       returnImages: reviewForm.value.images ? reviewForm.value.images.split(',').map(s => s.trim()) : []
     })
-    // 退回后设备状态变为告警
+    // 退回后设备状态变为告警(问题未解决,维修工单还在)
     const deviceId = getDeviceId(order)
     if (deviceId) {
-      updateDeviceStatusByOrder(deviceId, '告警', currentUser.value.name)
+      await updateDeviceStatusByOrder(deviceId, '维修中', currentUser.value.name)
     }
   }
   reviewDialogVisible.value = false
@@ -766,22 +1207,42 @@ const detailDialogVisible = ref(false)
 const detailOrder = ref<ProblemWorkOrder | MaintenanceWorkOrder | null>(null)
 
 function openProblemDetail(order: ProblemWorkOrder) {
-  detailOrder.value = order
+  // 加 _type 让 WorkOrderDetailPanel 判断是问题/维修工单
+  detailOrder.value = { ...order, _type: 'problem' } as any
   detailDialogVisible.value = true
 }
 
 function openMaintenanceDetail(order: MaintenanceWorkOrder) {
-  detailOrder.value = order
+  detailOrder.value = { ...order, _type: 'maintenance' } as any
   detailDialogVisible.value = true
 }
 
-function returnOrder(order: ProblemWorkOrder | MaintenanceWorkOrder) {
+// WorkOrderDetailPanel 更新后: 5s 同步周期会自动拉新数据
+function onDetailOrderUpdated() {
+  // 不需要手动 reload, syncTimer 每 5s 会刷新
+}
+
+async function returnOrder(order: ProblemWorkOrder | MaintenanceWorkOrder) {
+  // 获取设备ID
+  const getDeviceId = () => {
+    if ('problemOrderId' in order && order.problemOrderId) {
+      const po = problemOrders.value.find(p => p.id === order.problemOrderId)
+      return po?.deviceId || null
+    }
+    return matchDeviceByContent(order.content || '')
+  }
+  const deviceId = getDeviceId()
   if ('reporterId' in order) {
-    // Problem order - return to pending
-    updateProblemOrder(order.id, { status: 'pending' })
+    // Problem order - return to pending,设备变为告警
+    await updateProblemOrder(order.id, { status: 'pending' })
+    if (deviceId) await updateDeviceStatusByOrder(deviceId, '告警', currentUser.value.name)
   } else {
-    // Maintenance order - return to pending
-    updateMaintenanceOrder(order.id, { status: 'pending', handlerId: undefined, handlerName: undefined })
+    // Maintenance order - return to pending → 恢复问题工单为pending(复用),删除维修工单,设备变为告警
+    if (order.problemOrderId) {
+      await updateProblemOrder(order.problemOrderId, { status: 'pending' })
+    }
+    await deleteMaintenanceOrder(order.id)
+    if (deviceId) await updateDeviceStatusByOrder(deviceId, '告警', currentUser.value.name)
   }
   detailDialogVisible.value = false
 }
@@ -791,8 +1252,8 @@ const editDialogVisible = ref(false)
 const editForm = ref<{ content: string; level: 'light' | 'medium' | 'heavy' }>({ content: '', level: 'medium' })
 
 function openEditDialog(order: ProblemWorkOrder | MaintenanceWorkOrder) {
-  editForm.value = { 
-    content: order.content || '', 
+  editForm.value = {
+    content: order.content || '',
     level: ('level' in order ? order.level : 'medium') as 'light' | 'medium' | 'heavy'
   }
   editDialogVisible.value = true
@@ -803,8 +1264,8 @@ function submitEdit() {
   if ('reporterId' in detailOrder.value) {
     updateProblemOrder(detailOrder.value.id, { content: editForm.value.content })
   } else {
-    updateMaintenanceOrder(detailOrder.value.id, { 
-      content: editForm.value.content, 
+    updateMaintenanceOrder(detailOrder.value.id, {
+      content: editForm.value.content,
       level: editForm.value.level as 'light' | 'medium' | 'heavy'
     })
   }
@@ -819,7 +1280,37 @@ function acceptOrder(order: MaintenanceWorkOrder) {
     handlerName: currentUser.value.name,
     status: 'processing'
   })
-  // 接单后设备状态保持维修中（由转维修时已设置）
+  // 接单后设备状态保持维修中(由转维修时已设置)
+}
+
+// ============ 删除工单 ============
+const problemDeleteVisible = ref(false)
+const maintenanceDeleteVisible = ref(false)
+const deletingProblemOrder = ref<ProblemWorkOrder | null>(null)
+const deletingMaintenanceOrder = ref<MaintenanceWorkOrder | null>(null)
+
+function openProblemDelete(order: ProblemWorkOrder) {
+  deletingProblemOrder.value = order
+  problemDeleteVisible.value = true
+}
+
+function confirmProblemDelete() {
+  if (!deletingProblemOrder.value) return
+  deleteProblemOrder(deletingProblemOrder.value.id)
+  problemDeleteVisible.value = false
+  deletingProblemOrder.value = null
+}
+
+function openMaintenanceDelete(order: MaintenanceWorkOrder) {
+  deletingMaintenanceOrder.value = order
+  maintenanceDeleteVisible.value = true
+}
+
+function confirmMaintenanceDelete() {
+  if (!deletingMaintenanceOrder.value) return
+  deleteMaintenanceOrder(deletingMaintenanceOrder.value.id)
+  maintenanceDeleteVisible.value = false
+  deletingMaintenanceOrder.value = null
 }
 </script>
 
@@ -828,17 +1319,48 @@ function acceptOrder(order: MaintenanceWorkOrder) {
 
 .wo-header {
   display: flex; justify-content: space-between; align-items: center;
-  padding: 16px 24px;
+  padding: 24px 32px;
 }
 
-.wo-title { display: flex; align-items: center; gap: 12px; }
-.wo-title h2 { color: #fff; margin: 0; font-size: 20px; }
+/* P1: 统计面板 */
+.wo-stats-bar {
+  display: flex;
+  gap: 12px;
+  padding: 14px 32px;
+  background: rgba(45, 212, 191, 0.04);
+  border-bottom: 1px solid rgba(45, 212, 191, 0.1);
+  overflow-x: auto;
+}
+.stat-card {
+  flex: 0 0 auto;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  padding: 8px 16px;
+  min-width: 100px;
+  text-align: center;
+}
+.stat-card.alert {
+  border-color: rgba(239, 68, 68, 0.4);
+  background: rgba(239, 68, 68, 0.08);
+  animation: statAlertPulse 2s ease-in-out infinite;
+}
+@keyframes statAlertPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+  50% { box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.15); }
+}
+.stat-label { font-size: 11px; color: rgba(255, 255, 255, 0.55); margin-bottom: 4px; letter-spacing: 0.5px; }
+.stat-value { font-size: 24px; font-weight: 700; line-height: 1.1; }
+.stat-value-sm { font-size: 14px; font-weight: 600; color: rgba(255, 255, 255, 0.85); line-height: 1.6; }
+
+.wo-title { display: flex; align-items: baseline; gap: 12px; }
+.wo-title h2 { color: #fff; margin: 0; font-size: 22px; font-weight: 600; letter-spacing: 1px; }
 .wo-count { color: rgba(255,255,255,0.5); font-size: 13px; }
 .wo-stat { margin-right: 12px; color: rgba(255,255,255,0.6); font-size: 13px; }
 
 .wo-search {
   display: flex; gap: 10px; align-items: center;
-  padding: 0 24px 12px;
+  padding: 0 32px 16px;
 }
 
 .search-select {
@@ -846,7 +1368,7 @@ function acceptOrder(order: MaintenanceWorkOrder) {
   border-radius: 6px; color: #fff; padding: 6px 12px; outline: none;
 }
 
-.wo-list { padding: 0 24px; display: flex; flex-direction: column; gap: 12px; }
+.wo-list { padding: 0 32px; display: flex; flex-direction: column; gap: 12px; }
 
 .wo-card {
   background: rgba(255,255,255,0.05); border: 1px solid rgba(45,212,191,0.15);
@@ -870,7 +1392,20 @@ function acceptOrder(order: MaintenanceWorkOrder) {
 
 .wo-card-body .wo-content { color: rgba(255,255,255,0.9); margin: 0 0 8px; font-size: 14px; }
 .wo-meta { display: flex; gap: 16px; font-size: 12px; color: rgba(255,255,255,0.45); }
-.wo-attachments { display: flex; gap: 10px; font-size: 12px; color: rgba(255,255,255,0.4); margin-top: 6px; }
+.wo-attachments { display: flex; gap: 10px; font-size: 12px; color: rgba(255,255,255,0.4); margin-top: 6px; align-items: center; }
+.wo-thumbs { display: flex; gap: 4px; }
+.wo-thumb { width: 44px; height: 44px; object-fit: cover; border-radius: 4px; cursor: pointer; border: 1px solid rgba(255,255,255,0.1); }
+.wo-thumb:hover { border-color: #2DD4BF; }
+.wo-thumb-more { width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,0.08); border-radius: 4px; font-size: 12px; color: rgba(255,255,255,0.6); }
+.wo-video-badge { color: #fb923c; }
+.image-preview-mask { position: fixed; inset: 0; background: rgba(0,0,0,0.85); z-index: 9999; display: flex; align-items: center; justify-content: center; }
+.image-preview-content { max-width: 90vw; max-height: 90vh; }
+.image-preview-content img { max-width: 100%; max-height: 90vh; object-fit: contain; }
+.image-preview-close { position: absolute; top: 20px; right: 20px; width: 36px; height: 36px; border-radius: 50%; background: rgba(255,255,255,0.15); color: #fff; border: none; font-size: 18px; cursor: pointer; }
+.image-preview-nav { position: absolute; top: 50%; transform: translateY(-50%); width: 48px; height: 48px; border-radius: 50%; background: rgba(255,255,255,0.15); color: #fff; border: none; font-size: 24px; cursor: pointer; }
+.image-preview-nav.left { left: 20px; }
+.image-preview-nav.right { right: 20px; }
+.image-preview-nav:disabled { opacity: 0.3; cursor: not-allowed; }
 .wo-resolution, .wo-delay, .wo-return {
   margin-top: 6px; font-size: 12px; color: rgba(255,255,255,0.6);
 }
@@ -895,10 +1430,12 @@ function acceptOrder(order: MaintenanceWorkOrder) {
 }
 .action-btn:hover { background: rgba(45,212,191,0.2); }
 .action-btn-primary { background: #2DD4BF; color: #0a192f; border-color: #2DD4BF; font-weight: 600; }
+.action-btn-danger { background: rgba(239,68,68,0.2); color: #EF4444; border-color: rgba(239,68,68,0.4); }
+.action-btn-danger:hover { background: rgba(239,68,68,0.35); }
 .icon-btn { background: rgba(239,68,68,0.2); color: #EF4444; border: none; border-radius: 4px; padding: 2px 8px; cursor: pointer; }
 
 /* Tabs */
-.dm-tabs { display: flex; gap: 4px; padding: 0 24px 12px; }
+.dm-tabs { display: flex; gap: 4px; padding: 0 32px 16px; }
 .dm-tab {
   padding: 6px 20px; border-radius: 6px; cursor: pointer; font-size: 13px;
   color: rgba(255,255,255,0.5); transition: all 0.2s;
@@ -917,13 +1454,17 @@ function acceptOrder(order: MaintenanceWorkOrder) {
   border-radius: 12px; width: 520px; max-height: 85vh; overflow-y: auto;
 }
 .dm-dialog-sm { width: 380px; }
+.dm-dialog-large { width: 800px; max-width: 95vw; }
+.dialog-close-floating { position: absolute; top: 12px; right: 16px; z-index: 10; }
 .dialog-header {
   display: flex; justify-content: space-between; align-items: center;
   padding: 16px 20px; border-bottom: 1px solid rgba(45,212,191,0.1);
 }
 .dialog-header h3 { color: #fff; margin: 0; font-size: 16px; }
 .dialog-close { background: none; border: none; color: rgba(255,255,255,0.5); font-size: 22px; cursor: pointer; }
-.dialog-body { padding: 16px 20px; }
+.dialog-body { padding: 16px 20px; color: #fff; }
+.dialog-body p { color: rgba(255,255,255,0.85); margin: 0 0 8px; }
+.dialog-body strong { color: #fff; }
 .dialog-footer {
   display: flex; justify-content: flex-end; gap: 10px;
   padding: 12px 20px; border-top: 1px solid rgba(45,212,191,0.1);
