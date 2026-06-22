@@ -24,7 +24,7 @@
 --   6. locations
 --   7. position_dict
 --   8. problem_orders
---   视图: v_inspection_user_tasks
+--   视图: v_inspection_user_tasks  (dashboard 巡检模块会查)
 
 -- ## 导出缺失表结构的命令(在 dev 库所在机器执行)
 --   mysqldump -h <dev-host> -u swsc -p \
