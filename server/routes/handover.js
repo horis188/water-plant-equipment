@@ -370,6 +370,21 @@ router.get('/status', async (req, res) => {
     let currentShiftTasks = { done: 0, total: 0, abnormal: 0, abnormalList: [], allList: [] }
     let currentShiftWorkorders = { created: [], completed: [], inProgress: [] }
 
+    // 先查本岗位是否有 pending 的交接记录 (交班后未接班的情况)
+    if (req.query.userId) {
+      const [pendingRows] = await pool.query(
+        `SELECT * FROM handover_records
+         WHERE (handing_over_user_id = ? OR taking_over_user_id = ?)
+           AND status = 'pending'
+         ORDER BY handover_time DESC LIMIT 1`,
+        [req.query.userId, req.query.userId]
+      )
+      if (pendingRows[0]) {
+        lastHandover = pendingRows[0]
+        handoverStatus = 'pending'
+      }
+    }
+
     if (currentShift) {
       // 查找"上一班交接":当前班次的接班交接(taking_over_user_id = current_user.id)
       // 这条记录是上一班交班给本人时创建的,handing_over_member 就是上一班的人
@@ -1092,6 +1107,18 @@ router.post('/', async (req, res) => {
     if (finalTakingOverUser) {
       const [uRows] = await pool.query(`SELECT id FROM users WHERE name = ? LIMIT 1`, [finalTakingOverUser])
       if (uRows[0]) takingOverUserId = uRows[0].id
+    }
+    // 关闭交班人当前的 active shift (shift_end = now)
+    // 这样 /status 就不会再返回 currentShift, 页面会正确切到"未接班/待接班"状态
+    if (handingOverUserId && finalShiftType) {
+      const [userRows] = await pool.query(`SELECT name FROM users WHERE id = ?`, [handingOverUserId])
+      const userName = userRows[0]?.name
+      if (userName) {
+        await pool.query(
+          `UPDATE handover_shifts SET shift_end = NOW() WHERE user_name = ? AND shift_type = ? AND shift_end IS NULL`,
+          [userName, finalShiftType]
+        )
+      }
     }
     const [result] = await pool.query(
       `INSERT INTO handover_records (handing_over_user_id, handing_over_user, handing_over_role, taking_over_user_id, taking_over_user, taking_over_role, taking_over_member, shift_type, team, handover_time, shift_start, shift_end, notes, tasks_status, workorders_status, status)
