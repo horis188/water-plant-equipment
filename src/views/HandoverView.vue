@@ -153,7 +153,7 @@
         <div style="background:rgba(255,255,255,0.04);border-radius:6px;padding:14px 18px;margin-bottom:16px;">
           <div style="font-size:14px;font-weight:600;color:rgba(255,255,255,0.85);margin-bottom:10px;">本班次状态检查：</div>
           <div style="display:flex;flex-direction:column;gap:8px;font-size:14px;">
-            <div>• 值班纪事：<span :style="notesReady ? 'color:#4ade80;' : 'color:#fa8c16;'">{{ notesReady ? '✓ 已填 ' + handoverNoteLines.filter((l: string) => l.trim()).length + ' 条' : '⚠ 未填' }}</span></div>
+            <div>• 值班纪事：<span style="color:rgba(255,255,255,0.7);">{{ handoverNoteLines.filter((l: string) => l.trim()).length > 0 ? '已填 ' + handoverNoteLines.filter((l: string) => l.trim()).length + ' 条 (可为空)' : '未填 (可为空)' }}</span></div>
             <div>• 巡检任务：<span :style="tasksReady ? 'color:#4ade80;' : 'color:#fa8c16;'">{{ currentShiftTasks.done }} / {{ currentShiftTasks.total }} 完成{{ currentShiftTasks.abnormal > 0 ? ' (含 ' + currentShiftTasks.abnormal + ' 异常)' : '' }}</span></div>
             <div>• 工单情况：<span :style="workordersReady ? 'color:#4ade80;' : 'color:#fa8c16;'">完成 {{ currentShiftWorkorders.completed.length }} /  进行中 {{ currentShiftWorkorders.inProgress.length + (currentShiftWorkorders.inherited || []).length }}{{ (currentShiftWorkorders.inherited || []).length > 0 ? ' (含 ' + currentShiftWorkorders.inherited.length + ' 继承)' : '' }}</span></div>
           </div>
@@ -821,7 +821,8 @@ const handoverModalVisible = ref(false)
 const takeoverModalVisible = ref(false)
 
 // 交班准备检查 (用于弹窗提示)
-const notesReady = computed(() => handoverNoteLines.value.filter((l: string) => l.trim()).length > 0)
+// 规则: 值班纪事可为空, 巡检任务如果有项目则不能为空
+const notesCount = computed(() => handoverNoteLines.value.filter((l: string) => l.trim()).length)
 const tasksReady = computed(() => {
   if (currentShiftTasks.value.total === 0) return true  // 没任务不卡
   return currentShiftTasks.value.done >= currentShiftTasks.value.total
@@ -830,7 +831,7 @@ const workordersReady = computed(() => {
   // 进行中工单交班后会自动继承, 不算不完成
   return true
 })
-const allReady = computed(() => notesReady.value && tasksReady.value)
+const allReady = computed(() => tasksReady.value)  // 只检查巡检任务
 
 // 点 "交班处理" 按钮 → 弹窗
 function onHandoverClick() {
