@@ -1378,8 +1378,13 @@ router.get('/history', async (req, res) => {
       params.push(team)
     }
     if (taking_over_team) {
-      // 接班班组: LEFT JOIN handover_shifts 出的 hs.team
-      conditions.push('hs.team = ?')
+      // 接班班组: 用 subquery 匹配 handover_shifts.member_name 对应时间窗口的 team
+      // (详见 taking_over_team subquery in rows query)
+      conditions.push(`(SELECT hs.team FROM handover_shifts hs
+                WHERE hs.member_name = h.taking_over_member
+                  AND hs.shift_start <= h.handover_time
+                  AND (hs.shift_end IS NULL OR hs.shift_end >= h.handover_time)
+                ORDER BY hs.shift_start DESC LIMIT 1) = ?`)
       params.push(taking_over_team)
     }
     if (shift_type) {
@@ -1407,7 +1412,6 @@ router.get('/history', async (req, res) => {
     const [countRows] = await pool.query(
       `SELECT COUNT(*) as total
        FROM handover_records h
-       LEFT JOIN users u_taker ON h.taking_over_user_id = u_taker.id
        WHERE ${whereClause}`,
       params
     )

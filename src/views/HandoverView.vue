@@ -411,14 +411,20 @@
             <option v-for="t in teams" :key="t" :value="t">{{ t }}</option>
           </select>
           <label style="color:rgba(255,255,255,0.6);">交班人</label>
-          <input type="text" v-model="filterHandingOverUser" class="filter-input" placeholder="姓名" style="width:80px;padding:2px 6px;background:rgba(255,255,255,0.08);color:#fff;border:1px solid rgba(255,255,255,0.2);border-radius:3px;" />
+          <select v-model="filterHandingOverUser" class="filter-select" style="width:100px;padding:2px 6px;background:rgba(255,255,255,0.08);color:#fff;border:1px solid rgba(255,255,255,0.2);border-radius:3px;" :disabled="!allTeamMembers.length">
+            <option value="">全部</option>
+            <option v-for="m in filteredHandingOverUsers" :key="'ho-'+m.team_name+'-'+m.member_name" :value="m.member_name">{{ m.member_name }}</option>
+          </select>
           <label style="color:rgba(255,255,255,0.6);">接班班组</label>
           <select v-model="filterTakingOverTeam" class="filter-select" style="width:70px;padding:2px 6px;background:rgba(255,255,255,0.08);color:#fff;border:1px solid rgba(255,255,255,0.2);border-radius:3px;">
             <option value="">全部</option>
             <option v-for="t in teams" :key="t" :value="t">{{ t }}</option>
           </select>
           <label style="color:rgba(255,255,255,0.6);">接班人</label>
-          <input type="text" v-model="filterTakingOverUser" class="filter-input" placeholder="姓名" style="width:80px;padding:2px 6px;background:rgba(255,255,255,0.08);color:#fff;border:1px solid rgba(255,255,255,0.2);border-radius:3px;" />
+          <select v-model="filterTakingOverUser" class="filter-select" style="width:100px;padding:2px 6px;background:rgba(255,255,255,0.08);color:#fff;border:1px solid rgba(255,255,255,0.2);border-radius:3px;" :disabled="!allTeamMembers.length">
+            <option value="">全部</option>
+            <option v-for="m in filteredTakingOverUsers" :key="'to-'+m.team_name+'-'+m.member_name" :value="m.member_name">{{ m.member_name }}</option>
+          </select>
           <label style="color:rgba(255,255,255,0.6);">班型</label>
           <select v-model="filterShift" class="filter-select" style="width:60px;padding:2px 6px;background:rgba(255,255,255,0.08);color:#fff;border:1px solid rgba(255,255,255,0.2);border-radius:3px;">
             <option value="">全部</option>
@@ -495,7 +501,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import TopNavBar from '../components/TopNavBar.vue'
 import HistoryDetail from '../components/HistoryDetail.vue'
 import { currentUser, isOnDuty, setCurrentShiftContext } from '../composables/useDeviceStore'
@@ -576,18 +582,24 @@ const newShiftMembers = ref<Array<{ name: string; leader_name?: string; team_nam
 const selectedNewMember = ref<string>('')
 const selectedNewTeam = ref<string>('')  // 接班后归属班组
 
-// 过滤后的接班人列表 (按所选班组)
+// 过滤后的接班人列表 (按所选班组, 优先用全量成员数据)
 const filteredNewMembers = computed(() => {
-  if (!selectedNewTeam.value) return newShiftMembers.value
-  return newShiftMembers.value.filter(m => m.team_name === selectedNewTeam.value)
+  const list = allTeamMembers.value.length > 0
+    ? allTeamMembers.value.map(m => ({ name: m.member_name, leader_name: m.leader_name, team_name: m.team_name }))
+    : newShiftMembers.value
+  if (!selectedNewTeam.value) return list
+  return list.filter(m => m.team_name === selectedNewTeam.value)
 })
 
 // 加载该岗位的接班候选人 (从班组表中读, 可选对应班组的成员)
+// 说明: loadAllTeamMembers 已经从 /api/shift-team-members/:team 拉了全量配置
+// 这里只多取一个默认值 (用于兑底), 成员数据由 loadAllTeamMembers 提供
 async function loadShiftTeamMembers() {
   try {
     const res = await fetch('/api/shift-teams')
     if (!res.ok) return
     const data = await res.json()
+    // 仅用于兑底 (当 allTeamMembers 未加载完时)
     newShiftMembers.value = data
       .filter((m: any) => m.member_name)
       .map((m: any) => ({
@@ -595,14 +607,71 @@ async function loadShiftTeamMembers() {
         leader_name: m.leader_name,
         team_name: m.team_name
       }))
-    // 兑底: 如果接口返的 list 为空, 兑底到 currentUser.member_name
-    if (newShiftMembers.value.length === 0 && currentUser.value?.member_name) {
-      newShiftMembers.value = [{ name: currentUser.value.member_name, team_name: currentUser.value.team || '' }]
-    }
   } catch (err) {
-    console.error('加载班组人员失败', err)
+    console.error('加载班组人员兑底数据失败', err)
   }
 }
+
+// ========== 历史筛选的班组人员下拉联动 ==========
+// 加载所有班组的成员 (用于历史筛选下拉联动)
+// 系统管理员班组配置的成员列表 → /api/shift-team-members/:teamName
+const allTeamMembers = ref<Array<{ team_name: string; member_name: string; leader_name?: string }>>([])
+async function loadAllTeamMembers() {
+  try {
+    // 1. 拿班组列表
+    const teamsRes = await fetch('/api/shift-teams')
+    if (!teamsRes.ok) return
+    const teams = await teamsRes.json()
+    // 2. 并行拿每个班的成员
+    const promises = teams.map(async (t: any) => {
+      try {
+        const r = await fetch(`/api/shift-team-members/${encodeURIComponent(t.team_name)}`)
+        if (!r.ok) return []
+        const members = await r.json()
+        return members
+          .filter((m: any) => m.member_name)
+          .map((m: any) => ({
+            team_name: t.team_name,
+            member_name: m.member_name,
+            leader_name: t.leader_name || ''
+          }))
+      } catch {
+        return []
+      }
+    })
+    const all = await Promise.all(promises)
+    allTeamMembers.value = all.flat()
+  } catch (err) {
+    console.error('加载所有班组人员失败', err)
+  }
+}
+
+// 交班组联交班人 (按所选交班班组过滤)
+const filteredHandingOverUsers = computed(() => {
+  if (!filterTeam.value) {
+    // 不选班组: 返回所有成员去重
+    const seen = new Set<string>()
+    return allTeamMembers.value.filter(m => {
+      if (seen.has(m.member_name)) return false
+      seen.add(m.member_name)
+      return true
+    })
+  }
+  return allTeamMembers.value.filter(m => m.team_name === filterTeam.value)
+})
+
+// 接班组联接班人 (按所选接班班组过滤)
+const filteredTakingOverUsers = computed(() => {
+  if (!filterTakingOverTeam.value) {
+    const seen = new Set<string>()
+    return allTeamMembers.value.filter(m => {
+      if (seen.has(m.member_name)) return false
+      seen.add(m.member_name)
+      return true
+    })
+  }
+  return allTeamMembers.value.filter(m => m.team_name === filterTakingOverTeam.value)
+})
 
 // 工单状态文本映射
 function statusLabel(status: string, woType?: string): string {
@@ -646,6 +715,10 @@ const filterTakingOverTeam = ref('')
 const filterTakingOverUser = ref('')
 const filterStart = ref('')
 const filterEnd = ref('')
+
+// 班组选择变化时, 清空对应的人选择
+watch(filterTeam, () => { filterHandingOverUser.value = '' })
+watch(filterTakingOverTeam, () => { filterTakingOverUser.value = '' })
 const expandedHistoryIds = ref<number[]>([])
 const historyDetails = ref<Record<number, any>>({})
 const loadingDetails = ref<Record<number, boolean>>({})
@@ -982,6 +1055,7 @@ async function toggleHistoryItem(id: number) {
 onMounted(() => {
   loadData()
   loadShiftTeamMembers()
+  loadAllTeamMembers()
   // 注意: 历史列表不自动加载, 需要点查询
 })
 </script>
