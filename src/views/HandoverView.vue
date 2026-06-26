@@ -971,6 +971,10 @@ async function submitHandover() {
     handoverStatus.value = 'pending'
     handoverNotes.value = ''
     handoverNoteLines.value = ['']
+    // 交班成功后, 本班次结束, 清空 currentShift 让底部按钮区切换为'接班处理'状态
+    currentShift.value = null
+    // 同步清全局 currentShiftContext (右上角圆圈)
+    setCurrentShiftContext(null)
     await loadData()
   } catch (err: any) {
     console.error('交班失败', err)
