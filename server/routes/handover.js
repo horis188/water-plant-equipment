@@ -1108,16 +1108,19 @@ router.post('/', async (req, res) => {
       const [uRows] = await pool.query(`SELECT id FROM users WHERE name = ? LIMIT 1`, [finalTakingOverUser])
       if (uRows[0]) takingOverUserId = uRows[0].id
     }
-    // 关闭交班人当前的 active shift (shift_end = now)
+    // 关闭交班人当前所有 active shift (shift_end = now)
+    // 不依赖 finalShiftType (前端可能传错), 直接按 user_id 关掉该岗位所有未结束班次
     // 这样 /status 就不会再返回 currentShift, 页面会正确切到"未接班/待接班"状态
-    if (handingOverUserId && finalShiftType) {
+    if (handingOverUserId) {
       const [userRows] = await pool.query(`SELECT name FROM users WHERE id = ?`, [handingOverUserId])
       const userName = userRows[0]?.name
       if (userName) {
-        await pool.query(
-          `UPDATE handover_shifts SET shift_end = NOW() WHERE user_name = ? AND shift_type = ? AND shift_end IS NULL`,
-          [userName, finalShiftType]
+        // 关闭该 user_name 下所有 active shift
+        const [closeRes] = await pool.query(
+          `UPDATE handover_shifts SET shift_end = NOW() WHERE user_name = ? AND shift_end IS NULL`,
+          [userName]
         )
+        console.log(`[handover POST] Closed ${closeRes.affectedRows} active shift(s) for user_name=${userName}`)
       }
     }
     const [result] = await pool.query(
