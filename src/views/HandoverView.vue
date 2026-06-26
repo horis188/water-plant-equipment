@@ -142,7 +142,55 @@
         </select>
       </div>
       <div class="pending-hint-actions">
-        <button class="dm-btn dm-btn-confirm" @click="confirmTakeover" :disabled="!canTakeover || !selectedNewMember">确认接班 ({{ selectedNewMember || '未选择' }})</button>
+        <button class="dm-btn dm-btn-confirm" @click="onTakeoverClick" :disabled="!canTakeover || !selectedNewMember">确认接班 ({{ selectedNewMember || '未选择' }})</button>
+      </div>
+    </div>
+
+    <!-- 交班确认弹窗 -->
+    <div v-if="handoverModalVisible" class="modal-backdrop" @click.self="handoverModalVisible = false" style="position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:1000;display:flex;align-items:center;justify-content:center;">
+      <div class="modal-box" style="background:#0f2d4a;border:1px solid rgba(45,212,191,0.3);border-radius:8px;padding:24px;min-width:420px;max-width:560px;color:#fff;">
+        <h3 style="margin:0 0 16px;font-size:18px;color:#2dd4bf;">🔁 交班确认</h3>
+        <div style="background:rgba(255,255,255,0.04);border-radius:6px;padding:14px 18px;margin-bottom:16px;">
+          <div style="font-size:14px;font-weight:600;color:rgba(255,255,255,0.85);margin-bottom:10px;">本班次状态检查：</div>
+          <div style="display:flex;flex-direction:column;gap:8px;font-size:14px;">
+            <div>• 值班纪事：<span :style="notesReady ? 'color:#4ade80;' : 'color:#fa8c16;'">{{ notesReady ? '✓ 已填 ' + handoverNoteLines.filter((l: string) => l.trim()).length + ' 条' : '⚠ 未填' }}</span></div>
+            <div>• 巡检任务：<span :style="tasksReady ? 'color:#4ade80;' : 'color:#fa8c16;'">{{ currentShiftTasks.done }} / {{ currentShiftTasks.total }} 完成{{ currentShiftTasks.abnormal > 0 ? ' (含 ' + currentShiftTasks.abnormal + ' 异常)' : '' }}</span></div>
+            <div>• 工单情况：<span :style="workordersReady ? 'color:#4ade80;' : 'color:#fa8c16;'">完成 {{ currentShiftWorkorders.completed.length }} /  进行中 {{ currentShiftWorkorders.inProgress.length }}{{ (currentShiftWorkorders.inherited || []).length > 0 ? ' (含 ' + currentShiftWorkorders.inherited.length + ' 继承)' : '' }}</span></div>
+          </div>
+        </div>
+        <div v-if="!allReady" style="background:rgba(250,140,22,0.15);border:1px solid rgba(250,140,22,0.4);border-radius:6px;padding:10px 14px;margin-bottom:16px;font-size:13px;color:#fa8c16;">
+          ⚠️ 有未完成项。交班后未完成项会自动继承给下一班继续处理。
+        </div>
+        <div v-else style="background:rgba(74,222,128,0.15);border:1px solid rgba(74,222,128,0.4);border-radius:6px;padding:10px 14px;margin-bottom:16px;font-size:13px;color:#4ade80;">
+          ✓ 所有项目已完成, 可以交班。
+        </div>
+        <div style="display:flex;justify-content:flex-end;gap:8px;">
+          <button @click="handoverModalVisible = false" style="padding:8px 18px;background:rgba(255,255,255,0.08);color:#fff;border:1px solid rgba(255,255,255,0.2);border-radius:4px;cursor:pointer;">取消</button>
+          <button @click="submitHandover" style="padding:8px 18px;background:#2dd4bf;color:#0f2d4a;border:none;border-radius:4px;cursor:pointer;font-weight:600;">确认交班</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 接班确认弹窗 -->
+    <div v-if="takeoverModalVisible" class="modal-backdrop" @click.self="takeoverModalVisible = false" style="position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:1000;display:flex;align-items:center;justify-content:center;">
+      <div class="modal-box" style="background:#0f2d4a;border:1px solid rgba(45,212,191,0.3);border-radius:8px;padding:24px;min-width:420px;max-width:560px;color:#fff;">
+        <h3 style="margin:0 0 16px;font-size:18px;color:#2dd4bf;">✅ 接班确认</h3>
+        <div style="background:rgba(255,255,255,0.04);border-radius:6px;padding:14px 18px;margin-bottom:16px;">
+          <div style="font-size:14px;font-weight:600;color:rgba(255,255,255,0.85);margin-bottom:10px;">即将接管：</div>
+          <div style="display:flex;flex-direction:column;gap:8px;font-size:14px;">
+            <div>• 岗位：<span style="color:#2dd4bf;">{{ currentUser?.role || '-' }}</span></div>
+            <div>• 接班班组：<span style="color:#2dd4bf;">{{ selectedNewTeam }}</span></div>
+            <div>• 接班人：<span style="color:#2dd4bf;">{{ selectedNewMember }}</span></div>
+            <div v-if="lastHandover">• 班次：<span style="color:#2dd4bf;">{{ lastHandover.shift_type }}</span></div>
+          </div>
+        </div>
+        <div v-if="(currentShiftWorkorders.inherited || []).length > 0 || currentShiftWorkorders.inProgress.length > 0" style="background:rgba(96,165,250,0.15);border:1px solid rgba(96,165,250,0.4);border-radius:6px;padding:10px 14px;margin-bottom:16px;font-size:13px;color:#60a5fa;">
+          ℹ️ 接管后将自动继承 {{ currentShiftWorkorders.inherited?.length || 0 }} 条滚动工单 + {{ currentShiftWorkorders.inProgress.length }} 条进行中工单
+        </div>
+        <div style="display:flex;justify-content:flex-end;gap:8px;">
+          <button @click="takeoverModalVisible = false" style="padding:8px 18px;background:rgba(255,255,255,0.08);color:#fff;border:1px solid rgba(255,255,255,0.2);border-radius:4px;cursor:pointer;">取消</button>
+          <button @click="confirmTakeover" style="padding:8px 18px;background:#2dd4bf;color:#0f2d4a;border:none;border-radius:4px;cursor:pointer;font-weight:600;">确认接班</button>
+        </div>
       </div>
     </div>
 
@@ -371,16 +419,30 @@
             </div>
           </div>
 
-          <!-- 选择班组 + 提交按钮 -->
-          <div class="form-row-inline" style="margin-bottom:12px;">
-            <label class="form-label" style="font-size:16px;font-weight:600;color:rgba(255,255,255,0.95);">选择交班班组</label>
-            <div class="team-selector" style="margin-top:6px;">
-              <button v-for="t in teams" :key="t" class="team-btn" :class="{ active: selectedTeam === t }" @click="selectedTeam = t" style="padding:4px 12px;margin-right:6px;background:rgba(255,255,255,0.06);color:#fff;border:1px solid rgba(255,255,255,0.2);border-radius:4px;cursor:pointer;font-size:12px;">{{ t }}</button>
-            </div>
-          </div>
-          <div class="form-actions" style="display:flex;gap:8px;">
-            <button class="dm-btn" @click="saveNotes" :disabled="!amIOnShift" style="padding:8px 20px;background:rgba(45,212,191,0.15);color:#2dd4bf;border:1px solid rgba(45,212,191,0.4);border-radius:4px;cursor:pointer;">💾 保存</button>
-            <button class="dm-btn dm-btn-primary" @click="submitHandover" :disabled="!canHandover" style="padding:8px 20px;background:#2dd4bf;color:#0f2d4a;border:none;border-radius:4px;cursor:pointer;font-weight:600;">✅ 交班处理</button>
+          <!-- 底部按钮区: 根据状态显示不同按钮 -->
+          <div class="form-actions" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            <!-- 未接班 (currentShift 为空 且 不是待接班): 显示接班处理 + 班组+人下拉 -->
+            <template v-if="!currentShift && handoverStatus !== 'pending'">
+              <label style="font-size:14px;color:rgba(255,255,255,0.85);">接班班组：</label>
+              <select v-model="selectedNewTeam" style="padding:6px 10px;background:rgba(255,255,255,0.08);color:#fff;border:1px solid rgba(255,255,255,0.2);border-radius:4px;">
+                <option v-for="t in teams" :key="'newt-'+t" :value="t">{{ t }}</option>
+              </select>
+              <label style="font-size:14px;color:rgba(255,255,255,0.85);">接班人：</label>
+              <select v-model="selectedNewMember" style="padding:6px 10px;background:rgba(255,255,255,0.08);color:#fff;border:1px solid rgba(255,255,255,0.2);border-radius:4px;min-width:100px;">
+                <option value="">请选择</option>
+                <option v-for="m in filteredNewMembers" :key="'newm-'+m.team_name+'-'+m.name" :value="m.name">{{ m.name }}</option>
+              </select>
+              <button class="dm-btn dm-btn-primary" @click="onTakeoverClick" :disabled="!selectedNewMember" style="padding:8px 20px;background:#2dd4bf;color:#0f2d4a;border:none;border-radius:4px;cursor:pointer;font-weight:600;">✅ 接班处理</button>
+            </template>
+            <!-- 已接班: 显示保存 + 交班处理 -->
+            <template v-else-if="amIOnShift">
+              <button class="dm-btn" @click="saveNotes" style="padding:8px 20px;background:rgba(45,212,191,0.15);color:#2dd4bf;border:1px solid rgba(45,212,191,0.4);border-radius:4px;cursor:pointer;">💾 保存</button>
+              <button class="dm-btn dm-btn-primary" @click="onHandoverClick" style="padding:8px 20px;background:#2dd4bf;color:#0f2d4a;border:none;border-radius:4px;cursor:pointer;font-weight:600;">🔁 交班处理</button>
+            </template>
+            <!-- 待接班: 只显示提示 (顶部 pending-hint 区域已有接班处理按钮) -->
+            <template v-else-if="handoverStatus === 'pending'">
+              <span style="color:rgba(255,255,255,0.6);font-size:14px;">⏳ 等待接班人点击顶部"接班处理"按钮</span>
+            </template>
           </div>
         </div>
       </div>
@@ -754,6 +816,35 @@ const canTakeover = computed(() => {
      !lastHandover.value.taking_over_user)
 })
 
+// ========== 交班/接班 确认弹窗 ==========
+const handoverModalVisible = ref(false)
+const takeoverModalVisible = ref(false)
+
+// 交班准备检查 (用于弹窗提示)
+const notesReady = computed(() => handoverNoteLines.value.filter((l: string) => l.trim()).length > 0)
+const tasksReady = computed(() => {
+  if (currentShiftTasks.value.total === 0) return true  // 没任务不卡
+  return currentShiftTasks.value.done >= currentShiftTasks.value.total
+})
+const workordersReady = computed(() => {
+  // 进行中工单交班后会自动继承, 不算不完成
+  return true
+})
+const allReady = computed(() => notesReady.value && tasksReady.value)
+
+// 点 "交班处理" 按钮 → 弹窗
+function onHandoverClick() {
+  handoverModalVisible.value = true
+}
+// 点 "接班处理" 按钮 → 弹窗
+function onTakeoverClick() {
+  if (!selectedNewMember.value) {
+    alert('请选择接班人')
+    return
+  }
+  takeoverModalVisible.value = true
+}
+
 // 班次配置 (从后端读取, loadData 时加载)
 const shiftsConfig = ref<Array<{ name: string; start_time: string; end_time: string; cross_day: number; enabled: number }>>([])
 
@@ -844,11 +935,15 @@ async function loadData() {
   }
 }
 
-// 交班
+// 交班 (弹窗确认后调用)
 async function submitHandover() {
+  // 关闭弹窗 (防重复点)
+  handoverModalVisible.value = false
   if (!isOnDuty.value) { alert('非值班时间，无法交班'); return }
-  if (!canHandover.value) {
-    alert('请先完成本班巡检和工单任务')
+  // 使用 currentShift.team (实际值班班组), 兑底 selectedTeam
+  const teamForHandover = currentShift.value?.team || selectedTeam.value
+  if (!teamForHandover) {
+    alert('请选择交班班组')
     return
   }
   try {
@@ -859,7 +954,7 @@ async function submitHandover() {
         handingOverUser: currentUser.value?.name,
         handingOverRole: currentUser.value?.role,
         shiftType: currentShiftType.value,
-        team: selectedTeam.value,
+        team: teamForHandover,
         handoverTime: Date.now(),
         notes: buildNotesFromLines(),
         tasksStatus: tasksCompleted.value ? 'completed' : 'pending',
