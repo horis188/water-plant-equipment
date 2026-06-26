@@ -1020,6 +1020,13 @@ function resetFilters() {
   filterTakingOverUser.value = ''
   filterStart.value = ''
   filterEnd.value = ''
+  // 同步清空已查询到的结果 (点击重置 = 回到初始状态)
+  history.value = []
+  historyTotal.value = 0
+  historyPage.value = 1
+  historyDetails.value = {}
+  expandedHistoryIds.value = []
+  hasSearched.value = false
   // 重置后不自动查, 让用户重新点查询
 }
 
