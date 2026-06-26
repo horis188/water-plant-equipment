@@ -962,15 +962,19 @@ async function submitHandover() {
         workordersStatus: workordersCompleted.value ? 'completed' : 'pending'
       })
     })
-    if (!res.ok) throw new Error('交班失败')
+    if (!res.ok) {
+      // 拿后端详细错误信息
+      const errBody = await res.json().catch(() => ({}))
+      throw new Error(errBody.error || `HTTP ${res.status}`)
+    }
     alert('交班成功')
     handoverStatus.value = 'pending'
     handoverNotes.value = ''
     handoverNoteLines.value = ['']
     await loadData()
-  } catch (err) {
+  } catch (err: any) {
     console.error('交班失败', err)
-    alert('交班失败，请重试')
+    alert('交班失败: ' + (err.message || '请重试'))
   }
 }
 
