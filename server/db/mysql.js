@@ -10,7 +10,10 @@ const pool = mysql.createPool({
   waitForConnections: true,
   connectionLimit: 10,
   queueLimit: 0,
-  charset: 'utf8mb4'
+  charset: 'utf8mb4',
+  // DATETIME/DATE 直接返回字符串 (BJT 字面值), 避免 mysql2 默认时区转换造成 8h 错位
+  dateStrings: true,
+  timezone: '+08:00'
 })
 
 export default pool

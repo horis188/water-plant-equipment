@@ -212,21 +212,96 @@ async function initTables() {
 initTables()
 
 function fmtDate(d) {
-  // 服务器时区为 Asia/Shanghai (BJT),使用本地方法即可获得 BJT 日期
-  // 原 +8h 实现重复加了时区偏移,导致日期偏后一天
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
+  // 兼容传入 BJT 字符串 'YYYY-MM-DD' 或 'YYYY-MM-DD HH:MM:SS', 直接提取日期部分
+  if (typeof d === 'string') return d.substring(0, 10)
+  // Date 对象: 强制转 BJT
+  const bjtMs = d.getTime() + 8 * 3600000
+  const bjt = new Date(bjtMs)
+  const y = bjt.getUTCFullYear()
+  const m = String(bjt.getUTCMonth() + 1).padStart(2, '0')
+  const day = String(bjt.getUTCDate()).padStart(2, '0')
   return `${y}-${m}-${day}`
 }
 
 function fmtDateTime(d) {
-  // 服务器时区为 BJT,使用本地方法
+  // 兼容传入 BJT 字符串 'YYYY-MM-DD HH:MM:SS', 直接返回
+  if (typeof d === 'string') return d.substring(0, 19)
+  // Date 对象: 强制转 BJT
+  const bjtMs = d.getTime() + 8 * 3600000
+  const bjt = new Date(bjtMs)
   const pad = n => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+  return `${bjt.getUTCFullYear()}-${pad(bjt.getUTCMonth() + 1)}-${pad(bjt.getUTCDate())} ${pad(bjt.getUTCHours())}:${pad(bjt.getUTCMinutes())}:${pad(bjt.getUTCSeconds())}`
 }
 
 const allTeams = ['A班', 'B班', 'C班', 'D班']
+
+// 查询指定时间窗口内指定班组的工单,合并问题/维修,去重,分组
+// 返回 { created: [], completed: [], inProgress: [] }
+// member_name: 可选 — 传则按 member_name 查(不限时间), 不传则按时间窗口查
+async function fetchShiftWorkorders(winStart, winEnd, team, date, memberName = null) {
+  let woQuery, woParams, maintQuery, maintParams
+  if (memberName) {
+    woQuery = `SELECT * FROM problem_orders WHERE team = ? AND member_name = ?`
+    woParams = [team, memberName]
+    maintQuery = `SELECT * FROM maintenance_orders WHERE team = ? AND member_name = ?`
+    maintParams = [team, memberName]
+  } else {
+    // 不加 DATE(created_at)= 过滤, 仅按 created_at 时间窗口查(覆盖跨天班次)
+    woQuery = `SELECT * FROM problem_orders WHERE team = ? AND created_at >= ? AND created_at <= ?`
+    woParams = [team, fmtDateTime(winStart), fmtDateTime(winEnd)]
+    maintQuery = `SELECT * FROM maintenance_orders WHERE team = ? AND created_at >= ? AND created_at <= ?`
+    maintParams = [team, fmtDateTime(winStart), fmtDateTime(winEnd)]
+  }
+  const [woRows] = await pool.query(woQuery, woParams)
+  const [maintWoRows] = await pool.query(maintQuery, maintParams)
+  const allWosRaw = [
+    ...woRows.map((w) => ({ ...w, type: '问题工单' })),
+    ...maintWoRows.map((w) => ({ ...w, type: '维修工单' }))
+  ]
+  const maintProblemMap = {}
+  for (const w of allWosRaw) {
+    if (w.type === '维修工单' && w.problem_order_id) {
+      maintProblemMap[w.problem_order_id] = w
+    }
+  }
+  const problemIdsNeedReplace = allWosRaw
+    .filter(w => w.type === '问题工单' && w.status === 'to_maintenance' && !maintProblemMap[w.id])
+    .map(w => w.id)
+  if (problemIdsNeedReplace.length > 0) {
+    const [latestMaint] = await pool.query(
+      `SELECT * FROM maintenance_orders WHERE problem_order_id IN (${problemIdsNeedReplace.map(() => '?').join(',')}) ORDER BY id DESC`,
+      problemIdsNeedReplace
+    )
+    for (const m of latestMaint || []) {
+      if (m.problem_order_id) maintProblemMap[m.problem_order_id] = { ...m, type: '维修工单' }
+    }
+  }
+  const allWos = []
+  const replacedMaintIds = new Set()
+  for (const w of allWosRaw) {
+    if (w.type === '问题工单' && w.status === 'to_maintenance' && maintProblemMap[w.id]) {
+      allWos.push({ ...maintProblemMap[w.id], _from_problem: true })
+      replacedMaintIds.add(maintProblemMap[w.id].id)
+    } else if (w.type === '维修工单' && replacedMaintIds.has(w.id)) {
+      continue
+    } else {
+      allWos.push(w)
+    }
+  }
+  for (const w of allWos) w.isCreatedInLastShift = true
+  const seenKey = new Set()
+  const allWosDedup = allWos.filter((w) => {
+    const key = `${w.id}-${w.type}`
+    if (seenKey.has(key)) return false
+    seenKey.add(key)
+    return true
+  })
+  return {
+    created: allWosDedup,
+    completed: allWos.filter((w) => ['completed', 'closed', 'self_resolved'].includes(w.status)),
+    inProgress: allWos.filter((w) => ['pending', 'processing', 'delay', 'returned', 'to_maintenance'].includes(w.status))
+  }
+}
 
 // 中间件:打印请求
 function logReq(name) {
@@ -268,6 +343,10 @@ router.get('/status', async (req, res) => {
         currentShift = shiftsByName[0] || null
       }
     }
+    // 1.1 拿 currentShift 对应 users.id (用于 JOIN handover_records.taking_over_user_id)
+    if (currentShift && userId) {
+      currentShift.user_db_id = parseInt(userId)
+    }
 
     // 查询当前班次今天已保存的纪事(用于填充当前班次纪事编辑器, 而不是上一班的)
     let currentDutyNotes = null
@@ -288,18 +367,20 @@ router.get('/status', async (req, res) => {
     let lastDutyNotes = null
     let lastShiftTasks = { done: 0, total: 0, abnormal: 0, abnormalList: [], allList: [] }
     let lastShiftWorkorders = { created: [], completed: [], inProgress: [] }
+    let currentShiftTasks = { done: 0, total: 0, abnormal: 0, abnormalList: [], allList: [] }
+    let currentShiftWorkorders = { created: [], completed: [], inProgress: [] }
 
     if (currentShift) {
-      // 查找"上一班交接":当前班次的接班交接(taking_over_user = current_user)
-      // 这条记录是上一班交班给本人时创建的,handing_over_user/member 就是上一班的人
+      // 查找"上一班交接":当前班次的接班交接(taking_over_user_id = current_user.id)
+      // 这条记录是上一班交班给本人时创建的,handing_over_member 就是上一班的人
       // 不适用 fallback (会取到其他岗位的记录)
       let prevHandoverRows = []
-      if (currentShift.user_name) {
+      if (currentShift.user_db_id) {
         const [intakeRows] = await pool.query(
           `SELECT * FROM handover_records
-           WHERE taking_over_user = ? AND status = 'completed'
+           WHERE taking_over_user_id = ? AND status = 'completed'
            ORDER BY handover_time DESC LIMIT 1`,
-          [currentShift.user_name]
+          [currentShift.user_db_id]
         )
         prevHandoverRows = intakeRows
       }
@@ -310,10 +391,26 @@ router.get('/status', async (req, res) => {
       } else {
         handoverStatus = 'idle'
       }
-      // 上一班次的窗口:从交班时间前 12 小时到交班时间（覆盖任意班次跨天场景）
-      // 注意:handover_records.shift_start 字段是接班时间(不是上一班次开始时间),所以不能用作 winStart
+      // 上一班次时间窗口: 从交班人(handing_over_member 优先, fallback handing_over_user 旧字段)的 shift_start 到 lastHandover.handover_time
+      // 如果交班人是平台测试定义的第一班(shift_start 为空), 则追溯到最早
       const winEnd = new Date(lastHandover?.handover_time || currentShift.shift_start)
-      const winStart = new Date(winEnd.getTime() - 12 * 3600000)
+      let winStart
+      const prevMemberName = lastHandover?.handing_over_member || lastHandover?.handing_over_user
+      if (prevMemberName) {
+        // member_name 是个人名(周海洋) - 用 member_name 匹配 handover_shifts
+        const [prevShiftRows] = await pool.query(
+          `SELECT shift_start FROM handover_shifts WHERE member_name = ? AND shift_end = ? LIMIT 1`,
+          [prevMemberName, fmtDateTime(winEnd)]
+        )
+        if (prevShiftRows[0]?.shift_start) {
+          winStart = new Date(prevShiftRows[0].shift_start)
+        } else {
+          // 平台测试定义的第一班: 没有上一班接班时间, 追溯到最早
+          winStart = new Date(0)
+        }
+      } else {
+        winStart = new Date(winEnd.getTime() - 12 * 3600000)
+      }
       // 上一班次对应的日期(按 BJT 取 handover_time 的日期)
       const prevDate = fmtDate(winEnd)
       // 上一班次的值班纪事(按 prevDate 查询,不是 today)
@@ -325,15 +422,14 @@ router.get('/status', async (req, res) => {
         if (notes[0] && notes[0].notes && notes[0].notes.trim()) lastDutyNotes = notes[0]
       }
 
-      // 上一班次的巡检任务: 按上一班次日期 + 当前班账号 查
-      // (避免依赖 shift_id, 因为交班人周海洋的班次可能不在 handover_shifts 表里)
+      // 上一班次的巡检任务: 按上一班次时间窗口 + 当前班账号 查
       const [shiftTasks] = await pool.query(
         `SELECT r.*, i.device_name, p.name as plan_name, p.location as plan_location
          FROM inspection_task_records r
          LEFT JOIN inspection_items i ON r.device_id = i.device_id AND r.plan_id = i.plan_id
          LEFT JOIN inspection_plans p ON r.plan_id = p.id
-         WHERE r.check_date = ? AND r.executor_name = ?`,
-        [prevDate, currentShift.user_name]
+         WHERE r.executor_name = ? AND r.created_at >= ? AND r.created_at <= ?`,
+        [currentShift.user_name, fmtDateTime(winStart), fmtDateTime(winEnd)]
       )
       console.log('[DEBUG /status lastShiftTasks] prevDate:', prevDate, 'executor_name:', currentShift.user_name, 'count:', shiftTasks.length)
       lastShiftTasks.total = shiftTasks.length
@@ -343,71 +439,62 @@ router.get('/status', async (req, res) => {
       lastShiftTasks.allList = shiftTasks // 完整列表(包括已完成、异常、待执行)
 
       // 上一班次的工单情况（用 prevDate，不用 today；时间窗口用 created_at）
-      // 按 team + 接管前 12h 查(不限于交班人,整个上一班次班组的工单)
+      // 按 team + 上一班次时间窗口查(与上一班巡检一致)
       const prevTeam = lastHandover?.team || currentShift.team
-      // 问题工单：按 team + 时间窗口查
-      const woQuery = `SELECT * FROM problem_orders WHERE DATE(created_at) = ? AND team = ? AND created_at >= ? AND created_at <= ?`
-      const woParams = [prevDate, prevTeam, fmtDateTime(winStart), fmtDateTime(winEnd)]
-      const [woRows] = await pool.query(woQuery, woParams)
-      // 维护工单：同样按 team + 时间窗口查
-      const maintQuery = `SELECT * FROM maintenance_orders WHERE DATE(created_at) = ? AND team = ? AND created_at >= ? AND created_at <= ?`
-      const maintParams = [prevDate, prevTeam, fmtDateTime(winStart), fmtDateTime(winEnd)]
-      const [maintWoRows] = await pool.query(maintQuery, maintParams)
-      const allWosRaw = [
-        ...woRows.map((w) => ({ ...w, type: '问题工单' })),
-        ...maintWoRows.map((w) => ({ ...w, type: '维修工单' }))
-      ]
-      // 问题工单转维修后只显示维修工单:problem 状态=to_maintenance 且 id 在维修工单的 problem_order_id 中
-      const maintProblemMap = {}
-      for (const w of allWosRaw) {
-        if (w.type === '维修工单' && w.problem_order_id) {
-          maintProblemMap[w.problem_order_id] = w
-        }
+      const prevWo = await fetchShiftWorkorders(winStart, winEnd, prevTeam, prevDate)
+      lastShiftWorkorders.created = prevWo.created
+      lastShiftWorkorders.completed = prevWo.completed
+      lastShiftWorkorders.inProgress = prevWo.inProgress
+
+      // 当前班次巡检 + 工单 (接班以来到现在)
+      const curWinStart = lastHandover ? new Date(lastHandover.handover_time) : new Date(currentShift.shift_start)
+      // curWinEnd = 下一次接班时间(交接班记录的 handover_time), 未交班则取 now
+      const [nextHandoverRows] = await pool.query(
+        `SELECT handover_time FROM handover_records
+         WHERE taking_over_user_id = ? AND handover_time > ?
+         ORDER BY handover_time ASC LIMIT 1`,
+        [currentShift.user_db_id, fmtDateTime(curWinStart)]
+      )
+      const curWinEnd = nextHandoverRows[0] ? new Date(nextHandoverRows[0].handover_time) : new Date()
+      // 当前巡检任务 (接班以来到现在的时间窗口, 不限 check_date=today, 覆盖跨天班次)
+      const [curShiftTasks] = await pool.query(
+        `SELECT r.*, i.device_name, p.name as plan_name, p.location as plan_location
+         FROM inspection_task_records r
+         LEFT JOIN inspection_items i ON r.device_id = i.device_id AND r.plan_id = i.plan_id
+         LEFT JOIN inspection_plans p ON r.plan_id = p.id
+         WHERE r.executor_name = ? AND r.created_at >= ? AND r.created_at <= ?`,
+        [currentShift.user_name, fmtDateTime(curWinStart), fmtDateTime(curWinEnd)]
+      )
+      currentShiftTasks.total = curShiftTasks.length
+      currentShiftTasks.done = curShiftTasks.filter((t) => t.status === 'completed' || t.status === 'abnormal').length
+      currentShiftTasks.abnormal = curShiftTasks.filter((t) => t.has_abnormal === 1).length
+      currentShiftTasks.abnormalList = curShiftTasks.filter((t) => t.has_abnormal === 1)
+      currentShiftTasks.allList = curShiftTasks
+      // 当前工单 (今天 + 当前班组 + 接班以来到现在)
+      const curWo = await fetchShiftWorkorders(curWinStart, curWinEnd, currentShift.team, today)
+      currentShiftWorkorders.created = curWo.created
+      currentShiftWorkorders.completed = curWo.completed
+      currentShiftWorkorders.inProgress = curWo.inProgress
+      currentShiftWorkorders.inherited = []
+      // 读继承工单 (inherited_workorders 在 handover_shifts 里 JSON 存储)
+      let inheritedRaw = currentShift.inherited_workorders
+      if (typeof inheritedRaw === 'string') {
+        try { inheritedRaw = JSON.parse(inheritedRaw) } catch { inheritedRaw = [] }
       }
-      // 补全查找:to_maintenance 问题工单如果未被窗口内维修工单替代,
-      // 则查询该问题工单关联的最新维修工单(不限时间窗口)作为替代
-      const problemIdsNeedReplace = allWosRaw
-        .filter(w => w.type === '问题工单' && w.status === 'to_maintenance' && !maintProblemMap[w.id])
-        .map(w => w.id)
-      if (problemIdsNeedReplace.length > 0) {
-        const [latestMaint] = await pool.query(
-          `SELECT * FROM maintenance_orders WHERE problem_order_id IN (${problemIdsNeedReplace.map(() => '?').join(',')}) ORDER BY id DESC`,
-          problemIdsNeedReplace
-        )
-        for (const m of latestMaint || []) {
-          if (m.problem_order_id) {
-            maintProblemMap[m.problem_order_id] = { ...m, type: '维修工单' }
-          }
-        }
+      const inheritedWos = Array.isArray(inheritedRaw) ? inheritedRaw : []
+      if (inheritedWos.length > 0) {
+        const inheritedMarked = inheritedWos.map(w => ({
+          ...w,
+          type: w.wo_type === 'problem' ? '问题工单' : '维修工单',
+          _from_inheritance: true
+        }))
+        // 继承工单不计入 created, 单独放在 inherited
+        currentShiftWorkorders.inherited = inheritedMarked
+        // inProgress 仅含本班未完成 (继承工单已在滚动组显示, 不重复)
+        currentShiftWorkorders.inProgress = curWo.inProgress
+        // completed 仅含本班已闭环
+        currentShiftWorkorders.completed = curWo.completed
       }
-      const allWos = []
-      const replacedMaintIds = new Set()
-      for (const w of allWosRaw) {
-        if (w.type === '问题工单' && w.status === 'to_maintenance' && maintProblemMap[w.id]) {
-          allWos.push({ ...maintProblemMap[w.id], _from_problem: true })
-          replacedMaintIds.add(maintProblemMap[w.id].id)
-        } else if (w.type === '维修工单' && replacedMaintIds.has(w.id)) {
-          // 被作为替代的维修工单跳过
-          continue
-        } else {
-          allWos.push(w)
-        }
-      }
-      // 标记:这些工单都是上一班值班期间由上一班创建的(查询已按时间窗口+人员过滤)
-      for (const w of allWos) w.isCreatedInLastShift = true
-      // 去重:问题工单和维修工单 ID 可能碰撞,按 (id, type) 组合去重,保留第一个出现的
-      const seenKey = new Set()
-      const allWosDedup = allWos.filter((w) => {
-        const key = `${w.id}-${w.type}`
-        if (seenKey.has(key)) return false
-        seenKey.add(key)
-        return true
-      })
-      // 新建 = 上一班期间创建的所有工单(不限当前状态)
-      lastShiftWorkorders.created = allWosDedup
-      lastShiftWorkorders.completed = allWos.filter((w) => ['completed', 'closed', 'self_resolved'].includes(w.status))
-      // inProgress 包含:processing/delay/returned/to_maintenance(问题工单转维修中)
-      lastShiftWorkorders.inProgress = allWos.filter((w) => ['processing', 'delay', 'returned', 'to_maintenance'].includes(w.status))
     } else {
       // 未接班状态:按角色查找待接班记录
       const [pendingHandoverRows] = await pool.query(
@@ -455,7 +542,7 @@ router.get('/status', async (req, res) => {
     const [completedHandover] = await pool.query(
       `SELECT h.*, u.name as taking_over_user_name
        FROM handover_records h
-       LEFT JOIN users u ON h.taking_over_user = u.id
+       LEFT JOIN users u ON h.taking_over_user_id = u.id
        WHERE h.status = 'completed'
        AND DATE(h.handover_time) = ?
        ORDER BY h.handover_time DESC LIMIT 1`,
@@ -580,6 +667,8 @@ router.get('/status', async (req, res) => {
       workordersTotal,
       lastShiftTasks,
       lastShiftWorkorders,
+      currentShiftTasks,
+      currentShiftWorkorders,
       completedHandover: completedHandover[0] || null,
       perPersonStats
     })
@@ -601,21 +690,25 @@ router.get('/all-shifts', async (req, res) => {
 
     // 查当班 active shifts(该 team 下)
     const [shifts] = await pool.query(
-      `SELECT * FROM handover_shifts WHERE shift_end IS NULL AND team = ? ORDER BY shift_start DESC`,
+      `SELECT hs.*, u.id as user_db_id
+       FROM handover_shifts hs
+       LEFT JOIN users u ON u.name = hs.user_name
+       WHERE hs.shift_end IS NULL AND hs.team = ?
+       ORDER BY hs.shift_start DESC`,
       [targetTeam]
     )
     if (shifts.length === 0) return res.json({ team: targetTeam, shifts: [] })
 
     // 为每个 shift 查上一班交接、任务数、工单数
     const shiftContexts = await Promise.all(shifts.map(async (shift) => {
-      // 上一班交接(取 taking_over_user = shift.user_name 的完成交接)
+      // 上一班交接(取 taking_over_user_id = shift.user_db_id 的完成交接)
       let lastHandover = null
-      if (shift.user_name) {
+      if (shift.user_db_id) {
         const [rows] = await pool.query(
           `SELECT * FROM handover_records
-           WHERE taking_over_user = ? AND status = 'completed'
+           WHERE taking_over_user_id = ? AND status = 'completed'
            ORDER BY handover_time DESC LIMIT 1`,
-          [shift.user_name]
+          [shift.user_db_id]
         )
         if (rows[0]) lastHandover = rows[0]
       }
@@ -714,17 +807,21 @@ router.get('/admin-overview', async (req, res) => {
     for (const t of currentTeams) {
       // 该班组下的 active shifts
       const [shifts] = await pool.query(
-        `SELECT * FROM handover_shifts WHERE team = ? AND shift_end IS NULL ORDER BY shift_start DESC`,
+        `SELECT hs.*, u.id as user_db_id
+         FROM handover_shifts hs
+         LEFT JOIN users u ON u.name = hs.user_name
+         WHERE hs.team = ? AND hs.shift_end IS NULL
+         ORDER BY hs.shift_start DESC`,
         [t]
       )
       for (const shift of shifts) {
         let lastHandover = null
-        if (shift.user_name) {
+        if (shift.user_db_id) {
           const [rows] = await pool.query(
             `SELECT * FROM handover_records
-             WHERE taking_over_user = ? AND status = 'completed'
+             WHERE taking_over_user_id = ? AND status = 'completed'
              ORDER BY handover_time DESC LIMIT 1`,
-            [shift.user_name]
+            [shift.user_db_id]
           )
           if (rows[0]) lastHandover = rows[0]
         }
@@ -962,6 +1059,10 @@ router.post('/', async (req, res) => {
       tasks_status, tasksStatus,
       workorders_status, workordersStatus
     } = req.body
+    // 兼容驼峰式字段名 (前端传 handoverTime 而不是 handover_time)
+    const finalHandoverTime = handover_time ?? req.body.handoverTime
+    const finalShiftStartIn = shift_start ?? shiftStart ?? req.body.shiftStart
+    const finalShiftEndIn = shift_end ?? shiftEnd ?? req.body.shiftEnd
     // 兼容 snake_case 和 camelCase
     const finalHandingOverUser = handing_over_user ?? handingOverUser
     const finalHandingOverRole = handing_over_role ?? handingOverRole
@@ -984,10 +1085,18 @@ router.post('/', async (req, res) => {
         return res.status(409).json({ error: '已有待接班的交接记录,请先完成交接' })
       }
     }
+    // 拿 handing_over_user_id (从 req.currentUser.id, JWT 验签后可用)
+    // 拿 taking_over_user_id (从 taking_over_user 字符串查 users.name -> id)
+    const handingOverUserId = req.currentUser?.id || null
+    let takingOverUserId = null
+    if (finalTakingOverUser) {
+      const [uRows] = await pool.query(`SELECT id FROM users WHERE name = ? LIMIT 1`, [finalTakingOverUser])
+      if (uRows[0]) takingOverUserId = uRows[0].id
+    }
     const [result] = await pool.query(
-      `INSERT INTO handover_records (handing_over_user, handing_over_role, taking_over_user, taking_over_role, taking_over_member, shift_type, team, handover_time, shift_start, shift_end, notes, tasks_status, workorders_status, status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
-      [finalHandingOverUser, finalHandingOverRole, finalTakingOverUser || null, finalTakingOverRole || null, finalTakingOverMember || null, finalShiftType, team, handover_time || new Date(), finalShiftStart || null, finalShiftEnd || null, notes || '', finalTasksStatus || 'pending', finalWorkordersStatus || 'pending']
+      `INSERT INTO handover_records (handing_over_user_id, handing_over_user, handing_over_role, taking_over_user_id, taking_over_user, taking_over_role, taking_over_member, shift_type, team, handover_time, shift_start, shift_end, notes, tasks_status, workorders_status, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
+      [handingOverUserId, finalHandingOverUser, finalHandingOverRole, takingOverUserId, finalTakingOverUser || null, finalTakingOverRole || null, finalTakingOverMember || null, finalShiftType, team, fmtDateTime(finalHandoverTime ? new Date(finalHandoverTime) : new Date()), finalShiftStartIn ? fmtDateTime(new Date(finalShiftStartIn)) : null, finalShiftEndIn ? fmtDateTime(new Date(finalShiftEndIn)) : null, notes || '', finalTasksStatus || 'pending', finalWorkordersStatus || 'pending']
     )
     sseEmit('handover-update', { id: result.insertId })
     res.json({ id: result.insertId, status: 'pending' })
@@ -1003,15 +1112,17 @@ router.post('/takeover', async (req, res) => {
   // 兼容 snake_case 和 camelCase
   const finalTakingOverUser = taking_over_user ?? takingOverUser
   const finalTakingOverRole = taking_over_role ?? takingOverRole
-  const finalTakingOverMember = taking_over_member ?? takingOverMember
-  const finalTakingOverTeam = taking_over_team ?? takingOverTeam
-  const finalShiftStart = shift_start ?? shiftStart
+  const finalTakingOverMember = taking_over_member ?? takingOverMember ?? req.body.takingOverMember
+  const finalTakingOverTeam = taking_over_team ?? takingOverTeam ?? req.body.takingOverTeam
+  const finalShiftStart = shift_start ?? shiftStart ?? req.body.shiftStart
+  // 从 JWT 拿接班人 users.id
+  const takingOverUserId = req.currentUser?.id || null
   const conn = await pool.getConnection()
   try {
     await conn.beginTransaction()
     await conn.query(
-      `UPDATE handover_records SET status = 'completed', taking_over_user = ?, taking_over_role = ?, taking_over_member = ?, shift_start = ?, notes = CONCAT(IFNULL(notes, ''), '\n', IFNULL(?, '')) WHERE id = ?`,
-      [finalTakingOverUser, finalTakingOverRole, finalTakingOverMember || null, finalShiftStart || new Date(), notes || '', handoverId]
+      `UPDATE handover_records SET status = 'completed', taking_over_user_id = ?, taking_over_user = ?, taking_over_role = ?, taking_over_member = ?, shift_start = ?, notes = CONCAT(IFNULL(notes, ''), '\n', IFNULL(?, '')) WHERE id = ?`,
+      [takingOverUserId, finalTakingOverUser, finalTakingOverRole, finalTakingOverMember || null, finalShiftStart ? fmtDateTime(new Date(finalShiftStart)) : fmtDateTime(new Date()), notes || '', handoverId]
     )
     const [rows] = await conn.query(`SELECT * FROM handover_records WHERE id = ?`, [handoverId])
     const handover = rows[0]
@@ -1038,7 +1149,7 @@ router.post('/takeover', async (req, res) => {
       // 关闭旧班次(同一班组、角色、班次的未关闭班次)
       await conn.query(
         `UPDATE handover_shifts SET shift_end = ? WHERE role = ? AND shift_type = ? AND team = ? AND shift_end IS NULL`,
-        [finalShiftStart || new Date(), handover.handing_over_role, handover.shift_type, handover.team]
+        [finalShiftStart ? fmtDateTime(new Date(finalShiftStart)) : fmtDateTime(new Date()), handover.handing_over_role, handover.shift_type, handover.team]
       )
       const today = fmtDate(new Date())
       // 继承进行中工单:使用交班方班组(handover.team)查询
@@ -1067,7 +1178,7 @@ router.post('/takeover', async (req, res) => {
       const [shiftResult] = await conn.query(
         `INSERT INTO handover_shifts (role, user_id, user_name, member_name, leader_name, shift_type, team, shift_start, inherited_workorders)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [handover.taking_over_role, finalTakingOverUser, finalTakingOverUser, finalTakingOverMember || null, newShiftLeaderName, handover.shift_type, newShiftTeam, finalShiftStart || new Date(), JSON.stringify(inheritedWorkorders)]
+        [handover.taking_over_role, finalTakingOverUser, finalTakingOverUser, finalTakingOverMember || null, newShiftLeaderName, handover.shift_type, newShiftTeam, finalShiftStart ? fmtDateTime(new Date(finalShiftStart)) : fmtDateTime(new Date()), JSON.stringify(inheritedWorkorders)]
       )
       if (notes) {
         await conn.query(
@@ -1105,10 +1216,12 @@ router.post('/:id/confirm', async (req, res) => {
     const finalTakingOverMember = taking_over_member ?? takingOverMember
     const finalTakingOverTeam = taking_over_team ?? takingOverTeam
     const finalShiftStart = shift_start ?? shiftStart
+    // 从 JWT 拿接班人 users.id
+    const takingOverUserId = req.currentUser?.id || null
     // 更新交接记录状态
     await conn.query(
-      `UPDATE handover_records SET status = 'completed', taking_over_user = ?, taking_over_role = ?, taking_over_member = ?, shift_start = ?, notes = CONCAT(IFNULL(notes, ''), '\n', IFNULL(?, '')) WHERE id = ?`,
-      [finalTakingOverUser, finalTakingOverRole, finalTakingOverMember || null, finalShiftStart || new Date(), notes || '', req.params.id]
+      `UPDATE handover_records SET status = 'completed', taking_over_user_id = ?, taking_over_user = ?, taking_over_role = ?, taking_over_member = ?, shift_start = ?, notes = CONCAT(IFNULL(notes, ''), '\n', IFNULL(?, '')) WHERE id = ?`,
+      [takingOverUserId, finalTakingOverUser, finalTakingOverRole, finalTakingOverMember || null, finalShiftStart ? fmtDateTime(new Date(finalShiftStart)) : fmtDateTime(new Date()), notes || '', req.params.id]
     )
     // 获取当前交接记录
     const [rows] = await conn.query(`SELECT * FROM handover_records WHERE id = ?`, [req.params.id])
@@ -1134,7 +1247,7 @@ router.post('/:id/confirm', async (req, res) => {
       // 关闭旧班次(同一班组、角色、班次的未关闭班次)
       await conn.query(
         `UPDATE handover_shifts SET shift_end = ? WHERE role = ? AND shift_type = ? AND team = ? AND shift_end IS NULL`,
-        [finalShiftStart || new Date(), handover.handing_over_role, handover.shift_type, handover.team]
+        [finalShiftStart ? fmtDateTime(new Date(finalShiftStart)) : fmtDateTime(new Date()), handover.handing_over_role, handover.shift_type, handover.team]
       )
       // 继承上一班次的进行中工单(problem_orders 和 maintenance_orders)
       const today = fmtDate(new Date())
@@ -1154,7 +1267,7 @@ router.post('/:id/confirm', async (req, res) => {
       await conn.query(
         `INSERT INTO handover_shifts (role, user_id, user_name, member_name, leader_name, shift_type, team, shift_start, inherited_workorders)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [handover.taking_over_role, finalTakingOverUser, finalTakingOverUser, finalTakingOverMember || null, newShiftLeaderName, handover.shift_type, newShiftTeam, finalShiftStart || new Date(), JSON.stringify(inheritedWorkorders)]
+        [handover.taking_over_role, finalTakingOverUser, finalTakingOverUser, finalTakingOverMember || null, newShiftLeaderName, handover.shift_type, newShiftTeam, finalShiftStart ? fmtDateTime(new Date(finalShiftStart)) : fmtDateTime(new Date()), JSON.stringify(inheritedWorkorders)]
       )
       // 写入值班纪事
       if (notes) {
@@ -1205,10 +1318,13 @@ router.post('/shift/:id/surrender', async (req, res) => {
         sseEmit('handover-update', { id: handover[0].id })
       } else {
         // 没有 pending 记录:新建
+        // handing_over_user_id 从 users.name 查 (shift.user_name 是岗位名)
+        const [hoUserRows] = await conn.query(`SELECT id FROM users WHERE name = ? LIMIT 1`, [shift.user_name])
+        const handingOverUserIdSurrender = hoUserRows[0]?.id || null
         const [result] = await conn.query(
-          `INSERT INTO handover_records (handing_over_user, handing_over_role, handing_over_member, shift_type, team, handover_time, shift_start, notes, tasks_status, workorders_status, status)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
-          [shift.user_name, shift.role, shift.member_name || null, shift.shift_type, shift.team, handover_time || new Date(), shift.shift_start, notes || '', tasks_status || 'pending', workorders_status || 'pending']
+          `INSERT INTO handover_records (handing_over_user_id, handing_over_user, handing_over_role, handing_over_member, shift_type, team, handover_time, shift_start, notes, tasks_status, workorders_status, status)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
+          [handingOverUserIdSurrender, shift.user_name, shift.role, shift.member_name || null, shift.shift_type, shift.team, fmtDateTime(handover_time ? new Date(handover_time) : new Date()), shift.shift_start ? fmtDateTime(new Date(shift.shift_start)) : null, notes || '', tasks_status || 'pending', workorders_status || 'pending']
         )
         sseEmit('handover-update', { id: result.insertId })
       }
@@ -1237,12 +1353,12 @@ router.get('/history', async (req, res) => {
     const pageLimit = Math.max(1, Math.min(100, parseInt(limit) || 10))
     const pageOffset = Math.max(0, parseInt(offset) || 0)
 
-    // 时间范围:默认 7 天,前端传 start_date/end_date 优先
+    // 时间范围:默认 30 天,前端传 start_date/end_date 优先
     let startTime
     if (start_date) {
       startTime = new Date(start_date + 'T00:00:00')
     } else {
-      startTime = new Date(Date.now() - 7 * 24 * 3600000)
+      startTime = new Date(Date.now() - 30 * 24 * 3600000)
     }
     const endTime = end_date ? new Date(end_date + 'T23:59:59') : new Date()
 
@@ -1271,16 +1387,18 @@ router.get('/history', async (req, res) => {
       params.push(shift_type)
     }
     if (user) {
-      conditions.push('(h.handing_over_user = ? OR h.taking_over_user = ?)')
-      params.push(user, user)
+      // user 可能是个人名(member)或岗位名(role), 兼容查 role/role/member
+      conditions.push('(h.handing_over_role = ? OR h.taking_over_role = ? OR h.handing_over_member = ? OR h.taking_over_member = ?)')
+      params.push(user, user, user, user)
     }
     if (handing_over_user) {
-      conditions.push('h.handing_over_user = ?')
-      params.push(handing_over_user)
+      // 兼容: 传个人名查 member, 传岗位名查 role
+      conditions.push('(h.handing_over_user = ? OR h.handing_over_role = ? OR h.handing_over_member = ?)')
+      params.push(handing_over_user, handing_over_user, handing_over_user)
     }
     if (taking_over_user) {
-      conditions.push('h.taking_over_user = ?')
-      params.push(taking_over_user)
+      conditions.push('(h.taking_over_user = ? OR h.taking_over_role = ? OR h.taking_over_member = ?)')
+      params.push(taking_over_user, taking_over_user, taking_over_user)
     }
 
     const whereClause = conditions.join(' AND ')
@@ -1289,24 +1407,37 @@ router.get('/history', async (req, res) => {
     const [countRows] = await pool.query(
       `SELECT COUNT(*) as total
        FROM handover_records h
-       LEFT JOIN handover_shifts hs ON hs.user_name = h.taking_over_user
-         AND hs.shift_type = h.shift_type AND hs.shift_end IS NULL
+       LEFT JOIN users u_taker ON h.taking_over_user_id = u_taker.id
        WHERE ${whereClause}`,
       params
     )
     const total = countRows[0]?.total || 0
 
     // 查分页数据
+    // 接班方班组: 优先取 taking_over_member 对应班次, 兑底 user_name 对应班次
+    // 用 SUBQUERY 避免 LEFT JOIN 多条 (同岗位+同班次可能多人值守)
     const [rows] = await pool.query(
-      `SELECT h.*, u.name as taking_over_user_name,
+      `SELECT h.*, u_taker.name as taking_over_user_name,
               d.notes as duty_notes,
-              hs.team as taking_over_team, hs.member_name as taking_over_shift_member, hs.leader_name as taking_over_shift_leader
+              (SELECT hs.team FROM handover_shifts hs
+                WHERE hs.member_name = h.taking_over_member
+                  AND hs.shift_start <= h.handover_time
+                  AND (hs.shift_end IS NULL OR hs.shift_end >= h.handover_time)
+                ORDER BY hs.shift_start DESC LIMIT 1) as taking_over_team,
+              (SELECT hs.member_name FROM handover_shifts hs
+                WHERE hs.member_name = h.taking_over_member
+                  AND hs.shift_start <= h.handover_time
+                  AND (hs.shift_end IS NULL OR hs.shift_end >= h.handover_time)
+                ORDER BY hs.shift_start DESC LIMIT 1) as taking_over_shift_member,
+              (SELECT hs.leader_name FROM handover_shifts hs
+                WHERE hs.member_name = h.taking_over_member
+                  AND hs.shift_start <= h.handover_time
+                  AND (hs.shift_end IS NULL OR hs.shift_end >= h.handover_time)
+                ORDER BY hs.shift_start DESC LIMIT 1) as taking_over_shift_leader
        FROM handover_records h
-       LEFT JOIN users u ON h.taking_over_user = u.id
+       LEFT JOIN users u_taker ON h.taking_over_user_id = u_taker.id
        LEFT JOIN duty_notes d ON d.team = h.team AND d.role = h.handing_over_role
          AND d.shift_type = h.shift_type AND d.date = DATE(h.handover_time)
-       LEFT JOIN handover_shifts hs ON hs.user_name = h.taking_over_user
-         AND hs.shift_type = h.shift_type AND hs.shift_end IS NULL
        WHERE ${whereClause}
        ORDER BY h.handover_time DESC LIMIT ? OFFSET ?`,
       [...params, pageLimit, pageOffset]
@@ -1329,47 +1460,58 @@ router.get('/history/:id/detail', async (req, res) => {
     if (!rows[0]) return res.status(404).json({ error: '记录不存在或未完成' })
     const record = rows[0]
 
-    // 窗口:handover_time 往前 12 小时
-    const winEnd = new Date(record.handover_time)
+    // 窗口: handover_time 往前 12 小时 (record.handover_time 是 BJT 字符串, 加 +08:00 让 JS 按 BJT 解析)
+    // 用于巡检任务查询 (巡检是按班次归属的)
+    const winEnd = new Date(typeof record.handover_time === 'string' ? record.handover_time + '+08:00' : record.handover_time)
     const winStart = new Date(winEnd.getTime() - 12 * 3600000)
     const prevDate = fmtDate(winEnd)
 
-    const prevRole = record.handing_over_role
-    const prevUserName = record.handing_over_user
-    const prevTeam = record.team
-    const prevMember = record.handing_over_member
+    // 工单窗口: handover_time 往前 12h ~ 往后 48h
+    // (覆盖: 上一班 12h 内的 + 接班后 48h 内的, 跨班次继承工单也能查)
+    const woWinStart = winStart
+    const woWinEnd = new Date(winEnd.getTime() + 48 * 3600000)
 
-    // 巡检任务: 按 prevDate + executor_name 查 (业务执行日, 不依赖 updated_at 窗口)
-    // handover_records.handing_over_user 对应 user_name (如 '一期制水')
+    const prevRole = record.handing_over_role
+    // 优先使用 handing_over_member (个人名, 字段语义明确), 兑底旧字段 handing_over_user
+    const prevMember = record.handing_over_member || record.handing_over_user || null
+    const prevUserName = prevMember  // 个人名 (为了兼容后续代码)
+    const prevTeam = record.team
+
+    // 巡检任务: 按 prevDate + prevRole 查 (handover_records.handing_over_role 对应 executor_name)
     const [shiftTasks] = await pool.query(
       `SELECT r.*, i.device_name, p.name as plan_name
        FROM inspection_task_records r
        LEFT JOIN inspection_items i ON r.device_id = i.device_id AND r.plan_id = i.plan_id
        LEFT JOIN inspection_plans p ON r.plan_id = p.id
        WHERE r.check_date = ? AND r.executor_name = ?`,
-      [prevDate, prevUserName]
+      [prevDate, prevRole]
     )
 
-    // 问题工单
-    const woQuery = prevMember && prevUserName
-      ? `SELECT * FROM problem_orders WHERE DATE(created_at) = ? AND team = ? AND member_name = ? AND (role = ? OR reporter_name = ?) AND created_at >= ? AND created_at <= ?`
-      : (prevUserName
-        ? `SELECT * FROM problem_orders WHERE DATE(created_at) = ? AND team = ? AND (role = ? OR reporter_name = ?) AND created_at >= ? AND created_at <= ?`
-        : `SELECT * FROM problem_orders WHERE DATE(created_at) = ? AND team = ? AND role = ? AND created_at >= ? AND created_at <= ?`)
-    const woParams = prevMember && prevUserName
-      ? [prevDate, prevTeam, prevMember, prevUserName, prevUserName, fmtDateTime(winStart), fmtDateTime(winEnd)]
-      : (prevUserName
-        ? [prevDate, prevTeam, prevUserName, prevUserName, fmtDateTime(winStart), fmtDateTime(winEnd)]
-        : [prevDate, prevTeam, prevRole, fmtDateTime(winStart), fmtDateTime(winEnd)])
+    // 问题工单: 用 prevRole (岗位名) 匹配 role/reporter_name, prevMember (个人名) 匹配 member_name
+    // 时间窗口放宽: -12h ~ +48h, 覆盖接班后继承工单
+    const woQuery = `SELECT * FROM problem_orders
+       WHERE team = ?
+         AND (role = ? OR reporter_name = ?)
+         ${prevMember ? 'AND member_name = ?' : ''}
+         AND created_at >= ?
+         AND created_at <= ?`
+    const woParams = prevMember
+      ? [prevTeam, prevRole, prevRole, prevMember, fmtDateTime(woWinStart), fmtDateTime(woWinEnd)]
+      : [prevTeam, prevRole, prevRole, fmtDateTime(woWinStart), fmtDateTime(woWinEnd)]
+    // [migrated 2026-06-26] DEBUG log removed
     const [woRows] = await pool.query(woQuery, woParams)
 
     // 维修工单
-    const maintQuery = prevMember && prevUserName
-      ? `SELECT * FROM maintenance_orders WHERE DATE(created_at) = ? AND team = ? AND member_name = ? AND (role = ? OR reporter_name = ?) AND created_at >= ? AND created_at <= ?`
-      : (prevUserName
-        ? `SELECT * FROM maintenance_orders WHERE DATE(created_at) = ? AND team = ? AND (role = ? OR reporter_name = ?) AND created_at >= ? AND created_at <= ?`
-        : `SELECT * FROM maintenance_orders WHERE DATE(created_at) = ? AND team = ? AND role = ? AND created_at >= ? AND created_at <= ?`)
-    const [maintWoRows] = await pool.query(maintQuery, woParams)
+    const maintQuery = `SELECT * FROM maintenance_orders
+       WHERE team = ?
+         AND (role = ? OR reporter_name = ?)
+         ${prevMember ? 'AND member_name = ?' : ''}
+         AND created_at >= ?
+         AND created_at <= ?`
+    const maintParams = prevMember
+      ? [prevTeam, prevRole, prevRole, prevMember, fmtDateTime(woWinStart), fmtDateTime(woWinEnd)]
+      : [prevTeam, prevRole, prevRole, fmtDateTime(woWinStart), fmtDateTime(woWinEnd)]
+    const [maintWoRows] = await pool.query(maintQuery, maintParams)
 
     // 合并 + 去重(问题工单转维修)
     const allWosRaw = [

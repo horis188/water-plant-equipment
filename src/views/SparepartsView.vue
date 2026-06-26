@@ -506,16 +506,29 @@ function removeTechDoc(idx: number) {
   techDocs.value.splice(idx, 1)
 }
 
-// 常用规格快捷键 (勾选 checkbox 时把「字段名:值」追加到 specsText; 取消勾选不生效)
+// 常用规格快捷键 (勾选 checkbox 时把「字段名:值」追加到 specsText; 取消勾选时移除该字段)
 function onPresetCheck(label: string, slot: { checked: boolean; value: string }, ev: Event) {
   const checked = (ev.target as HTMLInputElement).checked
-  if (!checked) return  // 取消勾选不生效
-  const kv = label + ':' + (slot.value || '')
-  // 若 textarea 末尾不是逗号, 加逗号
-  if (specsText.value && !specsText.value.trimEnd().endsWith(',')) {
-    specsText.value = specsText.value.trimEnd() + ','
+  if (checked) {
+    const kv = label + ':' + (slot.value || '')
+    // 若 textarea 末尾不是逗号, 加逗号
+    if (specsText.value && !specsText.value.trimEnd().endsWith(',')) {
+      specsText.value = specsText.value.trimEnd() + ','
+    }
+    specsText.value = specsText.value + kv
+  } else {
+    // 取消勾选: 删除该 label 对应的段 (按 label 前缀匹配, 支持手动改过的值)
+    specsText.value = removeParamByLabel(specsText.value, label)
   }
-  specsText.value = specsText.value + kv
+}
+
+// 从规格字符串中删除指定 label 的字段 (按 "," 分段, 过滤以 "label:" 开头的项)
+function removeParamByLabel(text: string, label: string): string {
+  if (!text) return ''
+  const prefix = label + ':'
+  const items = text.split(',').map(s => s.trim()).filter(s => s.length > 0)
+  const filtered = items.filter(s => !s.startsWith(prefix))
+  return filtered.join(',')
 }
 
 function openAddDialog() {

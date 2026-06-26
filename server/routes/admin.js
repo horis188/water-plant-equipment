@@ -385,7 +385,7 @@ router.delete('/users/:id', requireRole(['系统管理人']), async (req, res) =
     const reqUserId = parseInt(req.headers['x-user-id'] || '0')
     if (userId === reqUserId) return res.status(400).json({ error: '不能删除自己' })
     // 检查引用
-    const [handover] = await pool.query('SELECT COUNT(*) as cnt FROM handover_records WHERE handing_over_user = (SELECT username FROM users WHERE id=?) OR taking_over_user = (SELECT CAST(id AS CHAR) FROM users WHERE id=?)', [id, id])
+    const [handover] = await pool.query('SELECT COUNT(*) as cnt FROM handover_records WHERE handing_over_user_id = ? OR taking_over_user_id = ?', [id, id])
     if (handover[0].cnt > 0) return res.status(400).json({ error: `该用户有 ${handover[0].cnt} 条交接记录, 请先处理` })
     await safeQuery(`DELETE FROM users WHERE id = ?`, [id])
     res.json({ success: true })

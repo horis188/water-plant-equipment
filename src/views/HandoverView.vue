@@ -122,15 +122,27 @@
     <div v-if="handoverStatus === 'pending' && lastHandover" class="pending-hint" style="padding: 0 32px;">
       <div class="pending-hint-icon">⏳</div>
       <div class="pending-hint-info">
-        <div class="pending-hint-title">待 {{ lastHandover.taking_over_user || '某人' }} 接班</div>
+        <div class="pending-hint-title">待 {{ lastHandover.taking_over_role || lastHandover.taking_over_user || '某人' }} 接班</div>
         <div class="pending-hint-meta">
-          {{ lastHandover.handing_over_user }} ({{ lastHandover.handing_over_role }}) 交班 · {{ lastHandover.shift_type }} {{ lastHandover.team }}
+          {{ lastHandover.handing_over_member || lastHandover.handing_over_user }} ({{ lastHandover.handing_over_role }}) 交班 · {{ lastHandover.shift_type }} {{ lastHandover.team }}
           · {{ formatTime(lastHandover.handover_time) }}
         </div>
         <div v-if="lastHandover.notes" class="pending-hint-notes">{{ lastHandover.notes }}</div>
       </div>
+      <!-- 接班选择: 班组 + 接班人 (不需账号, 选个人名即可) -->
+      <div v-if="canTakeover" class="takeover-picker" style="display:flex;gap:12px;align-items:center;margin:12px 0;padding:10px 14px;background:rgba(45,212,191,0.08);border:1px solid rgba(45,212,191,0.3);border-radius:6px;">
+        <label style="font-size:14px;color:rgba(255,255,255,0.85);">接班班组：</label>
+        <select v-model="selectedNewTeam" style="padding:4px 8px;background:rgba(255,255,255,0.08);color:#fff;border:1px solid rgba(255,255,255,0.2);border-radius:4px;">
+          <option v-for="t in teams" :key="t" :value="t">{{ t }}</option>
+        </select>
+        <label style="font-size:14px;color:rgba(255,255,255,0.85);">接班人：</label>
+        <select v-model="selectedNewMember" style="padding:4px 8px;background:rgba(255,255,255,0.08);color:#fff;border:1px solid rgba(255,255,255,0.2);border-radius:4px;min-width:100px;">
+          <option value="">请选择</option>
+          <option v-for="m in filteredNewMembers" :key="m.name" :value="m.name">{{ m.name }}</option>
+        </select>
+      </div>
       <div class="pending-hint-actions">
-        <button class="dm-btn dm-btn-confirm" @click="confirmTakeover" :disabled="!canTakeover">确认接班</button>
+        <button class="dm-btn dm-btn-confirm" @click="confirmTakeover" :disabled="!canTakeover || !selectedNewMember">确认接班 ({{ selectedNewMember || '未选择' }})</button>
       </div>
     </div>
 
@@ -188,6 +200,64 @@
             </div>
           </div>
         </div>
+
+        <!-- 上一班巡检任务 (带统计 + 点击展开) -->
+        <div style="margin-top:15px;margin-bottom:16px;">
+          <div class="collapse-header" @click="lastTasksExpanded = !lastTasksExpanded" style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;background:rgba(255,255,255,0.05);border-radius:6px;cursor:pointer;">
+            <span style="font-size:15px;font-weight:600;color:rgba(255,255,255,0.95);">🔍 上一班巡检任务</span>
+            <span :class="lastShiftTasks.done >= lastShiftTasks.total && lastShiftTasks.total > 0 ? 'text-green' : 'text-orange'" style="font-size:14px;font-weight:600;">
+              {{ lastShiftTasks.done }}/{{ lastShiftTasks.total }} 完成
+              <span v-if="lastShiftTasks.abnormal > 0" style="color:#e53935;"> · {{ lastShiftTasks.abnormal }}异常</span>
+              <span style="margin-left:6px;color:rgba(255,255,255,0.5);">{{ lastTasksExpanded ? '▼' : '▶' }}</span>
+            </span>
+          </div>
+          <div v-if="lastTasksExpanded" class="collapse-body" style="margin-top:8px;padding:10px 14px;background:rgba(255,255,255,0.03);border-radius:6px;max-height:300px;overflow-y:auto;">
+            <div v-if="lastShiftTasks.allList.length === 0" style="color:rgba(255,255,255,0.45);font-style:italic;font-size:14px;padding:8px 0;">暂无巡检任务</div>
+            <div v-else>
+              <div v-for="(item, idx) in lastShiftTasks.allList" :key="idx" class="task-item-mini" style="display:flex;align-items:center;gap:8px;padding:6px 0;font-size:14px;">
+                <span class="task-check-icon">{{ item.has_abnormal ? '🚨' : (item.status === 'completed' || item.status === 'abnormal' ? '✅' : '⬜') }}</span>
+                <span :style="item.has_abnormal ? 'color:#e53935;font-weight:600' : ''">{{ item.device_name }}</span>
+                <span style="color:rgba(255,255,255,0.5);font-size:13px;">{{ item.plan_name }}<span v-if="item.abnormal_desc"> · {{ item.abnormal_desc }}</span></span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 上一班工单情况 (带统计 + 点击展开) -->
+        <div style="margin-bottom:16px;">
+          <div class="collapse-header" @click="lastWorkordersExpanded = !lastWorkordersExpanded" style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;background:rgba(255,255,255,0.05);border-radius:6px;cursor:pointer;">
+            <span style="font-size:15px;font-weight:600;color:rgba(255,255,255,0.95);">📋 上一班工单情况</span>
+            <span style="font-size:14px;font-weight:600;">
+              <span style="color:#60a5fa;">新建{{ lastShiftWorkorders.created.length }}</span>
+              <span style="color:rgba(255,255,255,0.4);"> / </span>
+              <span style="color:#4ade80;">完成{{ lastShiftWorkorders.completed.length }}</span>
+              <span style="color:rgba(255,255,255,0.4);"> / </span>
+              <span :class="lastShiftWorkorders.inProgress.length > 0 ? 'text-orange' : 'text-gray'">进行中{{ lastShiftWorkorders.inProgress.length }}</span>
+              <span style="margin-left:6px;color:rgba(255,255,255,0.5);">{{ lastWorkordersExpanded ? '▼' : '▶' }}</span>
+            </span>
+          </div>
+          <div v-if="lastWorkordersExpanded" class="collapse-body" style="margin-top:8px;padding:10px 14px;background:rgba(255,255,255,0.03);border-radius:6px;max-height:300px;overflow-y:auto;">
+            <div v-if="lastShiftWorkorders.completed.length === 0 && lastShiftWorkorders.inProgress.length === 0 && lastShiftWorkorders.created.length === 0" style="color:rgba(255,255,255,0.45);font-style:italic;font-size:14px;padding:8px 0;">暂无工单</div>
+            <div v-if="lastShiftWorkorders.completed.length > 0" style="margin-bottom:10px;">
+              <div style="font-size:13px;color:rgba(255,255,255,0.65);margin-bottom:6px;font-weight:600;">✓ 已完成</div>
+              <div v-for="wo in lastShiftWorkorders.completed" :key="'last-d-'+wo.id" class="task-item-mini" style="display:flex;align-items:center;gap:8px;padding:5px 0;font-size:14px;opacity:0.7;">
+                <span class="task-check-icon">{{ statusIcon(wo.status) }}</span>
+                <span class="wo-type-mini" :class="wo.type && wo.type.includes('问题') ? 'type-problem' : 'type-maintenance'">{{ wo.type && wo.type.includes('问题') ? '问题' : '维修' }}</span>
+                <span style="flex:1;min-width:0;text-decoration:line-through;color:rgba(255,255,255,0.5);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ wo.content }}</span>
+                <span class="wo-status" :class="'status-'+wo.status" style="padding:2px 8px;border-radius:2px;font-size:12px;font-weight:500;flex-shrink:0;">{{ statusLabel(wo.status, wo.type) }}</span>
+              </div>
+            </div>
+            <div v-if="lastShiftWorkorders.inProgress.length > 0">
+              <div style="font-size:13px;color:rgba(255,255,255,0.65);margin-bottom:6px;font-weight:600;">⏳ 进行中</div>
+              <div v-for="wo in lastShiftWorkorders.inProgress" :key="'last-p-'+wo.id" class="task-item-mini" style="display:flex;align-items:center;gap:8px;padding:5px 0;font-size:14px;">
+                <span class="task-check-icon">{{ statusIcon(wo.status) }}</span>
+                <span class="wo-type-mini" :class="wo.type && wo.type.includes('问题') ? 'type-problem' : 'type-maintenance'">{{ wo.type && wo.type.includes('问题') ? '问题' : '维修' }}</span>
+                <span style="flex:1;min-width:0;color:#e53935;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ wo.content }}</span>
+                <span class="wo-status" :class="'status-'+wo.status" style="padding:2px 8px;border-radius:2px;font-size:12px;font-weight:500;flex-shrink:0;">{{ statusLabel(wo.status, wo.type) }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- 当前班组事务 (完整版: 班组信息 + 值班纪事 + 巡检任务 + 工单情况) -->
@@ -234,18 +304,18 @@
 
           <!-- 巡检任务 (带统计 + 点击展开) -->
           <div style="margin-bottom:16px;">
-            <div class="collapse-header" @click="lastTasksExpanded = !lastTasksExpanded" style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;background:rgba(255,255,255,0.05);border-radius:6px;cursor:pointer;">
+            <div class="collapse-header" @click="currentTasksExpanded = !currentTasksExpanded" style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;background:rgba(255,255,255,0.05);border-radius:6px;cursor:pointer;">
               <span style="font-size:15px;font-weight:600;color:rgba(255,255,255,0.95);">🔍 巡检任务</span>
-              <span :class="lastShiftTasks.done >= lastShiftTasks.total && lastShiftTasks.total > 0 ? 'text-green' : 'text-orange'" style="font-size:14px;font-weight:600;">
-                {{ lastShiftTasks.done }}/{{ lastShiftTasks.total }} 完成
-                <span v-if="lastShiftTasks.abnormal > 0" style="color:#e53935;"> · {{ lastShiftTasks.abnormal }}异常</span>
-                <span style="margin-left:6px;color:rgba(255,255,255,0.5);">{{ lastTasksExpanded ? '▼' : '▶' }}</span>
+              <span :class="currentShiftTasks.done >= currentShiftTasks.total && currentShiftTasks.total > 0 ? 'text-green' : 'text-orange'" style="font-size:14px;font-weight:600;">
+                {{ currentShiftTasks.done }}/{{ currentShiftTasks.total }} 完成
+                <span v-if="currentShiftTasks.abnormal > 0" style="color:#e53935;"> · {{ currentShiftTasks.abnormal }}异常</span>
+                <span style="margin-left:6px;color:rgba(255,255,255,0.5);">{{ currentTasksExpanded ? '▼' : '▶' }}</span>
               </span>
             </div>
-            <div v-if="lastTasksExpanded" class="collapse-body" style="margin-top:8px;padding:10px 14px;background:rgba(255,255,255,0.03);border-radius:6px;max-height:300px;overflow-y:auto;">
-              <div v-if="lastShiftTasks.allList.length === 0" style="color:rgba(255,255,255,0.45);font-style:italic;font-size:14px;padding:8px 0;">暂无巡检任务</div>
+            <div v-if="currentTasksExpanded" class="collapse-body" style="margin-top:8px;padding:10px 14px;background:rgba(255,255,255,0.03);border-radius:6px;max-height:300px;overflow-y:auto;">
+              <div v-if="currentShiftTasks.allList.length === 0" style="color:rgba(255,255,255,0.45);font-style:italic;font-size:14px;padding:8px 0;">暂无巡检任务</div>
               <div v-else>
-                <div v-for="(item, idx) in lastShiftTasks.allList" :key="idx" class="task-item-mini" style="display:flex;align-items:center;gap:8px;padding:6px 0;font-size:14px;">
+                <div v-for="(item, idx) in currentShiftTasks.allList" :key="idx" class="task-item-mini" style="display:flex;align-items:center;gap:8px;padding:6px 0;font-size:14px;">
                   <span class="task-check-icon">{{ item.has_abnormal ? '🚨' : (item.status === 'completed' || item.status === 'abnormal' ? '✅' : '⬜') }}</span>
                   <span :style="item.has_abnormal ? 'color:#e53935;font-weight:600' : ''">{{ item.device_name }}</span>
                   <span style="color:rgba(255,255,255,0.5);font-size:13px;">{{ item.plan_name }}<span v-if="item.abnormal_desc"> · {{ item.abnormal_desc }}</span></span>
@@ -256,31 +326,42 @@
 
           <!-- 工单情况 (带统计 + 点击展开) -->
           <div style="margin-bottom:16px;">
-            <div class="collapse-header" @click="lastWorkordersExpanded = !lastWorkordersExpanded" style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;background:rgba(255,255,255,0.05);border-radius:6px;cursor:pointer;">
+            <div class="collapse-header" @click="currentWorkordersExpanded = !currentWorkordersExpanded" style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;background:rgba(255,255,255,0.05);border-radius:6px;cursor:pointer;">
               <span style="font-size:15px;font-weight:600;color:rgba(255,255,255,0.95);">📋 工单情况</span>
               <span style="font-size:14px;font-weight:600;">
-                <span style="color:#60a5fa;">新建{{ lastShiftWorkorders.created.length }}</span>
+                <span style="color:#60a5fa;">新建{{ currentShiftWorkorders.created.length }}</span>
                 <span style="color:rgba(255,255,255,0.4);"> / </span>
-                <span style="color:#4ade80;">完成{{ lastShiftWorkorders.completed.length }}</span>
+                <span style="color:#a78bfa;">滚动{{ (currentShiftWorkorders.inherited || []).length }}</span>
                 <span style="color:rgba(255,255,255,0.4);"> / </span>
-                <span :class="lastShiftWorkorders.inProgress.length > 0 ? 'text-orange' : 'text-gray'">进行中{{ lastShiftWorkorders.inProgress.length }}</span>
-                <span style="margin-left:6px;color:rgba(255,255,255,0.5);">{{ lastWorkordersExpanded ? '▼' : '▶' }}</span>
+                <span style="color:#4ade80;">完成{{ currentShiftWorkorders.completed.length }}</span>
+                <span style="color:rgba(255,255,255,0.4);"> / </span>
+                <span :class="currentShiftWorkorders.inProgress.length > 0 ? 'text-orange' : 'text-gray'">进行中{{ currentShiftWorkorders.inProgress.length }}</span>
+                <span style="margin-left:6px;color:rgba(255,255,255,0.5);">{{ currentWorkordersExpanded ? '▼' : '▶' }}</span>
               </span>
             </div>
-            <div v-if="lastWorkordersExpanded" class="collapse-body" style="margin-top:8px;padding:10px 14px;background:rgba(255,255,255,0.03);border-radius:6px;max-height:300px;overflow-y:auto;">
-              <div v-if="lastShiftWorkorders.completed.length === 0 && lastShiftWorkorders.inProgress.length === 0 && lastShiftWorkorders.created.length === 0" style="color:rgba(255,255,255,0.45);font-style:italic;font-size:14px;padding:8px 0;">暂无工单</div>
-              <div v-if="lastShiftWorkorders.completed.length > 0" style="margin-bottom:10px;">
+            <div v-if="currentWorkordersExpanded" class="collapse-body" style="margin-top:8px;padding:10px 14px;background:rgba(255,255,255,0.03);border-radius:6px;max-height:300px;overflow-y:auto;">
+              <div v-if="currentShiftWorkorders.completed.length === 0 && currentShiftWorkorders.inProgress.length === 0 && currentShiftWorkorders.created.length === 0 && (currentShiftWorkorders.inherited || []).length === 0" style="color:rgba(255,255,255,0.45);font-style:italic;font-size:14px;padding:8px 0;">暂无工单</div>
+              <div v-if="(currentShiftWorkorders.inherited || []).length > 0" style="margin-bottom:10px;">
+                <div style="font-size:13px;color:rgba(255,255,255,0.65);margin-bottom:6px;font-weight:600;">🔄 滚动工单（从上一班继承）</div>
+                <div v-for="wo in currentShiftWorkorders.inherited" :key="'cur-i-'+wo.id" class="task-item-mini" style="display:flex;align-items:center;gap:8px;padding:5px 0;font-size:14px;">
+                  <span class="task-check-icon">{{ statusIcon(wo.status) }}</span>
+                  <span class="wo-type-mini" :class="wo.type && wo.type.includes('问题') ? 'type-problem' : 'type-maintenance'">{{ wo.type && wo.type.includes('问题') ? '问题' : '维修' }}</span>
+                  <span style="flex:1;min-width:0;color:#a78bfa;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ wo.content }}</span>
+                  <span class="wo-status" :class="'status-'+wo.status" style="padding:2px 8px;border-radius:2px;font-size:12px;font-weight:500;flex-shrink:0;">{{ statusLabel(wo.status, wo.type) }}</span>
+                </div>
+              </div>
+              <div v-if="currentShiftWorkorders.completed.length > 0" style="margin-bottom:10px;">
                 <div style="font-size:13px;color:rgba(255,255,255,0.65);margin-bottom:6px;font-weight:600;">✓ 已完成</div>
-                <div v-for="wo in lastShiftWorkorders.completed" :key="'d-'+wo.id" class="task-item-mini" style="display:flex;align-items:center;gap:8px;padding:5px 0;font-size:14px;opacity:0.7;">
+                <div v-for="wo in currentShiftWorkorders.completed" :key="'cur-d-'+wo.id" class="task-item-mini" style="display:flex;align-items:center;gap:8px;padding:5px 0;font-size:14px;opacity:0.7;">
                   <span class="task-check-icon">{{ statusIcon(wo.status) }}</span>
                   <span class="wo-type-mini" :class="wo.type && wo.type.includes('问题') ? 'type-problem' : 'type-maintenance'">{{ wo.type && wo.type.includes('问题') ? '问题' : '维修' }}</span>
                   <span style="flex:1;min-width:0;text-decoration:line-through;color:rgba(255,255,255,0.5);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ wo.content }}</span>
                   <span class="wo-status" :class="'status-'+wo.status" style="padding:2px 8px;border-radius:2px;font-size:12px;font-weight:500;flex-shrink:0;">{{ statusLabel(wo.status, wo.type) }}</span>
                 </div>
               </div>
-              <div v-if="lastShiftWorkorders.inProgress.length > 0">
+              <div v-if="currentShiftWorkorders.inProgress.length > 0">
                 <div style="font-size:13px;color:rgba(255,255,255,0.65);margin-bottom:6px;font-weight:600;">⏳ 进行中</div>
-                <div v-for="wo in lastShiftWorkorders.inProgress" :key="'p-'+wo.id" class="task-item-mini" style="display:flex;align-items:center;gap:8px;padding:5px 0;font-size:14px;">
+                <div v-for="wo in currentShiftWorkorders.inProgress" :key="'cur-p-'+wo.id" class="task-item-mini" style="display:flex;align-items:center;gap:8px;padding:5px 0;font-size:14px;">
                   <span class="task-check-icon">{{ statusIcon(wo.status) }}</span>
                   <span class="wo-type-mini" :class="wo.type && wo.type.includes('问题') ? 'type-problem' : 'type-maintenance'">{{ wo.type && wo.type.includes('问题') ? '问题' : '维修' }}</span>
                   <span style="flex:1;min-width:0;color:#e53935;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ wo.content }}</span>
@@ -417,7 +498,7 @@
 import { ref, computed, onMounted } from 'vue'
 import TopNavBar from '../components/TopNavBar.vue'
 import HistoryDetail from '../components/HistoryDetail.vue'
-import { currentUser, isOnDuty } from '../composables/useDeviceStore'
+import { currentUser, isOnDuty, setCurrentShiftContext } from '../composables/useDeviceStore'
 
 const API_BASE = '/api/handover'
 
@@ -482,9 +563,46 @@ function parseNotesToLines(notes: string): void {
 const lastHandover = ref<any>(null)
 const lastShiftTasks = ref<{ total: number; done: number; abnormal: number; abnormalList: any[]; allList: any[] }>({ total: 0, done: 0, abnormal: 0, abnormalList: [], allList: [] })
 const lastShiftWorkorders = ref<{ created: any[]; completed: any[]; inProgress: any[] }>({ created: [], completed: [], inProgress: [] })
+const currentShiftTasks = ref<{ total: number; done: number; abnormal: number; abnormalList: any[]; allList: any[] }>({ total: 0, done: 0, abnormal: 0, abnormalList: [], allList: [] })
+const currentShiftWorkorders = ref<{ created: any[]; completed: any[]; inProgress: any[]; inherited: any[] }>({ created: [], completed: [], inProgress: [], inherited: [] })
 const lastDutyNotes = ref<any>(null)
 const lastTasksExpanded = ref(false)
 const lastWorkordersExpanded = ref(false)
+const currentTasksExpanded = ref(false)
+const currentWorkordersExpanded = ref(false)
+
+// 接班人选 (不需账号, 只需选择谁在当前岗位上)
+const newShiftMembers = ref<Array<{ name: string; leader_name?: string; team_name?: string }>>([])
+const selectedNewMember = ref<string>('')
+const selectedNewTeam = ref<string>('')  // 接班后归属班组
+
+// 过滤后的接班人列表 (按所选班组)
+const filteredNewMembers = computed(() => {
+  if (!selectedNewTeam.value) return newShiftMembers.value
+  return newShiftMembers.value.filter(m => m.team_name === selectedNewTeam.value)
+})
+
+// 加载该岗位的接班候选人 (从班组表中读, 可选对应班组的成员)
+async function loadShiftTeamMembers() {
+  try {
+    const res = await fetch('/api/shift-teams')
+    if (!res.ok) return
+    const data = await res.json()
+    newShiftMembers.value = data
+      .filter((m: any) => m.member_name)
+      .map((m: any) => ({
+        name: m.member_name,
+        leader_name: m.leader_name,
+        team_name: m.team_name
+      }))
+    // 兑底: 如果接口返的 list 为空, 兑底到 currentUser.member_name
+    if (newShiftMembers.value.length === 0 && currentUser.value?.member_name) {
+      newShiftMembers.value = [{ name: currentUser.value.member_name, team_name: currentUser.value.team || '' }]
+    }
+  } catch (err) {
+    console.error('加载班组人员失败', err)
+  }
+}
 
 // 工单状态文本映射
 function statusLabel(status: string, woType?: string): string {
@@ -638,6 +756,9 @@ async function loadData() {
     if (data.lastShiftTasks) lastShiftTasks.value = data.lastShiftTasks
     if (data.lastShiftWorkorders) lastShiftWorkorders.value = data.lastShiftWorkorders
     if (data.lastDutyNotes) lastDutyNotes.value = data.lastDutyNotes
+    // 当前班次事务详情 (巡检任务 + 工单) - 接班以来到现在
+    if (data.currentShiftTasks) currentShiftTasks.value = data.currentShiftTasks
+    if (data.currentShiftWorkorders) currentShiftWorkorders.value = data.currentShiftWorkorders
 
     // 系统管理员/带班: 加载专属概览
     if (['系统管理人', '带班', '厂长'].includes(currentUser.value?.role || '')) {
@@ -666,6 +787,7 @@ async function submitHandover() {
         handingOverRole: currentUser.value?.role,
         shiftType: currentShiftType.value,
         team: selectedTeam.value,
+        handoverTime: Date.now(),
         notes: buildNotesFromLines(),
         tasksStatus: tasksCompleted.value ? 'completed' : 'pending',
         workordersStatus: workordersCompleted.value ? 'completed' : 'pending'
@@ -711,6 +833,10 @@ async function saveNotes() {
 // 接班
 async function confirmTakeover() {
   if (!lastHandover.value) return
+  if (!selectedNewMember.value) {
+    alert('请选择接班人')
+    return
+  }
   try {
     const res = await fetch(`${API_BASE}/takeover`, {
       method: 'POST',
@@ -718,13 +844,24 @@ async function confirmTakeover() {
       body: JSON.stringify({
         takingOverUser: currentUser.value?.name,
         takingOverRole: currentUser.value?.role,
-        handoverId: lastHandover.value.id
+        takingOverMember: selectedNewMember.value,
+        takingOverTeam: selectedNewTeam.value || lastHandover.value.team,
+        handoverId: lastHandover.value.id,
+        shiftStart: Date.now()
       })
     })
     if (!res.ok) throw new Error('接班失败')
     alert('接班成功，当前班次已开始')
     handoverStatus.value = 'completed'
     lastHandover.value = null
+    // 更新全局 currentShiftContext: 右上角圆圈显示新接班人名字
+    setCurrentShiftContext({
+      team: selectedNewTeam.value || lastHandover.value?.team || currentUser.value?.team || '',
+      member_name: selectedNewMember.value,
+      shift_type: lastHandover.value?.shift_type || currentShiftType.value,
+      role: currentUser.value?.role || '',
+      leader_name: newShiftMembers.value.find(m => m.name === selectedNewMember.value)?.leader_name || ''
+    })
     await loadData()
   } catch (err) {
     console.error('接班失败', err)
@@ -735,17 +872,26 @@ async function confirmTakeover() {
 // 格式化时间
 function formatTime(timeStr: string): string {
   if (!timeStr) return '-'
+  // 强制按北京时间 (Asia/Shanghai, UTC+8) 显示, 不受本地时区影响
   const d = new Date(timeStr)
-  return `${d.getFullYear()}-${(d.getMonth()+1).toString().padStart(2,'0')}-${d.getDate().toString().padStart(2,'0')} ${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}`
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+    hour12: false
+  }).formatToParts(d)
+  const get = (t: string) => parts.find(p => p.type === t)?.value || ''
+  return `${get('year')}-${get('month')}-${get('day')} ${get('hour')}:${get('minute')}:${get('second')}`
 }
 
 async function loadHistory(page = 1) {
   if (!currentUser.value) return
   const role = currentUser.value.role
   // 系统管理员/带班/厂长: 查全部 (不默认加 user 过滤)
-  // 其他角色: 默认按本岗位名 (currentUser.name) 过滤
+  // 其他角色: 默认按个人名 (currentUser.member_name) 过滤
+  // (handover_records.handing_over_user 存的是个人名, 不是岗位名)
   const isBroadViewer = ['系统管理人', '带班', '厂长'].includes(currentUser.value.role)
-  const defaultUser = isBroadViewer ? '' : (currentUser.value.name || '')
+  const defaultUser = isBroadViewer ? '' : (currentUser.value.member_name || currentUser.value.name || '')
   const offset = (page - 1) * historyPageSize
   let url = `${API_BASE}/history?role=${encodeURIComponent(role)}&limit=${historyPageSize}&offset=${offset}&viewerRole=${encodeURIComponent(currentUser.value.role)}`
   if (isBroadViewer && filterRole.value) url += `&role=${encodeURIComponent(filterRole.value)}`
@@ -835,6 +981,7 @@ async function toggleHistoryItem(id: number) {
 
 onMounted(() => {
   loadData()
+  loadShiftTeamMembers()
   // 注意: 历史列表不自动加载, 需要点查询
 })
 </script>

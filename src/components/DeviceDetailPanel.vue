@@ -39,8 +39,32 @@ const relatedOrders = computed(() => {
       all.push({ ...o, _type: 'maintenance' })
     }
   }
-  // 按创建时间倒序
+  // 排序规则(B 档):
+  //   第 1 档: 维修中 (processing) — 按等级(重>中>轻) + 时间(新→旧)
+  //   第 2 档: 其他未完成 (pending/delay/returned) — 同样按等级 + 时间
+  //   第 3 档: 已完成 (completed/closed/self_resolved) — 按日期(新→旧)
+  const STATUS_GROUP: Record<string, number> = {
+    processing: 0,         // 维修中
+    pending: 1,            // 待接单
+    delay: 1,              // 延时中
+    returned: 1,           // 被退回
+    completed: 2,          // 已完成
+    closed: 2,             // 已关闭
+    self_resolved: 2       // 自处理
+  }
+  const LEVEL_RANK: Record<string, number> = { heavy: 0, medium: 1, light: 2 }
   return all.sort((a, b) => {
+    // 1) 状态分档
+    const ga = STATUS_GROUP[a.status] ?? 9
+    const gb = STATUS_GROUP[b.status] ?? 9
+    if (ga !== gb) return ga - gb
+    // 2) 等级(重>中>轻), 同档才比较
+    if (ga !== 2) {
+      const la = LEVEL_RANK[a.level] ?? 9
+      const lb = LEVEL_RANK[b.level] ?? 9
+      if (la !== lb) return la - lb
+    }
+    // 3) 时间(新→旧)
     const ta = new Date(a.created_at || a.createdAt || 0).getTime()
     const tb = new Date(b.created_at || b.createdAt || 0).getTime()
     return tb - ta

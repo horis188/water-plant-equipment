@@ -33,14 +33,22 @@ CREATE TABLE IF NOT EXISTS shift_team_members (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='班组岗位人员候选表';
 
 -- 班组交接记录表
+-- 字段语义 (2026-06-26 重构):
+--   *_user_id : INT, 引用 users.id (数字 JOIN)
+--   *_user    : VARCHAR, 保留兼容 (存 username/name, 语义由 *_role/*_member 明确)
+--   *_role    : VARCHAR, 岗位名 (一期制水/带班/...  跟 users.name 一致)
+--   *_member  : VARCHAR, 个人名 (周海洋/杨雪峰/...)
+-- 推荐: 新写入务必同时写 *_user_id + *_role + *_member
 CREATE TABLE IF NOT EXISTS handover_records (
   id INT AUTO_INCREMENT PRIMARY KEY,
-  handing_over_user VARCHAR(100) NOT NULL COMMENT '交班人姓名',
-  handing_over_role VARCHAR(50) NOT NULL COMMENT '交班人角色',
-  handing_over_member VARCHAR(50) DEFAULT NULL COMMENT '交班岗位人员',
-  taking_over_user VARCHAR(100) DEFAULT NULL COMMENT '接班人姓名',
-  taking_over_role VARCHAR(50) DEFAULT NULL COMMENT '接班人角色',
-  taking_over_member VARCHAR(50) DEFAULT NULL COMMENT '接班岗位人员（选择的成员）',
+  handing_over_user_id INT DEFAULT NULL COMMENT '交班人 users.id (数字 JOIN)',
+  handing_over_user VARCHAR(100) NOT NULL COMMENT '交班人姓名(保留兼容)',
+  handing_over_role VARCHAR(50) NOT NULL COMMENT '交班人岗位',
+  handing_over_member VARCHAR(50) DEFAULT NULL COMMENT '交班人个人名',
+  taking_over_user_id INT DEFAULT NULL COMMENT '接班人 users.id (数字 JOIN)',
+  taking_over_user VARCHAR(100) DEFAULT NULL COMMENT '接班人姓名(保留兼容)',
+  taking_over_role VARCHAR(50) DEFAULT NULL COMMENT '接班人岗位',
+  taking_over_member VARCHAR(50) DEFAULT NULL COMMENT '接班人个人名(选择的成员)',
   shift_type VARCHAR(20) NOT NULL COMMENT '班次类型：日班/夜班/早班',
   team VARCHAR(10) NOT NULL COMMENT '班组：A班/B班/C班/D班',
   handover_time DATETIME NOT NULL COMMENT '交接时间',
@@ -51,6 +59,8 @@ CREATE TABLE IF NOT EXISTS handover_records (
   workorders_status VARCHAR(20) DEFAULT 'pending' COMMENT '工单状态：completed/pending',
   status VARCHAR(20) DEFAULT 'pending' COMMENT '交接状态：pending等待接班/completed已完成',
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_handing_over_user_id (handing_over_user_id),
+  INDEX idx_taking_over_user_id (taking_over_user_id),
   UNIQUE KEY unique_active (handing_over_role, shift_type, team, status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='班组交接记录';
 
