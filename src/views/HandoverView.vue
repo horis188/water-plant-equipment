@@ -119,36 +119,34 @@
     </div>
 
     <!-- 待接班提示 -->
-    <div v-if="handoverStatus === 'pending' && lastHandover" class="pending-hint" style="display:flex;flex-direction:column;gap:14px;padding:18px 24px;background:rgba(250,140,22,0.12);border:1px solid rgba(250,140,22,0.3);border-left:4px solid #fa8c16;border-radius:8px;margin:0 32px 16px;">
+    <div v-if="handoverStatus === 'pending' && lastHandover" class="pending-hint" style="display:flex;flex-direction:column;gap:8px;padding:12px 18px;background:rgba(250,140,22,0.12);border:1px solid rgba(250,140,22,0.3);border-left:3px solid #fa8c16;border-radius:6px;margin:0 32px 12px;">
       <!-- 第1行: 班次信息 -->
-      <div style="display:flex;align-items:center;gap:12px;">
-        <span style="font-size:22px;">⏳</span>
-        <div>
-          <div style="font-size:16px;font-weight:600;color:#fa8c16;">待 {{ lastHandover.taking_over_role || lastHandover.taking_over_user || '某人' }} 接班</div>
-          <div style="font-size:13px;color:rgba(255,255,255,0.7);margin-top:4px;">
-            {{ lastHandover.handing_over_member || lastHandover.handing_over_user }} ({{ lastHandover.handing_over_role }}) 交班 · {{ lastHandover.shift_type }} {{ lastHandover.team }}
-            · {{ formatTime(lastHandover.handover_time) }}
+      <div style="display:flex;align-items:center;gap:10px;">
+        <span style="font-size:18px;">⏳</span>
+        <div style="flex:1;line-height:1.4;">
+          <div style="font-size:15px;font-weight:600;color:#fa8c16;">待 {{ lastHandover.taking_over_role || lastHandover.taking_over_user || '某人' }} 接班</div>
+          <div style="font-size:12px;color:rgba(255,255,255,0.65);margin-top:2px;">
+            {{ lastHandover.handing_over_member || lastHandover.handing_over_user }} ({{ lastHandover.handing_over_role }}) 交班 · {{ lastHandover.shift_type }} {{ lastHandover.team }} · {{ formatTime(lastHandover.handover_time) }}
           </div>
+          <div v-if="lastHandover.notes" style="font-size:12px;color:rgba(255,255,255,0.55);margin-top:4px;white-space:pre-wrap;">📝 {{ lastHandover.notes }}</div>
         </div>
       </div>
-      <!-- 第2行: 值班纪事 (如果有) -->
-      <div v-if="lastHandover.notes" style="background:rgba(0,0,0,0.25);border-radius:6px;padding:10px 14px;font-size:13px;color:rgba(255,255,255,0.85);white-space:pre-wrap;">{{ lastHandover.notes }}</div>
-      <!-- 第3行: 接班选择 + 确认按钮 -->
-      <div v-if="canTakeover" style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;background:rgba(45,212,191,0.1);border:1px solid rgba(45,212,191,0.3);border-radius:6px;padding:12px 16px;">
-        <div style="display:flex;align-items:center;gap:8px;">
-          <label style="font-size:14px;color:rgba(255,255,255,0.85);">接班班组：</label>
-          <select v-model="selectedNewTeam" style="padding:6px 10px;background:#1a3550;color:#fff;border:1px solid rgba(255,255,255,0.3);border-radius:4px;min-width:90px;">
+      <!-- 第2行: 接班选择 + 确认按钮 -->
+      <div v-if="canTakeover" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:4px 0;">
+        <div style="display:flex;align-items:center;gap:6px;">
+          <label style="font-size:13px;color:rgba(255,255,255,0.8);">班组：</label>
+          <select v-model="selectedNewTeam" style="padding:4px 8px;background:#1a3550;color:#fff;border:1px solid rgba(255,255,255,0.3);border-radius:4px;min-width:80px;">
             <option v-for="t in teams" :key="'np-'+t" :value="t" style="background:#1a3550;color:#fff;">{{ t }}</option>
           </select>
         </div>
-        <div style="display:flex;align-items:center;gap:8px;">
-          <label style="font-size:14px;color:rgba(255,255,255,0.85);">接班人：</label>
-          <select v-model="selectedNewMember" style="padding:6px 10px;background:#1a3550;color:#fff;border:1px solid rgba(255,255,255,0.3);border-radius:4px;min-width:120px;">
+        <div style="display:flex;align-items:center;gap:6px;">
+          <label style="font-size:13px;color:rgba(255,255,255,0.8);">接班人：</label>
+          <select v-model="selectedNewMember" style="padding:4px 8px;background:#1a3550;color:#fff;border:1px solid rgba(255,255,255,0.3);border-radius:4px;min-width:120px;">
             <option value="" style="background:#1a3550;color:#fff;">请选择</option>
-            <option v-for="m in filteredNewMembers" :key="'nm-'+m.team_name+'-'+m.name" :value="m.name" style="background:#1a3550;color:#fff;">{{ m.name }}{{ m.team_name ? ' (' + m.team_name + ')' : '' }}</option>
+            <option v-for="m in filteredNewMembers" :key="'nm-'+m.team_name+'-'+m.name" :value="m.name" style="background:#1a3550;color:#fff;">{{ m.name }}{{ m.team_name ? ' · ' + m.team_name : '' }}</option>
           </select>
         </div>
-        <button style="padding:8px 18px;background:#2dd4bf;color:#0f2d4a;border:none;border-radius:4px;cursor:pointer;font-weight:600;margin-left:auto;" :disabled="!canTakeover || !selectedNewMember" :style="(!canTakeover || !selectedNewMember) ? 'padding:8px 18px;background:rgba(45,212,191,0.3);color:rgba(255,255,255,0.4);border:none;border-radius:4px;cursor:not-allowed;font-weight:600;margin-left:auto;' : 'padding:8px 18px;background:#2dd4bf;color:#0f2d4a;border:none;border-radius:4px;cursor:pointer;font-weight:600;margin-left:auto;'" @click="onTakeoverClick">✅ 确认接班 ({{ selectedNewMember || '未选择' }})</button>
+        <button @click="onTakeoverClick" :disabled="!canTakeover || !selectedNewMember" :style="(!canTakeover || !selectedNewMember) ? 'padding:6px 14px;background:rgba(45,212,191,0.25);color:rgba(255,255,255,0.4);border:none;border-radius:4px;cursor:not-allowed;font-weight:600;margin-left:auto;font-size:13px;' : 'padding:6px 14px;background:#2dd4bf;color:#0f2d4a;border:none;border-radius:4px;cursor:pointer;font-weight:600;margin-left:auto;font-size:13px;'">✅ 确认接班 ({{ selectedNewMember || '未选择' }})</button>
       </div>
     </div>
 
