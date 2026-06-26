@@ -124,6 +124,9 @@
       <span style="font-size:13px;color:#fa8c16;font-weight:600;white-space:nowrap;">待 {{ lastHandover.taking_over_role || lastHandover.taking_over_user || '某人' }} 接班</span>
       <span style="font-size:12px;color:rgba(255,255,255,0.7);white-space:nowrap;">{{ lastHandover.handing_over_member || lastHandover.handing_over_user }} 交班 · {{ lastHandover.shift_type }} {{ lastHandover.team }} · {{ formatTime(lastHandover.handover_time) }}</span>
       <span v-if="lastHandover.notes" style="font-size:12px;color:rgba(255,255,255,0.5);">📝 {{ lastHandover.notes }}</span>
+      <button @click="lastShiftExpanded = !lastShiftExpanded" style="padding:2px 8px;background:rgba(96,165,250,0.15);color:#60a5fa;border:1px solid rgba(96,165,250,0.3);border-radius:3px;cursor:pointer;font-size:11px;white-space:nowrap;">
+        上一班事务 {{ lastShiftTasks.total }}/{{ lastShiftTasks.total > 0 ? lastShiftTasks.done : 0 }} 巡检 · {{ lastShiftWorkorders.created.length }} 工单 {{ lastShiftExpanded ? '▲' : '▼' }}
+      </button>
       <template v-if="canTakeover">
         <div style="display:flex;align-items:center;gap:6px;">
           <label style="font-size:12px;color:rgba(255,255,255,0.8);">班组：</label>
@@ -140,6 +143,49 @@
         </div>
         <button @click="onTakeoverClick" :disabled="!canTakeover || !selectedNewMember" :style="(!canTakeover || !selectedNewMember) ? 'padding:4px 12px;background:rgba(45,212,191,0.25);color:rgba(255,255,255,0.4);border:none;border-radius:4px;cursor:not-allowed;font-weight:600;font-size:12px;' : 'padding:4px 12px;background:#2dd4bf;color:#0f2d4a;border:none;border-radius:4px;cursor:pointer;font-weight:600;font-size:12px;'">✅ 确认接班 ({{ selectedNewMember || '未选择' }})</button>
       </template>
+    </div>
+
+    <!-- 上一班事务详情 (可展开, 默认折叠) -->
+    <div v-if="handoverStatus === 'pending' && lastHandover && lastShiftExpanded" style="margin:0 32px 12px;background:rgba(15,45,74,0.6);border:1px solid rgba(96,165,250,0.2);border-radius:6px;padding:14px 18px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+        <div style="font-size:13px;font-weight:600;color:rgba(96,165,250,0.9);">📋 上一班事务详情 (从接班到交班)</div>
+        <button @click="lastShiftExpanded = false" style="padding:2px 8px;background:rgba(255,255,255,0.05);color:rgba(255,255,255,0.6);border:1px solid rgba(255,255,255,0.15);border-radius:3px;cursor:pointer;font-size:11px;">收起 ▲</button>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;">
+        <!-- 值班纪事 -->
+        <div>
+          <div style="font-size:12px;color:rgba(255,255,255,0.65);margin-bottom:6px;">📝 值班纪事</div>
+          <div style="background:rgba(0,0,0,0.25);border-radius:4px;padding:8px 10px;font-size:12px;color:rgba(255,255,255,0.85);min-height:50px;white-space:pre-wrap;max-height:200px;overflow-y:auto;">{{ lastDutyNotes?.notes || '未填' }}</div>
+        </div>
+        <!-- 巡检任务 -->
+        <div>
+          <div style="font-size:12px;color:rgba(255,255,255,0.65);margin-bottom:6px;display:flex;justify-content:space-between;">
+            <span>🔍 巡检任务</span>
+            <span :style="lastShiftTasks.done >= lastShiftTasks.total && lastShiftTasks.total > 0 ? 'color:#4ade80;' : 'color:#fa8c16;'">{{ lastShiftTasks.done }}/{{ lastShiftTasks.total }}<span v-if="lastShiftTasks.abnormal > 0" style="color:#e53935;"> · {{ lastShiftTasks.abnormal }}异常</span></span>
+          </div>
+          <div style="background:rgba(0,0,0,0.25);border-radius:4px;padding:8px 10px;font-size:12px;min-height:50px;max-height:200px;overflow-y:auto;">
+            <div v-if="lastShiftTasks.allList.length === 0" style="color:rgba(255,255,255,0.4);font-style:italic;">暂无</div>
+            <div v-for="(item, idx) in lastShiftTasks.allList" :key="idx" style="display:flex;align-items:center;gap:6px;padding:2px 0;">
+              <span>{{ item.has_abnormal ? '🚨' : (item.status === 'completed' || item.status === 'abnormal' ? '✅' : '⬜') }}</span>
+              <span :style="item.has_abnormal ? 'color:#e53935;' : ''">{{ item.device_name }}</span>
+            </div>
+          </div>
+        </div>
+        <!-- 工单情况 -->
+        <div>
+          <div style="font-size:12px;color:rgba(255,255,255,0.65);margin-bottom:6px;display:flex;justify-content:space-between;">
+            <span>📋 工单情况</span>
+            <span><span style="color:#60a5fa;">新{{ lastShiftWorkorders.created.length }}</span> <span style="color:rgba(255,255,255,0.4);">/</span> <span style="color:#4ade80;">完{{ lastShiftWorkorders.completed.length }}</span> <span style="color:rgba(255,255,255,0.4);">/</span> <span :style="lastShiftWorkorders.inProgress.length > 0 ? 'color:#fa8c16;' : 'color:rgba(255,255,255,0.4);'">进{{ lastShiftWorkorders.inProgress.length }}</span></span>
+          </div>
+          <div style="background:rgba(0,0,0,0.25);border-radius:4px;padding:8px 10px;font-size:12px;min-height:50px;max-height:200px;overflow-y:auto;">
+            <div v-if="lastShiftWorkorders.created.length === 0" style="color:rgba(255,255,255,0.4);font-style:italic;">暂无</div>
+            <div v-for="wo in [...lastShiftWorkorders.completed, ...lastShiftWorkorders.inProgress]" :key="wo.id" style="display:flex;align-items:center;gap:6px;padding:2px 0;">
+              <span>{{ statusIcon(wo.status) }}</span>
+              <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" :title="wo.content">{{ wo.content }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- 交班确认弹窗 -->
@@ -634,6 +680,7 @@ const lastTasksExpanded = ref(false)
 const lastWorkordersExpanded = ref(false)
 const currentTasksExpanded = ref(false)
 const currentWorkordersExpanded = ref(false)
+const lastShiftExpanded = ref(false)  // '待接班'提示框里的'上一班事务'展开控制
 
 // 接班人选 (不需账号, 只需选择谁在当前岗位上)
 const newShiftMembers = ref<Array<{ name: string; leader_name?: string; team_name?: string }>>([])
