@@ -385,6 +385,58 @@ router.get('/status', async (req, res) => {
       }
     }
 
+    // 计算上一班次时间窗口 + 查上一班事务详情 (供'待接班'提示使用)
+    // 这一块也移出 if (currentShift) 块, 交班后 currentShift=null 也能拿到数据
+    if (lastHandover) {
+      // 上一班次的值班纪事 (按 lastHandover.handover_time 的日期查)
+      const prevDate = fmtDate(new Date(typeof lastHandover.handover_time === 'string' ? lastHandover.handover_time + '+08:00' : lastHandover.handover_time))
+      const [notes] = await pool.query(
+        `SELECT notes, member_name FROM duty_notes WHERE team = ? AND role = ? AND date = ? AND shift_type = ?`,
+        [lastHandover.team, lastHandover.handing_over_role, prevDate, lastHandover.shift_type]
+      )
+      if (notes[0] && notes[0].notes && notes[0].notes.trim()) lastDutyNotes = notes[0]
+
+      // 上一班次时间窗口: 从交班人班次 shift_start 到 lastHandover.handover_time
+      const winEnd = new Date(typeof lastHandover.handover_time === 'string' ? lastHandover.handover_time + '+08:00' : lastHandover.handover_time)
+      let winStart
+      const prevMemberName = lastHandover.handing_over_member || lastHandover.handing_over_user
+      if (prevMemberName) {
+        const [prevShiftRows] = await pool.query(
+          `SELECT shift_start FROM handover_shifts WHERE member_name = ? AND shift_end = ? LIMIT 1`,
+          [prevMemberName, fmtDateTime(winEnd)]
+        )
+        if (prevShiftRows[0]?.shift_start) {
+          winStart = new Date(prevShiftRows[0].shift_start)
+        } else {
+          winStart = new Date(0)
+        }
+      } else {
+        winStart = new Date(winEnd.getTime() - 12 * 3600000)
+      }
+
+      // 上一班次的巡检任务 (用 handing_over_role 查, 不依赖 currentShift)
+      const prevRole = lastHandover.handing_over_role
+      const [shiftTasks] = await pool.query(
+        `SELECT r.*, i.device_name, p.name as plan_name, p.location as plan_location
+         FROM inspection_task_records r
+         LEFT JOIN inspection_items i ON r.device_id = i.device_id AND r.plan_id = i.plan_id
+         LEFT JOIN inspection_plans p ON r.plan_id = p.id
+         WHERE r.executor_name = ? AND r.created_at >= ? AND r.created_at <= ?`,
+        [prevRole, fmtDateTime(winStart), fmtDateTime(winEnd)]
+      )
+      lastShiftTasks.total = shiftTasks.length
+      lastShiftTasks.done = shiftTasks.filter((t) => t.status === 'completed' || t.status === 'abnormal').length
+      lastShiftTasks.abnormal = shiftTasks.filter((t) => t.has_abnormal === 1).length
+      lastShiftTasks.abnormalList = shiftTasks.filter((t) => t.has_abnormal === 1)
+      lastShiftTasks.allList = shiftTasks
+
+      // 上一班次工单
+      const prevWo = await fetchShiftWorkorders(winStart, winEnd, lastHandover.team, prevDate)
+      lastShiftWorkorders.created = prevWo.created
+      lastShiftWorkorders.completed = prevWo.completed
+      lastShiftWorkorders.inProgress = prevWo.inProgress
+    }
+
     if (currentShift) {
       // 查找"上一班交接":当前班次的接班交接(taking_over_user_id = current_user.id)
       // 这条记录是上一班交班给本人时创建的,handing_over_member 就是上一班的人
@@ -437,29 +489,7 @@ router.get('/status', async (req, res) => {
         if (notes[0] && notes[0].notes && notes[0].notes.trim()) lastDutyNotes = notes[0]
       }
 
-      // 上一班次的巡检任务: 按上一班次时间窗口 + 当前班账号 查
-      const [shiftTasks] = await pool.query(
-        `SELECT r.*, i.device_name, p.name as plan_name, p.location as plan_location
-         FROM inspection_task_records r
-         LEFT JOIN inspection_items i ON r.device_id = i.device_id AND r.plan_id = i.plan_id
-         LEFT JOIN inspection_plans p ON r.plan_id = p.id
-         WHERE r.executor_name = ? AND r.created_at >= ? AND r.created_at <= ?`,
-        [currentShift.user_name, fmtDateTime(winStart), fmtDateTime(winEnd)]
-      )
-      console.log('[DEBUG /status lastShiftTasks] prevDate:', prevDate, 'executor_name:', currentShift.user_name, 'count:', shiftTasks.length)
-      lastShiftTasks.total = shiftTasks.length
-      lastShiftTasks.done = shiftTasks.filter((t) => t.status === 'completed' || t.status === 'abnormal').length
-      lastShiftTasks.abnormal = shiftTasks.filter((t) => t.has_abnormal === 1).length
-      lastShiftTasks.abnormalList = shiftTasks.filter((t) => t.has_abnormal === 1)
-      lastShiftTasks.allList = shiftTasks // 完整列表(包括已完成、异常、待执行)
-
-      // 上一班次的工单情况（用 prevDate，不用 today；时间窗口用 created_at）
-      // 按 team + 上一班次时间窗口查(与上一班巡检一致)
-      const prevTeam = lastHandover?.team || currentShift.team
-      const prevWo = await fetchShiftWorkorders(winStart, winEnd, prevTeam, prevDate)
-      lastShiftWorkorders.created = prevWo.created
-      lastShiftWorkorders.completed = prevWo.completed
-      lastShiftWorkorders.inProgress = prevWo.inProgress
+      // 上一班次的巡检任务/工单 已在 if (lastHandover) 块计算 (供'待接班'使用), 这里跳过
 
       // 当前班次巡检 + 工单 (接班以来到现在)
       const curWinStart = lastHandover ? new Date(lastHandover.handover_time) : new Date(currentShift.shift_start)
