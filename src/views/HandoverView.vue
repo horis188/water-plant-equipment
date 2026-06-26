@@ -155,7 +155,7 @@
           <div style="display:flex;flex-direction:column;gap:8px;font-size:14px;">
             <div>• 值班纪事：<span :style="notesReady ? 'color:#4ade80;' : 'color:#fa8c16;'">{{ notesReady ? '✓ 已填 ' + handoverNoteLines.filter((l: string) => l.trim()).length + ' 条' : '⚠ 未填' }}</span></div>
             <div>• 巡检任务：<span :style="tasksReady ? 'color:#4ade80;' : 'color:#fa8c16;'">{{ currentShiftTasks.done }} / {{ currentShiftTasks.total }} 完成{{ currentShiftTasks.abnormal > 0 ? ' (含 ' + currentShiftTasks.abnormal + ' 异常)' : '' }}</span></div>
-            <div>• 工单情况：<span :style="workordersReady ? 'color:#4ade80;' : 'color:#fa8c16;'">完成 {{ currentShiftWorkorders.completed.length }} /  进行中 {{ currentShiftWorkorders.inProgress.length }}{{ (currentShiftWorkorders.inherited || []).length > 0 ? ' (含 ' + currentShiftWorkorders.inherited.length + ' 继承)' : '' }}</span></div>
+            <div>• 工单情况：<span :style="workordersReady ? 'color:#4ade80;' : 'color:#fa8c16;'">完成 {{ currentShiftWorkorders.completed.length }} /  进行中 {{ currentShiftWorkorders.inProgress.length + (currentShiftWorkorders.inherited || []).length }}{{ (currentShiftWorkorders.inherited || []).length > 0 ? ' (含 ' + currentShiftWorkorders.inherited.length + ' 继承)' : '' }}</span></div>
           </div>
         </div>
         <div v-if="!allReady" style="background:rgba(250,140,22,0.15);border:1px solid rgba(250,140,22,0.4);border-radius:6px;padding:10px 14px;margin-bottom:16px;font-size:13px;color:#fa8c16;">
