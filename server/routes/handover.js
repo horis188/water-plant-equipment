@@ -349,13 +349,17 @@ router.get('/status', async (req, res) => {
     }
 
     // 查询当前班次今天已保存的纪事(用于填充当前班次纪事编辑器, 而不是上一班的)
+    // 兼容 BJT/UTC 跨日: 查 BJT today + UTC today 两条(避免前端 UTC 写入带来的数据丢失)
     let currentDutyNotes = null
     if (currentShift) {
-      const todayDate = fmtDate(new Date())
+      const bjtToday = fmtDate(new Date())
+      const utcToday = new Date().toISOString().slice(0, 10)
+      const dates = Array.from(new Set([bjtToday, utcToday]))
       const [cdn] = await pool.query(
         `SELECT notes, member_name, team, role, shift_type, date, updated_at FROM duty_notes
-         WHERE team = ? AND role = ? AND shift_type = ? AND date = ? LIMIT 1`,
-        [currentShift.team, currentShift.role, currentShift.shift_type, todayDate]
+         WHERE team = ? AND role = ? AND shift_type = ? AND date IN (?, ?)
+         ORDER BY updated_at DESC LIMIT 1`,
+        [currentShift.team, currentShift.role, currentShift.shift_type, ...dates]
       )
       if (cdn[0] && cdn[0].notes && cdn[0].notes.trim()) currentDutyNotes = cdn[0]
     }

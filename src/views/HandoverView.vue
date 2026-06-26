@@ -1038,7 +1038,7 @@ async function saveNotes() {
         role: currentShift.value.role,
         shift_type: currentShift.value.shift_type,
         member_name: currentShift.value.member_name,
-        date: new Date().toISOString().slice(0, 10),
+        date: new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10),  // BJT 日期 (避免 UTC 偏差)
         notes: buildNotesFromLines()
       })
     })
