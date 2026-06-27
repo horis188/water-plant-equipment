@@ -163,11 +163,11 @@
             <span>🔍 巡检任务</span>
             <span :style="lastShiftTasks.done >= lastShiftTasks.total && lastShiftTasks.total > 0 ? 'color:#4ade80;' : 'color:#fa8c16;'">{{ lastShiftTasks.done }}/{{ lastShiftTasks.total }}<span v-if="lastShiftTasks.abnormal > 0" style="color:#e53935;"> · {{ lastShiftTasks.abnormal }}异常</span></span>
           </div>
-          <div style="background:rgba(0,0,0,0.25);border-radius:4px;padding:8px 10px;font-size:12px;min-height:50px;max-height:200px;overflow-y:auto;">
+          <div style="background:rgba(0,0,0,0.25);border-radius:4px;padding:8px 10px;font-size:12px;color:rgba(255,255,255,0.85);min-height:50px;max-height:200px;overflow-y:auto;">
             <div v-if="lastShiftTasks.allList.length === 0" style="color:rgba(255,255,255,0.4);font-style:italic;">暂无</div>
             <div v-for="(item, idx) in lastShiftTasks.allList" :key="idx" style="display:flex;align-items:center;gap:6px;padding:2px 0;">
               <span>{{ item.has_abnormal ? '🚨' : (item.status === 'completed' || item.status === 'abnormal' ? '✅' : '⬜') }}</span>
-              <span :style="item.has_abnormal ? 'color:#e53935;' : ''">{{ item.device_name }}</span>
+              <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" :style="item.has_abnormal ? 'color:#e53935;' : ''" :title="item.device_name">{{ item.device_name }}</span>
             </div>
           </div>
         </div>
@@ -175,10 +175,14 @@
         <div>
           <div style="font-size:12px;color:rgba(255,255,255,0.65);margin-bottom:6px;display:flex;justify-content:space-between;">
             <span>📋 工单情况</span>
-            <span><span style="color:#60a5fa;">新{{ lastShiftWorkorders.created.length }}</span> <span style="color:rgba(255,255,255,0.4);">/</span> <span style="color:#4ade80;">完{{ lastShiftWorkorders.completed.length }}</span> <span style="color:rgba(255,255,255,0.4);">/</span> <span :style="lastShiftWorkorders.inProgress.length > 0 ? 'color:#fa8c16;' : 'color:rgba(255,255,255,0.4);'">进{{ lastShiftWorkorders.inProgress.length }}</span></span>
+            <span><span style="color:#60a5fa;">新{{ lastShiftWorkorders.created.length }}</span> <span style="color:rgba(255,255,255,0.4);">/</span> <span style="color:#4ade80;">完{{ lastShiftWorkorders.completed.length }}</span> <span style="color:rgba(255,255,255,0.4);">/</span> <span :style="lastShiftWorkorders.inProgress.length > 0 ? 'color:#fa8c16;' : 'color:rgba(255,255,255,0.4);'">进{{ lastShiftWorkorders.inProgress.length }}</span><span v-if="(lastShiftWorkorders.inherited||[]).length > 0" style="color:#60a5fa;"> / 继{{ lastShiftWorkorders.inherited.length }}</span></span>
           </div>
-          <div style="background:rgba(0,0,0,0.25);border-radius:4px;padding:8px 10px;font-size:12px;min-height:50px;max-height:200px;overflow-y:auto;">
-            <div v-if="lastShiftWorkorders.created.length === 0" style="color:rgba(255,255,255,0.4);font-style:italic;">暂无</div>
+          <div style="background:rgba(0,0,0,0.25);border-radius:4px;padding:8px 10px;font-size:12px;color:rgba(255,255,255,0.85);min-height:50px;max-height:200px;overflow-y:auto;">
+            <div v-if="lastShiftWorkorders.created.length === 0 && lastShiftWorkorders.inherited.length === 0" style="color:rgba(255,255,255,0.4);font-style:italic;">暂无</div>
+            <div v-for="wo in lastShiftWorkorders.inherited" :key="'last-i-'+wo.id" style="display:flex;align-items:center;gap:6px;padding:2px 0;color:#60a5fa;">
+              <span>🔁</span>
+              <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" :title="wo.content">[继承] {{ wo.content }}</span>
+            </div>
             <div v-for="wo in [...lastShiftWorkorders.completed, ...lastShiftWorkorders.inProgress]" :key="wo.id" style="display:flex;align-items:center;gap:6px;padding:2px 0;">
               <span>{{ statusIcon(wo.status) }}</span>
               <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" :title="wo.content">{{ wo.content }}</span>
@@ -672,7 +676,7 @@ function parseNotesToLines(notes: string): void {
 }
 const lastHandover = ref<any>(null)
 const lastShiftTasks = ref<{ total: number; done: number; abnormal: number; abnormalList: any[]; allList: any[] }>({ total: 0, done: 0, abnormal: 0, abnormalList: [], allList: [] })
-const lastShiftWorkorders = ref<{ created: any[]; completed: any[]; inProgress: any[] }>({ created: [], completed: [], inProgress: [] })
+const lastShiftWorkorders = ref<{ created: any[]; completed: any[]; inProgress: any[]; inherited: any[] }>({ created: [], completed: [], inProgress: [], inherited: [] })
 const currentShiftTasks = ref<{ total: number; done: number; abnormal: number; abnormalList: any[]; allList: any[] }>({ total: 0, done: 0, abnormal: 0, abnormalList: [], allList: [] })
 const currentShiftWorkorders = ref<{ created: any[]; completed: any[]; inProgress: any[]; inherited: any[] }>({ created: [], completed: [], inProgress: [], inherited: [] })
 const lastDutyNotes = ref<any>(null)

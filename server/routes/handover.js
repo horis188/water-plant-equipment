@@ -389,10 +389,13 @@ router.get('/status', async (req, res) => {
       }
     }
 
-    // 计算上一班次时间窗口 + 查上一班事务详情 (供'待接班'提示使用)
-    // 这一块也移出 if (currentShift) 块, 交班后 currentShift=null 也能拿到数据
+    // 上一班事务 (供'待接班'提示使用):
+    // - pending 场景: lastHandover 是 pending 交班记录, 接班人即将接班的那个班次 = 上一班
+    //   时间窗口从 handover_shifts 取 (shift_end = handover_time 那个班次的 shift_start ~ handover_time)
+    // - 不依赖 lastHandover.handing_over_member (数据库里经常为 null), 用 handover_shifts.member_name
+    // - 同样适用于 currentShift=null 的 idle 状态 (lastHandover 可能是 pending)
     if (lastHandover) {
-      // 上一班次的值班纪事 (按 lastHandover.handover_time 的日期查)
+      // 上一班次的值班纪事 (按 lastHandover.handover_time 的 BJT 日期 + team/role/shift_type 查)
       const prevDate = fmtDate(new Date(typeof lastHandover.handover_time === 'string' ? lastHandover.handover_time + '+08:00' : lastHandover.handover_time))
       const [notes] = await pool.query(
         `SELECT notes, member_name FROM duty_notes WHERE team = ? AND role = ? AND date = ? AND shift_type = ?`,
@@ -400,25 +403,26 @@ router.get('/status', async (req, res) => {
       )
       if (notes[0] && notes[0].notes && notes[0].notes.trim()) lastDutyNotes = notes[0]
 
-      // 上一班次时间窗口: 从交班人班次 shift_start 到 lastHandover.handover_time
+      // 上一班次时间窗口 + 实际成员: 从 handover_shifts 查 (按 team+shift_type+shift_end=handover_time)
       const winEnd = new Date(typeof lastHandover.handover_time === 'string' ? lastHandover.handover_time + '+08:00' : lastHandover.handover_time)
       let winStart
-      const prevMemberName = lastHandover.handing_over_member || lastHandover.handing_over_user
-      if (prevMemberName) {
-        const [prevShiftRows] = await pool.query(
-          `SELECT shift_start FROM handover_shifts WHERE member_name = ? AND shift_end = ? LIMIT 1`,
-          [prevMemberName, fmtDateTime(winEnd)]
-        )
-        if (prevShiftRows[0]?.shift_start) {
-          winStart = new Date(prevShiftRows[0].shift_start)
-        } else {
-          winStart = new Date(0)
-        }
+      let prevMemberName = null
+      const [prevShiftRows] = await pool.query(
+        `SELECT member_name, shift_start, inherited_workorders FROM handover_shifts
+         WHERE team = ? AND shift_type = ? AND shift_end = ? LIMIT 1`,
+        [lastHandover.team, lastHandover.shift_type, fmtDateTime(winEnd)]
+      )
+      if (prevShiftRows[0]?.shift_start) {
+        winStart = new Date(prevShiftRows[0].shift_start)
+        prevMemberName = prevShiftRows[0].member_name
       } else {
+        // 兑底: 从 lastHandover 取 (旧数据/测试数据兼容)
+        prevMemberName = lastHandover.handing_over_member || lastHandover.handing_over_user
         winStart = new Date(winEnd.getTime() - 12 * 3600000)
       }
 
-      // 上一班次的巡检任务 (用 handing_over_role 查, 不依赖 currentShift)
+      // 上一班次的巡检任务 (用 role 查: inspection_task_records.executor_name 实际存的是 role 字符串,
+      // 比如"一期制水", 不是 member_name; 时间窗口来自 handover_shifts 准确定位上一班)
       const prevRole = lastHandover.handing_over_role
       const [shiftTasks] = await pool.query(
         `SELECT r.*, i.device_name, p.name as plan_name, p.location as plan_location
@@ -434,11 +438,28 @@ router.get('/status', async (req, res) => {
       lastShiftTasks.abnormalList = shiftTasks.filter((t) => t.has_abnormal === 1)
       lastShiftTasks.allList = shiftTasks
 
-      // 上一班次工单
-      const prevWo = await fetchShiftWorkorders(winStart, winEnd, lastHandover.team, prevDate)
+      // 上一班次工单 (按交接班班次, team=lastHandover.team, prevMemberName=实际成员)
+      const prevWo = await fetchShiftWorkorders(winStart, winEnd, lastHandover.team, prevDate, prevMemberName)
       lastShiftWorkorders.created = prevWo.created
       lastShiftWorkorders.completed = prevWo.completed
       lastShiftWorkorders.inProgress = prevWo.inProgress
+
+      // 上一班次继承工单 (从 handover_shifts.inherited_workorders JSON 字段取, 是上一班从再上一班继承的未完工单)
+      lastShiftWorkorders.inherited = []
+      if (prevShiftRows[0] && prevShiftRows[0].inherited_workorders) {
+        let inheritedRaw = prevShiftRows[0].inherited_workorders
+        if (typeof inheritedRaw === 'string') {
+          try { inheritedRaw = JSON.parse(inheritedRaw) } catch { inheritedRaw = [] }
+        }
+        const inheritedWos = Array.isArray(inheritedRaw) ? inheritedRaw : []
+        if (inheritedWos.length > 0) {
+          lastShiftWorkorders.inherited = inheritedWos.map((w) => ({
+            ...w,
+            type: w.wo_type === 'problem' ? '问题工单' : '维修工单',
+            _from_inheritance: true
+          }))
+        }
+      }
     }
 
     if (currentShift) {
